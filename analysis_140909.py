@@ -55,6 +55,9 @@ redArray, redSuccess     = getFluorescence(options.background)
 myfilter = options.filter
 
 myfilters = ['rigid:', 'rigidLoop:', 'wc:', 'notRigid:']
+labels = ['0nM', '4nM', '20nM', '100nM', '500nM', '2uM']
+numConcentrations = len(labels)
+
 for myfilter in myfilters:
     criteria = np.all((np.all(greenSuccess, 1),
                        np.all(redSuccess, 1),
@@ -62,19 +65,32 @@ for myfilter in myfilters:
                        axis = 0)
     
     # plot all cluster histograms
-    
-    labels = ['0nM', '4nM', '20nM', '100nM', '500nM', '2uM']
-    numConcentrations = len(labels)
     plotfun.plotClustersNew(redArray, greenArray, criteria, labels)
     plt.savefig('%s.all_images_histogram.pdf'%myfilter.strip(':'))
     
+# find fmax
+criteria = np.zeros(redArray.shape, dtype=bool)
+
+np.any((cpseq.getIndx('rigid:'),
+        cpseq.getIndx('wc:'),
+        cpseq.getIndx('notRigid:')),
+        axis=0)
+    
+for myfilter in myfilters:
+    criteria = np.all((np.all(greenSuccess, 1),
+                       np.all(redSuccess, 1),
+                       cpseq.getIndx(myfilter)),
+                       axis = 0)
+    
     # plot binding curve
     concentrations = np.array([0, 4, 20, 100, 500, 2000])
+    
     yvalues = np.array([])
     xvalues = np.array([])
     for i in range(numConcentrations):
         yvalues = np.hstack((yvalues, np.divide(greenArray[criteria, i], redArray[criteria, i])))
         xvalues = np.hstack((xvalues, [concentrations[i]]*np.sum(criteria)))
     
-    plotfun.plotBindingCurve(xvalues, yvalues, concentrations)
-    plt.savefig('%s.binding_curve.pdf'%myfilter.strip(':'))
+    fmax = np.median(yvalues[xvalues==concentrations[-1]])
+    plotfun.plotBindingCurve(xvalues, yvalues/fmax, concentrations)
+    plt.savefig('%s.binding_curve.fmax_ismax.pdf'%myfilter.strip(':'))
