@@ -17,7 +17,7 @@ from scipy.ndimage import gaussian_filter
 from scipy.cluster.hierarchy import *
 from scipy.optimize import curve_fit
 
-def fitFunc(xdata, kd, fmax):
+def fitFunc(xdata, fmax, kd):
     return xdata*fmax/(kd + xdata)
 
 def plotClusters(redArray, greenArray, criteria, label):
@@ -76,8 +76,8 @@ def plotBindingCurve(xvalues, yvalues, concentrations):
     
     indx = yvalues < np.percentile(yvalues, 99)
     popt, pcov = curve_fit(fitFunc, xvalues[indx], yvalues[indx])
-    kd = popt[0]
-    fmax = popt[1]
+    kd = popt[1]
+    fmax = popt[0]
     
     xdata = np.logspace(np.log10(minx), np.log10(np.max(xvalues)), 100)
     ax.plot(xdata, fitFunc(xdata, popt[0], popt[1]), 'k', label='Kd=%4.1f, fmax=%4.2f'%(kd, fmax))
@@ -90,7 +90,7 @@ def plotBindingCurve(xvalues, yvalues, concentrations):
     handles,labels = ax.get_legend_handles_labels()
     ax.legend(handles, labels, loc='upper left')
     
-    return popt[0], popt[1]
+    return kd, fmax
 
 def plotClustersNew(redArray, greenArray, criteria, labels):
     """
