@@ -70,12 +70,17 @@ for myfilter in myfilters:
     
 # find fmax
 criteria = np.zeros(redArray.shape, dtype=bool)
+filterIndx = np.any((cpseq.getIndx('rigid:'),
+                    cpseq.getIndx('wc:'),
+                    cpseq.getIndx('notRigid:')),
+                    axis=0)
+criteria[:, -1] = np.all((np.all(greenSuccess, 1),
+                    np.all(redSuccess, 1),
+                    filterIndx),
+                    axis=0)
+fmax = plotfun.findFmax(redArray, greenArray, criteria)
 
-np.any((cpseq.getIndx('rigid:'),
-        cpseq.getIndx('wc:'),
-        cpseq.getIndx('notRigid:')),
-        axis=0)
-    
+# plot binding curves
 for myfilter in myfilters:
     criteria = np.all((np.all(greenSuccess, 1),
                        np.all(redSuccess, 1),
@@ -91,6 +96,6 @@ for myfilter in myfilters:
         yvalues = np.hstack((yvalues, np.divide(greenArray[criteria, i], redArray[criteria, i])))
         xvalues = np.hstack((xvalues, [concentrations[i]]*np.sum(criteria)))
     
-    fmax = np.median(yvalues[xvalues==concentrations[-1]])
+    #fmax = np.median(yvalues[xvalues==concentrations[-1]])
     plotfun.plotBindingCurve(xvalues, yvalues/fmax, concentrations)
-    plt.savefig('%s.binding_curve.fmax_ismax.pdf'%myfilter.strip(':'))
+    plt.savefig('%s.binding_curve.fmax_isconstant.pdf'%myfilter.strip(':'))

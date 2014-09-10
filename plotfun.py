@@ -75,9 +75,13 @@ def plotBindingCurve(xvalues, yvalues, concentrations):
     
     fig = plt.figure()
     ax = fig.add_subplot(111)
+    
+    # plot all dots
     ax.scatter(xnew, yvalues, alpha=0.05, linewidth=0)
     ax.set_xscale('log')
-    ax.plot(concentrations, np.array([np.median(yvalues[xvalues==concentration]) for concentration in concentrations]), 'o')
+    
+    # plot median concentrations
+    ax.plot(concentrations, np.array([np.median(yvalues[xvalues==concentration]) for concentration in concentrations]), 'o-')
     ax.set_ylim((0, np.percentile(yvalues, 99)))
     
     indx = yvalues < np.percentile(yvalues, 99)
@@ -86,7 +90,7 @@ def plotBindingCurve(xvalues, yvalues, concentrations):
     perr = np.sqrt(np.diag(pcov))*1.96
     
     xdata = np.logspace(np.log10(minx), np.log10(np.max(xvalues)), 100)
-    ax.plot(xdata, fitFunc(xdata, kd), 'k', label='Kd=%4.1f (%4.1f, %4.1f)'%(kd, kd-perr[0], kd+perr[0]))
+    ax.plot(xdata, fitFunc(xdata, kd), 'k', label='Kd=%4.1f (%4.1f, %4.1f)'%(kd, kd-perr[0], kd+perr[0]), linewidth=2)
     ax.set_xlim((minx*0.9, np.max(xvalues)*1.1))
     ax.set_xticks(concentrations+minx)
     ax.set_xticklabels(concentrations)
