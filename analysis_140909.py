@@ -99,3 +99,13 @@ for myfilter in myfilters:
     #fmax = np.median(yvalues[xvalues==concentrations[-1]])
     plotfun.plotBindingCurve(xvalues, yvalues/fmax, concentrations)
     plt.savefig('%s.binding_curve.fmax_isconstant.pdf'%myfilter.strip(':'))
+    
+# offrates are slightly different
+mydata = filefun.loadKdFits(filename)
+bindingSeries = np.divide(filefun.findBindingSeriesAsArray(mydata['bindingSeries']), np.vstack(mydata['allClusterSignal']))
+for myfilter in myfilters:
+    criteria = np.all((np.logical_not(np.any(np.isnan(bindingSeries), axis=1)),
+                        cpseq.getIndx(myfilter)),
+                        axis = 0)
+    plotfun.plotOffrates(bindingSeries, xvalues, criteria, mydata['amplitude'], mydata['lifetime'])
+    

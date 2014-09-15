@@ -21,6 +21,9 @@ import functools
 def fitFunc(xdata, kd):
     return xdata/(kd + xdata)
 
+def expFunc(xdata, kd):
+    return xdata/(kd + xdata)
+
 def plotClusters(redArray, greenArray, criteria, label):
     """
     
@@ -68,7 +71,8 @@ def findFmax(redArray, greenArray, criteria):
 
 def plotBindingCurve(xvalues, yvalues, concentrations):
     """
-    
+    takes a vector of all xvalues and yvalues, and plots a scatterplot.
+    Finds the kd of the median by fitting to a one parameter fit.
     """
     minx = 0.1
     xnew = xvalues + minx
@@ -163,5 +167,34 @@ def plotClustersNew(redArray, greenArray, criteria, labels):
     ax2.set_xticklabels([0, 200, 400, 600, 800])
     ax3.set_xticklabels([0, 200, 400, 600, 800])
     plt.tight_layout()
+    
+    return
+
+def plotOffrates(bindingSeries, xvalues, criteria, amplitudes, lifetimes):
+    """
+    take in binding series, xvalues, and indexes of which rows to plot. Plot all clusters.
+    Also take in the parameters for amplitude, lifetime, and a function to plot.
+    """
+    numClusters = np.sum(criteria)
+    yvalues = np.ravel(bindingSeries[criteria])
+    
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+    ax.scatter(np.tile(xvalues, numClusters), yvalues, alpha=0.01, linewidth=0)
+    
+    ax.plot(xvalues, np.median(bindingSeries[criteria], axis=0), 's-', markersize=10, linewidth=2)
+    
+    
+    xdata = np.linspace(min(xvalues), max(xvalues), 100)
+    a = np.median(amplitudes[criteria])
+    t = np.median(lifetimes[criteria])
+    ax.plot(xdata, a*np.exp(-xdata/t), 'k', linewidth=2, label='amplitude=%4.2f, lifetime=%4.2f'%(a,t))
+    
+    ax.set_ylim((0, np.percentile(bindingSeries[criteria],99.5)))
+    ax.set_xlim((min(xvalues)-1, max(xvalues)+1))
+    ax.set_xlabel('time (min)')
+    ax.set_ylabel('normalized fluorescence')
+    handles,labels = ax.get_legend_handles_labels()
+    ax.legend(handles, labels, loc='upper right')
     
     return
