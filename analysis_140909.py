@@ -13,8 +13,14 @@ import numpy as np
 import matplotlib.pyplot as plt
 import subprocess
 from optparse import OptionParser
+
+sys.path.append('~/array_image_tools/')
 import filefun
 import plotfun
+import globalvars
+
+# get fit paramters
+fitParameters = globalvars.fitParameters()
 
 # Get command-line options
 opts = OptionParser()
@@ -103,9 +109,11 @@ for myfilter in myfilters:
 # offrates are slightly different
 mydata = filefun.loadKdFits(filename)
 bindingSeries = np.divide(filefun.findBindingSeriesAsArray(mydata['bindingSeries']), np.vstack(mydata['allClusterSignal']))
+xvalues = fitParameters.timestamps
 for myfilter in myfilters:
     criteria = np.all((np.logical_not(np.any(np.isnan(bindingSeries), axis=1)),
                         cpseq.getIndx(myfilter)),
                         axis = 0)
     plotfun.plotOffrates(bindingSeries, xvalues, criteria, mydata['amplitude'], mydata['lifetime'])
+    plt.savefig('%s.offrate_curve.pdf'%myfilter.strip(':'))
     
