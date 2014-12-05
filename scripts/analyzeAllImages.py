@@ -52,7 +52,7 @@ parser.add_argument('-fs','--filter_set', help='name of filter to fit binding cu
 parser.add_argument('-lc','--library_characterization', help='file with the characterization data of the deisgned library', required=True)
 parser.add_argument('-bd','--barcode_dir', help='save files associated with barcode mapping here. default=signal_dir_reduced/barcode_mapping')
 parser.add_argument('-n','--num_cores', help='maximum number of cores to use')
-parser.add_argument('-gv','--fitting_parameters_path', help='path to the directory in which the "globalvars.py" parameter file for the run can be found')
+parser.add_argument('-gv','--fitting_parameters_path', help='path to the directory in which the "fittingParameters.py" parameter file for the run can be found')
 
 if not len(sys.argv) > 1:
     parser.print_help()
@@ -83,7 +83,7 @@ tileList = filteredCPseqFilenameDict.keys()
 
 # import directory names to analyze
 print 'Finding CPfluor files in directories given in "%s"...'%args.CPfluor_dirs_to_quantify
-xValuesFilename, fluor_dirs_red, fluor_dirs, concentrations = IMlibs.loadMapFile(args.CPfluor_dirs_to_quantify)
+fluor_dirs_red, fluor_dirs, concentrations = IMlibs.loadMapFile(args.CPfluor_dirs_to_quantify)
 fluorNamesByTileDict = IMlibs.getFluorFileNames(fluor_dirs, tileList)
 fluorNamesByTileRedDict = IMlibs.getFluorFileNames(fluor_dirs_red, tileList)
 
