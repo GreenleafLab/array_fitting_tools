@@ -49,7 +49,7 @@ parser.add_argument('-fd','--CPfluor_dirs_to_quantify', help='text file giving t
 parser.add_argument('-os','--signal_dir', help='save signal files to here. default = filtered_tile_dir/signals')
 parser.add_argument('-osr','--signal_dir_reduced', default=None,help='save signal files reduced by filter set to here. default = signal_dir/reduced_signals')
 parser.add_argument('-fs','--filter_set', help='name of filter to fit binding curve', required=True)
-parser.add_argument('-lc','--library_characterization', help='file with the characterization data of the deisgned library', required=True)
+parser.add_argument('-lc','--library_characterization', help='file with the characterization data of the deisgned library')
 parser.add_argument('-bd','--barcode_dir', help='save files associated with barcode mapping here. default=signal_dir_reduced/barcode_mapping')
 parser.add_argument('-n','--num_cores', help='maximum number of cores to use')
 parser.add_argument('-gv','--fitting_parameters_path', help='path to the directory in which the "fittingParameters.py" parameter file for the run can be found')
