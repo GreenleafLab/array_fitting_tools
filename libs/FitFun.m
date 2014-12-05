@@ -5,12 +5,12 @@ classdef FitFun
          
          % function to minimize to find kd. Least squares fit.
          function mse = findKd(params, concentrations, fraction_bound)
-             mse = sum((fraction_bound - concentrations*params(1)./(params(2)+concentrations)).^2);
+             mse = sum((fraction_bound - FitFun.findBindingCurve(concentrations, params(1), params(2), params(3))).^2);
          end
          
          % function to plot binding curve
-         function fracbound = findBindingCurve(concentration, fmax, kd)
-            fracbound = fmax*concentration./(concentration+kd);
+         function fracbound = findBindingCurve(concentration, fmax, kd, fmin)
+            fracbound = fmax*concentration./(concentration+kd)+fmin;
          end
          
          % function to find offrate

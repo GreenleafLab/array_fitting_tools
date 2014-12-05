@@ -1,38 +1,30 @@
-"""
-Class to store parameters in common across analyses
-"""
+#!/usr/bin/env python
 
-# import necessary for python
+# Author: Sarah Denny, Stanford University 
+
+# Parameters to analyze the images from RNA array experiment 11/11/14
+
+
+##### IMPORT #####
 import numpy as np
-import os
 
-
-class fitParameters():
+class Parameters():
+    
     """
-    Class to store parameters in common across fitting analyses
+    stores file names
     """
     def __init__(self):
         
-        self.maxAnyFitParameter = 1E10  # if fit parameters is above this number, set it to inf
-        self.maxLifetime = 10*1440  # ten days, in minutes
-        self.minAmplitude = 0
-        self.minLifetime = 0
-        self.timestamps = np.array([0.0, 0.559366666667, 1.11926666667, 1.69191666667,
-                                    2.25051666667, 3.18255, 3.74843333333, 4.30493333333,
-                                    4.8513, 5.41561666667, 6.41718333333, 6.9815, 7.54583333333,
-                                    8.1151, 8.66561666667, 10.8906166667, 11.4536333333,
-                                    12.0104166667, 12.56275, 13.1432166667])
+        # save the units of concentration given in the binding series
+        self.concentration_units = 'nM'
         
-    def maxAmplitude(self, expectedMaxAmplitudes):
-        """
-        use this function to ask what the max amplitude should be during the off-Rate fit.
-        'expectedMaxAmplitudes' can be the vector of the quantified clusters of first image in the off-rate series.
-        """
-        criteria = np.all((np.logical_not(np.isnan(expectedMaxAmplitudes)),
-                       np.isfinite(expectedMaxAmplitudes)), axis=0)
+        # initial binding curve settings
+        self.parameter_names = ['f_max', 'kd']
+        self.fmax_min = 0.4
+        self.fmax_max = 2.5
+        self.fmax_initial = 1
         
-        amplitudeCutoff = np.max(expectedMaxAmplitudes[criteria]) # let it be twice the expected maximum value
-
-        return amplitudeCutoff
+        self.kd_min = 0
+        self.kd_max = 1e6
+        self.kd_initial = 400 #nM
         
-    

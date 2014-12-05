@@ -20,6 +20,7 @@ import numpy as np
 from collections import Counter
 from optparse import OptionParser
 import datetime
+import pandas as pd
 
 
 ''' Functions '''
@@ -69,12 +70,12 @@ def consensusVoting(r1Block,Q1Block,degeneracy):
     return consensus
 
 
-def main():
+if __name__ == "__main__":
 
     ## Get options and arguments from command line
     parser = OptionParser()
     parser.add_option('-i', dest="inFile", help="Merged file to be analyzed")
-    parser.add_option('-o', dest="outFolder", help="directory in which to write output")
+    parser.add_option('-o', dest="outFile", help="directory in which to write output")
     parser.add_option("-q", dest="avgQScoreCutoff", type=int, default=28, help="cutoff for average q score of the read")
     parser.add_option("-c", dest='colBarcode', help="column number in which the barcodes appear (1 indexed)", action='store', type='int')
     parser.add_option("-C", dest='colTarget', help="column number in which the target sequences appear (1 indexed)", action='store', type='int')
@@ -85,24 +86,23 @@ def main():
         os.system(sys.argv[0]+" --help")
         sys.exit()
 
-    # Making sure all mandatory options appeared.
-    mandatories = ['inFile', 'colBarcode', 'colTarget', 'outFolder']
-    for m in mandatories:
-        if not options.__dict__[m]:
-            print "mandatory option is missing\n"
-            parser.print_help()
-            exit(-1)
-
+    print "in file: %s"%options.inFile
+    print "out file: %s"%options.outFile
+    print "colBarcode: %s"%options.colBarcode
+    print "colTarget: %s"%options.colTarget
+    
+    
     options.colBarcode = options.colBarcode-1
     options.colTarget = options.colTarget-1
 
 
     ## Initiate output files
     inFile_name = os.path.splitext(os.path.basename(options.inFile))[0]
-    outputFileName =  options.outFolder+inFile_name+"_compressedBarcodes.unq"
-    statFileName =  options.outFolder+inFile_name+"_compressedBarcodes.stat"
+    outFolder = os.path.dirname(options.outFile)
+    outputFileName =  options.outFile
+    statFileName =  os.path.join(outFolder, inFile_name+"_compressedBarcodes.stat")
 
-    logFileName =   options.outFolder+"compressBarcodes_v8.log"
+    logFileName =   os.path.join(outFolder, "compressBarcodes_v8.log")
     logFile = open(logFileName,'w')
 
     ## Write to log
@@ -121,7 +121,7 @@ def main():
     writeLine(logFile, '  (7) mean barcode quality score')
 
     writeLine(logFile, 'number of clusters per barcode in ' + statFileName)
-
+    
     ## Initialization
     numSeqs = 0
     lineCount = 0
@@ -254,8 +254,5 @@ def main():
     ws.close()
     logFile.close()
 
-    return 1
 
-if __name__ == "__main__":
-    main()
 

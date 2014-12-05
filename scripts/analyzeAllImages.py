@@ -32,7 +32,7 @@ import multiprocessing
 import shutil
 import uuid
 import numpy as np
-
+import scipy.io as sio
 import CPlibs
 import IMlibs
 
@@ -49,9 +49,10 @@ parser.add_argument('-fd','--CPfluor_dirs_to_quantify', help='text file giving t
 parser.add_argument('-os','--signal_dir', help='save signal files to here. default = filtered_tile_dir/signals')
 parser.add_argument('-osr','--signal_dir_reduced', default=None,help='save signal files reduced by filter set to here. default = signal_dir/reduced_signals')
 parser.add_argument('-fs','--filter_set', help='name of filter to fit binding curve', required=True)
+parser.add_argument('-lc','--library_characterization', help='file with the characterization data of the deisgned library', required=True)
 parser.add_argument('-bd','--barcode_dir', help='save files associated with barcode mapping here. default=signal_dir_reduced/barcode_mapping')
 parser.add_argument('-n','--num_cores', help='maximum number of cores to use')
-parser.add_argument('-gv','--global_vars_path', help='path to the directory in which the "globalvars.py" parameter file for the run can be found')
+parser.add_argument('-gv','--fitting_parameters_path', help='path to the directory in which the "globalvars.py" parameter file for the run can be found')
 
 if not len(sys.argv) > 1:
     parser.print_help()
@@ -61,12 +62,19 @@ if not len(sys.argv) > 1:
 args = parser.parse_args()
 
 #add global vars path to system
-if args.global_vars_path is not None:
-    sys.path.insert(0, args.global_vars_path)
+if args.fitting_parameters_path is not None:
+    sys.path.insert(0, args.fitting_parameters_path)
 
 # import parameters
-import globalvars
-parameters = globalvars.Parameters()
+import fittingParameters
+parameters = fittingParameters.Parameters()
+
+# FUNCITONS
+def collectLogs(inLog): #multiprocessing callback function to collect the output of the worker processes
+    logFilename = inLog[0]
+    logText = inLog[1]
+    resultList[logFilename] = logText
+
 
 # import CPseq filtered files split by tile
 print 'Finding CPseq files in directory "%s"...'%args.filtered_tile_dir
@@ -186,60 +194,77 @@ sortedAllCPsignalFile = IMlibs.getAllSortedCPsignalFilename(reducedSignalNamesBy
 if os.path.isfile(sortedAllCPsignalFile):
     print 'Sorted and concatenated CPsignal file exists "%s". Skipping...'%sortedAllCPsignalFile
 else:
+    print 'Making sorted and concatenated CPsignal file "%s"...'%sortedAllCPsignalFile
     IMlibs.sortConcatenateCPsignal(reducedSignalNamesByTileDict, parameters.barcode_col, sortedAllCPsignalFile)
 
 # map barcodes to consensus
+compressedBarcodeFile = IMlibs.getCompressedBarcodeFilename(sortedAllCPsignalFile)
+if os.path.isfile(compressedBarcodeFile):
+    print 'Compressed barcode file exists "%s". Skipping...'%compressedBarcodeFile
+else:
+    print 'Making compressed barcode file "%s"...'%compressedBarcodeFile
+    IMlibs.compressBarcodes(sortedAllCPsignalFile, parameters.barcode_col, parameters.sequence_col, compressedBarcodeFile)
 
+# map barcode to sequence
+barcodeToSequenceFilename = IMlibs.getBarcodeMapFilename(compressedBarcodeFile)
+if os.path.isfile(barcodeToSequenceFilename):
+    print 'barcode to sequence map file exists "%s". Skipping...'%barcodeToSequenceFilename
+else:
+    print 'Making Barcode to sequence map "%s"...'%barcodeToSequenceFilename
+    IMlibs.barcodeToSequenceMap(compressedBarcodeFile, args.library_characterization, barcodeToSequenceFilename)
 
-"""
+# map barcode to CP signal
+annotatedSignalFilename = IMlibs.getAnnotatedSignalFilename(barcodeToSequenceFilename)
+if os.path.isfile(annotatedSignalFilename):
+    print 'annotated CPsignal file already exists "%s". Skipping...'%annotatedSignalFilename
+else:
+    print 'Making annotated CPsignal file "%s"...'%annotatedSignalFilename
+    IMlibs.matchCPsignalToLibrary(barcodeToSequenceFilename, sortedAllCPsignalFile, annotatedSignalFilename)
 
-# now save binding curve as text file, send to matlab to do constrained fitting, and return parameters and rmse
-# find binding curves
-xvalueFilenameFull = os.path.join(signal_directory, xvalueFilename)
-np.savetxt(xvalueFilename, concentrations)
+# get binding series
+fittedBindingFilename = IMlibs.getFittedFilename(annotatedSignalFilename)
 
-# reduce CPsignal file
-# must have filterset and all cluster signal can't be nan
-filterSet = args.filter_set
-reducedSignalNamesByTileDict = IMlibs.getReducedCPsignalDictFromCPsignalDict(signalNamesByTileDict, filterSet)
-bindingSeriesFilenameDict = IMlibs.getBSfromCPsignal(reducedSignalNamesByTileDict)
-for tile in tileList:
-    cpSignalFilename = signalNamesByTileDict[tile]
-    reducedCPsignalFilename = reducedSignalNamesByTileDict[tile]
-    bindingSeriesFilename = bindingSeriesFilenameDict[tile]
-    # reduce
-    IMlibs.reduceCPsignalFile(cpSignalFilename, filterSet, reducedCPsignalFilename)
+if os.path.isfile(fittedBindingFilename):
+    print 'fitted CPsignal file exists "%s". Skipping...'%fittedBindingFilename
+else:
+    print 'Making fitted CP signal file "%s"...'%annotatedSignalFilename
     # get binding series
-    bindingSeries, allClusterImage = IMlibs.loadBindingCurveFromCPsignal(reducedCPsignalFilename)
-    np.savetxt(bindingSeriesFilename, bindingSeries)
-
-allFilters = np.unique(np.loadtxt(signalNamesByTileDict[tileList[0]], usecols=(1,), dtype=str))
-bindingSeriesAll = ['']*3
-bindingSeriesAllNotNorm = ['']*3
-for i, filterSet in enumerate(allFilters[[0, 2, 19]]):
-    reducedSignalNamesByTileDict = IMlibs.getReducedCPsignalDictFromCPsignalDict(signalNamesByTileDict, filterSet)
-    bindingSeriesFilenameDict = IMlibs.getBSfromCPsignal(reducedSignalNamesByTileDict)
-    tile = '015'
-    cpSignalFilename = signalNamesByTileDict[tile]
-    reducedCPsignalFilename = reducedSignalNamesByTileDict[tile]
-    bindingSeriesFilename = bindingSeriesFilenameDict[tile]
-    # reduce
-    #IMlibs.reduceCPsignalFile(cpSignalFilename, filterSet, reducedCPsignalFilename)
-    # get binding series
-    bindingSeries, allClusterImage = IMlibs.loadBindingCurveFromCPsignal(reducedCPsignalFilename)
-    bindingSeriesAll[i] = bindingSeries
-    bindingSeriesAllNotNorm[i] = bindingSeries*np.vstack(allClusterImage)
-plt.figure()
-histogram.compare([bindingSeriesAll[i][:,-1] for i in range(3)], allFilters[[0, 2, 19]], xbins=np.arange(0, 2.5, 0.1)-0.05)
-plt.figure()
-histogram.compare([bindingSeriesAllNotNorm[i][:,-1] for i in range(3)], labels = allFilters[[0, 2, 19]])
-
-
-fitParametersFilenameDict = IMlibs.getFPfromCPsignal(reducedSignalNamesByTileDict)
-workerPool = multiprocessing.Pool(processes=numCores) #create a multiprocessing pool that uses at most the specified number of cores
-for tile in tileList:
-    bindingSeriesFilename = bindingSeriesFilenameDict[tile]
-    fitParametersFilename = fitParametersFilenameDict[tile]
-    # send to matlab for constrained fitting
-    IMlibs.findKds(bindingSeriesFilename, xvalueFilename, fitParametersFilename, parameters.fmax_min, parameters.fmax_max, parameters.fmax_initial, parameters.kd_min, parameters.kd_max, parameters.kd_initial)
-"""
+    bindingSeries, allClusterImage = IMlibs.loadBindingCurveFromCPsignal(annotatedSignalFilename)
+    bindingSeriesSplit = np.array_split(bindingSeries, numCores)
+    bindingSeriesFilenameParts = IMlibs.getBindingSeriesFilenameParts(annotatedSignalFilename, numCores)
+    fitParametersFilenameParts = IMlibs.getfitParametersFilenameParts(bindingSeriesFilenameParts)
+    
+    # split into parts and fit
+    resultList = {}
+    workerPool = multiprocessing.Pool(processes=numCores) #create a multiprocessing pool that uses at most the specified number of cores
+    for i, bindingSeriesFilename in bindingSeriesFilenameParts.items():
+        sio.savemat(bindingSeriesFilename, {'concentrations':concentrations, 'binding_curves': bindingSeriesSplit[i]})
+        workerPool.apply_async(IMlibs.findKds, args=(bindingSeriesFilename, fitParametersFilenameParts[i],
+                                                     parameters.fmax_min, parameters.fmax_max, parameters.fmax_initial,
+                                                     parameters.kd_min, parameters.kd_max, parameters.kd_initial,
+                                                     parameters.fmin_min, parameters.fmin_max, parameters.fmin_initial),
+                               callback=collectLogs)
+    workerPool.close()
+    workerPool.join()
+    
+    #print logs
+    for currFile,currLog in resultList.items():
+        print '[++++++++++++++++++++++++++++++ MATLAB ANALYSE IMAGE LOG FOR ' + currFile + ' ++++++++++++++++++++++++++++++]'
+        print currLog[-100:]
+    
+    # remove binding series filenames
+    IMlibs.removeFilenameParts(bindingSeriesFilenameParts)
+    
+    # join together parts
+    fitParameters = IMlibs.joinTogetherFitParts(fitParametersFilenameParts)
+    
+    # save fittedBindingFilename
+    fitParametersFilename = IMlibs.getFitParametersFilename(annotatedSignalFilename)
+    IMlibs.saveDataFrame(fitParameters, fitParametersFilename, index=False, float_format='%4.3f')
+    IMlibs.removeFilenameParts(fitParametersFilenameParts)
+    IMlibs.makeFittedCPsignalFile(fitParametersFilename,annotatedSignalFilename, fittedBindingFilename)
+    
+# Now reduce into variants. Save the variant number, characterization info, number
+# of times tested, only if fraction_consensus is greater than 0.67 (2/3rd),
+# and save median of normalized binding amount, median of fit parameters, (and quartiles?),
+# error in fit parameters?
