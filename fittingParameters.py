@@ -24,9 +24,9 @@ class Parameters():
         self.fmax_max = 2.5
         self.fmax_initial = 1
         
-        self.kd_min = 0
-        self.kd_max = 1e6
-        self.kd_initial = 400 #nM
+        self.dG_min = -18
+        self.dG_max = -2
+        self.dG_initial = -8 #kcal/mol
         
         self.fmin_max = 0.1
         self.fmin_min = 0

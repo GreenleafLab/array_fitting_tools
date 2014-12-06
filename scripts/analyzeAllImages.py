@@ -229,21 +229,27 @@ if os.path.isfile(fittedBindingFilename):
 else:
     print 'Making fitted CP signal file "%s"...'%annotatedSignalFilename
     # get binding series
-    bindingSeries, allClusterImage = IMlibs.loadBindingCurveFromCPsignal(annotatedSignalFilename)
+    bindingSeries, allClusterSignal = IMlibs.loadBindingCurveFromCPsignal(annotatedSignalFilename)
     bindingSeriesSplit = np.array_split(bindingSeries, numCores)
+    allClusterSignalSplit = np.array_split(allClusterSignal, numCores)
     bindingSeriesFilenameParts = IMlibs.getBindingSeriesFilenameParts(annotatedSignalFilename, numCores)
     fitParametersFilenameParts = IMlibs.getfitParametersFilenameParts(bindingSeriesFilenameParts)
+    null_scores = IMlibs.loadNullScores(signalNamesByTileDict, filterSet)
     
     # split into parts and fit
     resultList = {}
     workerPool = multiprocessing.Pool(processes=numCores) #create a multiprocessing pool that uses at most the specified number of cores
     for i, bindingSeriesFilename in bindingSeriesFilenameParts.items():
-        sio.savemat(bindingSeriesFilename, {'concentrations':concentrations, 'binding_curves': bindingSeriesSplit[i]})
+        sio.savemat(bindingSeriesFilename, {'concentrations':concentrations,
+                                            'binding_curves': bindingSeriesSplit[i],
+                                            'all_cluster':allClusterSignalSplit[i],
+                                            'null_scores':null_scores,
+                                            })
         workerPool.apply_async(IMlibs.findKds, args=(bindingSeriesFilename, fitParametersFilenameParts[i],
                                                      parameters.fmax_min, parameters.fmax_max, parameters.fmax_initial,
-                                                     parameters.kd_min, parameters.kd_max, parameters.kd_initial,
+                                                     parameters.dG_min, parameters.dG_max, parameters.dG_initial,
                                                      parameters.fmin_min, parameters.fmin_max, parameters.fmin_initial),
-                               callback=collectLogs)
+                               )
     workerPool.close()
     workerPool.join()
     

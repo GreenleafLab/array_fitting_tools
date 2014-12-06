@@ -13,28 +13,31 @@ function fitBindingCurve(bindingCurveFilename, min_constraints, max_constraints,
     rmse = ones(numtottest, 1)*nan;
     fit_successful = zeros(numtottest, 1);
     rsq = ones(numtottest, 1)*nan;
+    params_var = ones(numtottest, 3)*nan;
+    qvalue = ones(numtottest, 1)*nan;
+    options = optimset('Display', 'off');
     
     % set default initial guess
     if ~exist('initial_points', 'var');
         initial_points = [0.5,400, 0];
     end
-    
+    all_cluster = double(all_cluster);
     %% cycle through each row and fit
     for i=1:numtottest;
-        frac_bound = binding_curves(i,:);
+        frac_bound = binding_curves(i,:)./all_cluster(i);
+        qvalue(i) = CurveFitFun.findFDR(binding_curves(i, end), null_scores);
         indx = find(~isnan(frac_bound));
-        if length(indx) < 4 || ~isfinite(FitFun.findKd(initial_points,concentrations(indx),frac_bound(indx)));
+        f = @CurveFitFun.findBindingCurve;
+ 
+        if length(indx) < 4 || ~isfinite(sum((f(initial_points, concentrations(indx)) - frac_bound(indx)).^2));
             fprintf('Skipping iteration %d of %d', i, numtottest)
             continue
         else
-            f = @(x)FitFun.findKd(x,concentrations(indx),frac_bound(indx));
-            options = optimset('Algorithm', 'interior-point');
-            [x,fval, exitflag,output,lambda, grad, hessian] = fmincon(f, initial_points, [], [], [], [],min_constraints, max_constraints, [], options);
-
+            % fit
+            [x,fval,residual,exitflag,~, ~, jacobian] = lsqcurvefit(f, initial_points, concentrations(indx), frac_bound(indx), min_constraints, max_constraints, options);
+            
             % save parameters
-            params(i, 1) = x(1);
-            params(i, 2) = x(2);
-            params(i, 3) = x(3);
+            params(i, :) = x;
 
             % save fitting parameters
             rmse(i) = sqrt(fval/(length(indx)-length(x)));
@@ -44,10 +47,17 @@ function fitBindingCurve(bindingCurveFilename, min_constraints, max_constraints,
             if rsq(i) > 0 && exitflag==1;
                 fit_successful(i) = 1;
             end
-            fprintf('Completed iteration %d of %d', i, numtottest)
+            [~,R] = qr(jacobian,0);
+            mse = sum(abs(residual).^2)/(size(jacobian,1)-size(jacobian,2));
+            Rinv = inv(R);
+            Sigma = Rinv*Rinv'*mse;
+            params_var(i, :) = full(sqrt(diag(Sigma)));
+            if mod(i, 100)==0;
+                fprintf('Completed iteration %d of %d\n', i, numtottest)
+            end
         end
     end
     %final_to_save = [params, fit_successful, rsq, rmse];
     %dlmwrite(outputFitFilename, final_to_save, 'delimiter','\t','precision',6)
-    save(outputFitFilename, 'params', 'fit_successful', 'rsq', 'rmse' )
+    save(outputFitFilename, 'params', 'fit_successful', 'rsq', 'rmse', 'qvalue', 'params_var')
 end

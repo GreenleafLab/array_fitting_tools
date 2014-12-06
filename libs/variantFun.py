@@ -61,7 +61,22 @@ def plotBoxplot(data, labels):
         whisker.set(color='k', linewidth=2)
     for flier in bp['fliers']:
         flier.set(marker='.', color='r' ,linewidth=0, alpha=0.5)
-    return 
+    return
+
+def plotCluster(series, concentrations, name=None):
+    if name is None:
+        name = '%4.0f'%(series['variant_number'])
+    fig = plt.figure(figsize=(4,4))
+    ax = fig.add_subplot(111)
+    ax.plot(concentrations, [series[i]/series['all_cluster_signal'] for i in range(8)], 'o')
+    ax.plot(np.logspace(-1, 4, 50), bindingCurve(np.logspace(-1, 4, 50), series['kd'], series['fmax'], series['fmin']),'k')
+    ax.set_xscale('log')
+    ax.set_xlabel('concentration (nM)')
+    ax.set_ylabel('normalized fluorescence')
+    ax.set_ylim((0, 1.5))
+    plt.title(name)
+    plt.tight_layout()
+    return
 
 def plotVariant(sub_table, concentrations, name=None, to_filter=None):
     if name is None:

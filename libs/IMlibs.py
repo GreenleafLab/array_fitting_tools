@@ -147,7 +147,7 @@ def pasteTogetherSignal(cpSeqFilename, signal, outfilename, delimiter=None):
     else:
         cmd_string = 'paste -d %s'%delimiter
     tmpfilename = 'signal_'+str(time.time())
-    np.savetxt(tmpfilename, signal)
+    np.savetxt(tmpfilename, signal, fmt='%s')
     os.system("%s %s %s > %s"%(cmd_string, cpSeqFilename, tmpfilename, outfilename+'.tmp'))
     os.system("mv %s %s"%(outfilename+'.tmp', outfilename))
     os.system("rm %s"%tmpfilename)
@@ -159,17 +159,18 @@ def findCPsignalFile(cpSeqFilename, redFluors, greenFluors, cpSignalFilename):
     signal = getSignalFromCPFluor(redFluors[0]) #just take first red fluor image
     pasteTogetherSignal(cpSeqFilename, signal, cpSignalFilename)
     
+    # find signal in green
+    num_lines = len(signal)
+    signal_green = np.zeros((num_lines, len(greenFluors)))
+    
     # cycle through fit green images and get the final signal
     for i, currCPfluor in enumerate(greenFluors):
         if currCPfluor == '':
-            num_lines = int(subprocess.check_output("wc -l %s | awk '{print $1}'"%cpSeqFilename, shell=True).strip())
-            signal = np.ones(num_lines)*np.nan
+            signal_green[:,i] = np.ones(num_lines)*np.nan
         else:
-            signal = getSignalFromCPFluor(currCPfluor)
-            
-        # if its the first in the list, append with tab delimit, else with comma
-        if i==0: pasteTogetherSignal(cpSignalFilename, signal, cpSignalFilename)
-        else: pasteTogetherSignal(cpSignalFilename, signal, cpSignalFilename, delimiter = ',')
+            signal_green[:,i] = getSignalFromCPFluor(currCPfluor)
+    signal_comma_format = np.array([','.join(signal_green[i].astype(str)) for i in range(num_lines)])   
+    pasteTogetherSignal(cpSignalFilename, signal_comma_format, cpSignalFilename)
            
     return
 
@@ -265,15 +266,17 @@ def saveDataFrame(dataframe, filename, index=None, float_format=None):
     return
 
 def joinTogetherFitParts(fitParametersFilenameParts,  ):
-    all_fit_parameters = np.empty((0,6))
+    all_fit_parameters = np.empty((0,10))
     for i, fitParametersFilename in fitParametersFilenameParts.items():
         fit_parameters = sio.loadmat(fitParametersFilename)
         all_fit_parameters = np.vstack((all_fit_parameters, np.hstack((fit_parameters['params'],
                                                    fit_parameters['fit_successful'],
                                                    fit_parameters['rsq'],
-                                                   fit_parameters['rmse']))
+                                                   fit_parameters['rmse'],
+                                                   fit_parameters['qvalue'],
+                                                   fit_parameters['params_var']))
                                         ))
-    all_fit_parameters = pd.DataFrame(data=all_fit_parameters, columns=['fmax', 'kd', 'fmin', 'fit_success', 'rsq', 'rmse'])
+    all_fit_parameters = pd.DataFrame(data=all_fit_parameters, columns=['fmax', 'dG', 'fmin', 'fit_success', 'rsq', 'rmse', 'qvalue', 'fmax_var', 'dG_var', 'fmin_var'])
     return all_fit_parameters
 
 def makeFittedCPsignalFile(fitParametersFilename,annotatedSignalFilename, fittedBindingFilename):
@@ -344,6 +347,16 @@ def loadCPseqSignal(filename):
         table[col] = binding_series[:, col]
     return table
 
+def loadNullScores(signalNamesByTileDict, filterSet):
+    tile = '003'
+    filename = signalNamesByTileDict[tile]
+    table = loadCPseqSignal(filename)
+    null_scores = table[table['filter']!=filterSet][7]
+    null_scores = null_scores[np.logical_not(np.isnan(null_scores))]
+    #null_scores_all = np.append(null_scores_all, null_scores[np.logical_not(np.isnan(null_scores))])
+    return np.array(null_scores)
+    
+
 def loadBindingCurveFromCPsignal(filename):
     """
     open file after being reduced to the clusters you are interested in.
@@ -352,8 +365,7 @@ def loadBindingCurveFromCPsignal(filename):
     """
     table = pd.read_table(filename, usecols=(10,11))
     binding_series = np.array([np.array(series.split(','), dtype=float) for series in table['binding_series']])
-
-    return binding_series/np.vstack(table['all_cluster_signal']), np.array(table['all_cluster_signal'])
+    return binding_series, np.array(table['all_cluster_signal'])
 
 def loadFittedCPsignal(filename):
 
