@@ -241,8 +241,8 @@ else:
     workerPool = multiprocessing.Pool(processes=numCores) #create a multiprocessing pool that uses at most the specified number of cores
     for i, bindingSeriesFilename in bindingSeriesFilenameParts.items():
         sio.savemat(bindingSeriesFilename, {'concentrations':concentrations,
-                                            'binding_curves': bindingSeriesSplit[i],
-                                            'all_cluster':allClusterSignalSplit[i],
+                                            'binding_curves': bindingSeriesSplit[i].astype(float),
+                                            'all_cluster':allClusterSignalSplit[i].astype(float),
                                             'null_scores':null_scores,
                                             })
         workerPool.apply_async(IMlibs.findKds, args=(bindingSeriesFilename, fitParametersFilenameParts[i],
@@ -269,6 +269,11 @@ else:
     IMlibs.saveDataFrame(fitParameters, fitParametersFilename, index=False, float_format='%4.3f')
     IMlibs.removeFilenameParts(fitParametersFilenameParts)
     IMlibs.makeFittedCPsignalFile(fitParametersFilename,annotatedSignalFilename, fittedBindingFilename)
+    
+# Reduce by Variant
+perVariantFilename = IMlibs.getPerVariantFilename()
+table = IMlibs.loadFittedCPsignal(fittedBindingFilename)
+
     
 # Now reduce into variants. Save the variant number, characterization info, number
 # of times tested, only if fraction_consensus is greater than 0.67 (2/3rd),

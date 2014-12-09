@@ -20,8 +20,8 @@ class Parameters():
         
         # initial binding curve settings
         self.parameter_names = ['f_max', 'kd']
-        self.fmax_min = 0.4
-        self.fmax_max = 2.5
+        self.fmax_min = 0.2
+        self.fmax_max = 100
         self.fmax_initial = 1
         
         self.dG_min = -18

@@ -11,7 +11,7 @@ function fitBindingCurve(bindingCurveFilename, min_constraints, max_constraints,
     % initiate fits
     params = ones(numtottest, 3)*nan;
     rmse = ones(numtottest, 1)*nan;
-    fit_successful = zeros(numtottest, 1);
+    exit_flag = ones(numtottest, 1)*nan;
     rsq = ones(numtottest, 1)*nan;
     params_var = ones(numtottest, 3)*nan;
     qvalue = ones(numtottest, 1)*nan;
@@ -21,7 +21,7 @@ function fitBindingCurve(bindingCurveFilename, min_constraints, max_constraints,
     if ~exist('initial_points', 'var');
         initial_points = [0.5,400, 0];
     end
-    all_cluster = double(all_cluster);
+
     %% cycle through each row and fit
     for i=1:numtottest;
         frac_bound = binding_curves(i,:)./all_cluster(i);
@@ -29,7 +29,7 @@ function fitBindingCurve(bindingCurveFilename, min_constraints, max_constraints,
         indx = find(~isnan(frac_bound));
         f = @CurveFitFun.findBindingCurve;
  
-        if length(indx) < 4 || ~isfinite(sum((f(initial_points, concentrations(indx)) - frac_bound(indx)).^2));
+        if length(indx) < 3 || ~isfinite(sum((f(initial_points, concentrations(indx)) - frac_bound(indx)).^2));
             fprintf('Skipping iteration %d of %d', i, numtottest)
             continue
         else
@@ -44,9 +44,7 @@ function fitBindingCurve(bindingCurveFilename, min_constraints, max_constraints,
             SSresid = fval;
             SStotal = sum((frac_bound(indx) - mean(frac_bound(indx))).^2);
             rsq(i) = 1 - SSresid/SStotal;
-            if rsq(i) > 0 && exitflag==1;
-                fit_successful(i) = 1;
-            end
+            exit_flag(i) = exitflag
             [~,R] = qr(jacobian,0);
             mse = sum(abs(residual).^2)/(size(jacobian,1)-size(jacobian,2));
             Rinv = inv(R);
@@ -59,5 +57,5 @@ function fitBindingCurve(bindingCurveFilename, min_constraints, max_constraints,
     end
     %final_to_save = [params, fit_successful, rsq, rmse];
     %dlmwrite(outputFitFilename, final_to_save, 'delimiter','\t','precision',6)
-    save(outputFitFilename, 'params', 'fit_successful', 'rsq', 'rmse', 'qvalue', 'params_var')
+    save(outputFitFilename, 'params', 'exit_flag', 'rsq', 'rmse', 'qvalue', 'params_var')
 end

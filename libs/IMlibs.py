@@ -141,14 +141,10 @@ def getFPfromCPsignal(signalNamesByTileDict):
         bindingSeriesFilenameDict[tiles] = os.path.splitext(cpSignalFilename)[0] + '.fit_parameters'
     return bindingSeriesFilenameDict
 
-def pasteTogetherSignal(cpSeqFilename, signal, outfilename, delimiter=None):
-    if delimiter is None:
-        cmd_string = 'paste'
-    else:
-        cmd_string = 'paste -d %s'%delimiter
+def pasteTogetherSignal(cpSeqFilename, signal, outfilename):
     tmpfilename = 'signal_'+str(time.time())
     np.savetxt(tmpfilename, signal, fmt='%s')
-    os.system("%s %s %s > %s"%(cmd_string, cpSeqFilename, tmpfilename, outfilename+'.tmp'))
+    os.system("paste %s %s > %s"%(cpSeqFilename, tmpfilename, outfilename+'.tmp'))
     os.system("mv %s %s"%(outfilename+'.tmp', outfilename))
     os.system("rm %s"%tmpfilename)
     return
@@ -157,8 +153,7 @@ def findCPsignalFile(cpSeqFilename, redFluors, greenFluors, cpSignalFilename):
  
     # find signal in red
     signal = getSignalFromCPFluor(redFluors[0]) #just take first red fluor image
-    pasteTogetherSignal(cpSeqFilename, signal, cpSignalFilename)
-    
+
     # find signal in green
     num_lines = len(signal)
     signal_green = np.zeros((num_lines, len(greenFluors)))
@@ -169,9 +164,10 @@ def findCPsignalFile(cpSeqFilename, redFluors, greenFluors, cpSignalFilename):
             signal_green[:,i] = np.ones(num_lines)*np.nan
         else:
             signal_green[:,i] = getSignalFromCPFluor(currCPfluor)
-    signal_comma_format = np.array([','.join(signal_green[i].astype(str)) for i in range(num_lines)])   
-    pasteTogetherSignal(cpSignalFilename, signal_comma_format, cpSignalFilename)
-           
+            
+    # combine signal in both
+    signal_comma_format = np.array(['\t'.join([signal[i].astype(str), ','.join(signal_green[i].astype(str))]) for i in range(num_lines)])   
+    pasteTogetherSignal(cpSeqFilename, signal_comma_format, cpSignalFilename)       
     return
 
 def reduceCPsignalFile(cpSignalFilename, filterSet, reducedCPsignalFilename):
@@ -270,13 +266,13 @@ def joinTogetherFitParts(fitParametersFilenameParts,  ):
     for i, fitParametersFilename in fitParametersFilenameParts.items():
         fit_parameters = sio.loadmat(fitParametersFilename)
         all_fit_parameters = np.vstack((all_fit_parameters, np.hstack((fit_parameters['params'],
-                                                   fit_parameters['fit_successful'],
+                                                   fit_parameters['exit_flag'],
                                                    fit_parameters['rsq'],
                                                    fit_parameters['rmse'],
                                                    fit_parameters['qvalue'],
                                                    fit_parameters['params_var']))
                                         ))
-    all_fit_parameters = pd.DataFrame(data=all_fit_parameters, columns=['fmax', 'dG', 'fmin', 'fit_success', 'rsq', 'rmse', 'qvalue', 'fmax_var', 'dG_var', 'fmin_var'])
+    all_fit_parameters = pd.DataFrame(data=all_fit_parameters, columns=['fmax', 'dG', 'fmin', 'exit_flag', 'rsq', 'rmse', 'qvalue', 'fmax_var', 'dG_var', 'fmin_var'])
     return all_fit_parameters
 
 def makeFittedCPsignalFile(fitParametersFilename,annotatedSignalFilename, fittedBindingFilename):
@@ -350,10 +346,11 @@ def loadCPseqSignal(filename):
 def loadNullScores(signalNamesByTileDict, filterSet):
     tile = '003'
     filename = signalNamesByTileDict[tile]
-    table = loadCPseqSignal(filename)
-    null_scores = table[table['filter']!=filterSet][7]
-    null_scores = null_scores[np.logical_not(np.isnan(null_scores))]
-    #null_scores_all = np.append(null_scores_all, null_scores[np.logical_not(np.isnan(null_scores))])
+    tmp_filename = signalNamesByTileDict[tile] + 'tmp'
+    os.system("grep -v %s %s > %s"%(filterSet, filename, tmp_filename))
+    table = loadCPseqSignal(tmp_filename)
+    null_scores = table[7][np.isfinite(table[7])]
+    os.system("rm %s"%(tmp_filename))
     return np.array(null_scores)
     
 
@@ -369,7 +366,7 @@ def loadBindingCurveFromCPsignal(filename):
 
 def loadFittedCPsignal(filename):
 
-    table =  pd.read_table(filename, usecols=tuple(range(13,33)))
+    table =  pd.read_table(filename, usecols=tuple(range(21,45)))
     binding_series, all_cluster_image = loadBindingCurveFromCPsignal(filename)
     for col in range(binding_series.shape[1]):
         table[col] = binding_series[:, col]
@@ -404,4 +401,20 @@ def plotVariant(sub_table, concentrations):
     #plt.title('%d variants tested'%len(sub_table))
     plt.tight_layout()
     return
+
+def reduceByVariant(table):
+
+    variants = np.arange(0, np.max(table['variant_number']))
+    columns = [name for name in table][:12] + ['numTests', 'numRejects', 'kd', 'dG', 'fmax', 'fmin']
+    newtable = pd.DataFrame(columns=columns, index=np.arange(len(variants)))
+    for i, variant in enumerate(variants):
+        if i%1000==0: print 'computing iteration %d'%i
+        sub_table = table[table['variant_number']==variant]
+        if len(sub_table) > 0:
+            sub_table_filtered = filterFitParameters(sub_table)[['kd', 'dG', 'fmax', 'fmin']]
+            newtable.iloc[i]['numTests'] = len(sub_table_filtered)
+            newtable.iloc[i]['numRejects'] = len(sub_table) - len(sub_table_filtered)
+            newtable.iloc[i]['kd':] = np.median(sub_table_filtered, 0)
+            newtable.iloc[i][:'total_length'] = sub_table.iloc[0][:'total_length']
+    return newtable
     
