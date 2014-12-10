@@ -28,6 +28,8 @@ function fitBindingCurve(bindingCurveFilename, min_constraints, max_constraints,
         qvalue(i) = CurveFitFun.findFDR(binding_curves(i, end), null_scores);
         indx = find(~isnan(frac_bound));
         f = @CurveFitFun.findBindingCurve;
+        % change upper bound on fmin to be twice the min value
+        max_constraints(3) = min(frac_bound)*2
  
         if length(indx) < 3 || ~isfinite(sum((f(initial_points, concentrations(indx)) - frac_bound(indx)).^2));
             fprintf('Skipping iteration %d of %d', i, numtottest)
