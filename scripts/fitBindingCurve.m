@@ -21,6 +21,10 @@ function fitBindingCurve(bindingCurveFilename, min_constraints, max_constraints,
     if ~exist('initial_points', 'var');
         initial_points = [0.5,400, 0];
     end
+    
+    fmax_pos = 1;
+    dG_pos = 2;
+    fmin_pos = 3;
 
     %% cycle through each row and fit
     for i=1:numtottest;
@@ -28,8 +32,9 @@ function fitBindingCurve(bindingCurveFilename, min_constraints, max_constraints,
         qvalue(i) = CurveFitFun.findFDR(binding_curves(i, end), null_scores);
         indx = find(~isnan(frac_bound));
         f = @CurveFitFun.findBindingCurve;
-        % change upper bound on fmin to be twice the min value
-        max_constraints(3) = min(frac_bound)*2
+        
+        % fine tune initial parameters
+        max_constraints(fmin_pos) = min(min(frac_bound)*2, max_constraints(fmin_pos))
  
         if length(indx) < 3 || ~isfinite(sum((f(initial_points, concentrations(indx)) - frac_bound(indx)).^2));
             fprintf('Skipping iteration %d of %d', i, numtottest)

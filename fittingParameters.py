@@ -21,14 +21,14 @@ class Parameters():
         # initial binding curve settings
         self.parameter_names = ['f_max', 'kd']
         self.fmax_min = 0.2
-        self.fmax_max = 100
+        self.fmax_max = 1000
         self.fmax_initial = 1
         
-        self.dG_min = -18
-        self.dG_max = -2
+        self.dG_min = -16
+        self.dG_max = -4
         self.dG_initial = -8 #kcal/mol
         
-        self.fmin_max = 0.1
+        self.fmin_max = 20
         self.fmin_min = 0
         self.fmin_initial = 0
         
