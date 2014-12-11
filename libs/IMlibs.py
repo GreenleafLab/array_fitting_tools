@@ -235,13 +235,14 @@ def matchCPsignalToLibrary(barcodeToSequenceFilename, sortedAllCPsignalFile, seq
     os.system("python %s -b %s -i %s -o %s "%(script, barcodeToSequenceFilename, sortedAllCPsignalFile, sequenceToLibraryFilename))
     return
 
-def findKds(bindingSeriesFilename, outputFilename, fmax_min, fmax_max, fmax_initial, kd_min, kd_max, kd_initial, fmin_min, fmin_max, fmin_initial):
-    matlabFunctionCallString = "fitBindingCurve('%s', [%4.2f, %4.2f, %4.2f], [%4.2f, %4.2f, %4.2f], '%s', [%4.2f, %4.2f, %4.2f] );"%(bindingSeriesFilename,
+def findKds(bindingSeriesFilename, outputFilename, fmax_min, fmax_max, fmax_initial, kd_min, kd_max, kd_initial, fmin_min, fmin_max, fmin_initial, scale_factor):
+    matlabFunctionCallString = "fitBindingCurve('%s', [%4.2f, %4.2f, %4.2f], [%4.2f, %4.2f, %4.2f], '%s', [%4.2f, %4.2f, %4.2f], '%4.2f' );"%(bindingSeriesFilename,
                                                                                                                 
                                                                                                                 fmax_min, kd_min, fmin_min,
                                                                                                                 fmax_max, kd_max, fmin_max,
                                                                                                                 outputFilename,
-                                                                                                                fmax_initial, kd_initial, fmin_initial )
+                                                                                                                fmax_initial, kd_initial, fmin_initial,
+                                                                                                                scale_factor)
     try:
         logString = spawnMatlabJob(matlabFunctionCallString)
         return (matlabFunctionCallString, logString)
