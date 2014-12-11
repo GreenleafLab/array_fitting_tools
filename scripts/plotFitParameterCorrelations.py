@@ -79,8 +79,8 @@ for i, bindingSeriesFilename in bindingSeriesFilenameParts.items():
                                         })
 
 # fit
-threshold = 0.01
-fmax_upperbound = np.max(table[7])
+threshold = 5 # %
+fmax_upperbound = np.max(table[7])*10
 fmax_lowerbound = np.percentile(null_scores, 100-threshold)
 fmax_initial = np.nan # define this per cluster
 
@@ -103,7 +103,7 @@ workerPool.close()
 workerPool.join()
 # save results
 fitParameters = IMlibs.joinTogetherFitParts(fitParametersFilenameParts)
-for name in fitParameters: table_reduced[name] = fitParameters[name]
+#for name in fitParameters: table_reduced[name] = fitParameters[name]
 
 #### plot histograms ####
 dirname = 'binding_curves_wc'
@@ -113,42 +113,75 @@ subset_above = np.arange(num_clusters)[np.array(fitParameters['qvalue'] > 0.05)]
 
 # delta G
 parameter = 'dG'
-xbins = np.arange(-18, -1.5, 0.25)-0.125
+numbins = 50.0
+binsize = (dG_upperbound - dG_lowerbound)/numbins
+xbins = np.arange(dG_lowerbound, dG_upperbound+2*binsize, binsize)-binsize/2
 ax = plotHistogram(fitParameters, parameter, subset_above, subset_below, xbins=xbins)
-ax.set_xlim((-19, -1))
+ax.set_xlim((dG_lowerbound, dG_upperbound))
 plt.savefig('%s/deltaG.histogram.png'%(dirname))
 
 # fmax
 parameter = 'fmax'
-xbins = np.arange(0, 3, 0.1)-0.05
+numbins = 50.0
+binsize = (fmax_upperbound - fmax_lowerbound)/numbins
+xbins = np.arange(fmax_lowerbound, fmax_upperbound+binsize*2, binsize)-binsize/2
 ax = plotHistogram(fitParameters, parameter, subset_above, subset_below, xbins=xbins)
-ax.set_xlim((0, 3))
+ax.set_xlim((fmax_lowerbound, fmax_upperbound))
+plt.xticks(rotation=70)
+plt.subplots_adjust(bottom=0.2)
+plt.savefig('%s/%s.histogram.png'%(dirname, parameter))
+
+# fmax
+parameter = 'fmax'
+numbins = 50.0
+fmax_upperbound_zoom = 2000
+binsize = (upperbound_zoom - fmax_lowerbound)/numbins
+xbins = np.arange(fmax_lowerbound, upperbound_zoom+binsize*2, binsize)-binsize/2
+ax = plotHistogram(fitParameters, parameter, subset_above, subset_below, xbins=xbins)
+ax.set_xlim((fmax_lowerbound, upperbound_zoom))
+plt.xticks(rotation=70)
+plt.subplots_adjust(bottom=0.2)
+plt.savefig('%s/%s.zoom.histogram.png'%(dirname, parameter))
+
+# fmin
+parameter = 'fmin'
+binsize = (np.max(fitParameters['fmin']) - fmin_lowerbound)/numbins
+xbins = np.arange(fmin_lowerbound, np.max(fitParameters['fmin'])+binsize*2, binsize)-binsize/2
+ax = plotHistogram(fitParameters, parameter, subset_above, subset_below, xbins=xbins)
+plt.xticks(rotation=70)
+plt.ylim((0, 3000))
+plt.subplots_adjust(bottom=0.2)
 plt.savefig('%s/%s.histogram.png'%(dirname, parameter))
 
 # fmin
 parameter = 'fmin'
-xbins = np.arange(0, 0.11, 0.005)-0.0025
+fmin_upperbound_zoom = 1000
+binsize = (upperbound_zoom - fmin_lowerbound)/numbins
+xbins = np.arange(fmin_lowerbound, upperbound_zoom+binsize*2, binsize)-binsize/2
 ax = plotHistogram(fitParameters, parameter, subset_above, subset_below, xbins=xbins)
-plt.xticks(rotation=70)    
-plt.savefig('%s/%s.histogram.png'%(dirname, parameter))
+plt.xticks(rotation=70)
+plt.ylim((0, 3000))
+plt.subplots_adjust(bottom=0.2)
+plt.savefig('%s/%s.zoom.histogram.png'%(dirname, parameter))
 
 #### plot correlations ####
 
 # delta G versus fmax
-subset = np.arange(num_clusters)[np.array(fitParameters['qvalue'] < 0.01)]
+subset = np.arange(num_clusters)[np.array(fitParameters['qvalue'] < 0.05)]
 p1_name = 'dG'
 p2_name = 'fmax'
 c_name = 'rsq'
+ax.set_xlim((dG_lowerbound, dG_upperbound))
 ax = plotScatterplot(fitParameters, p1_name, p2_name, c_name, vmin=0, vmax=1)
 plt.savefig('%s/%s_vs_%s.color%s.all.histogram.png'%(dirname, p1_name, p2_name, c_name))
-ax.set_ylim((0, 2))
-ax.set_xlim((-14, -2))
+ax.set_ylim((0, fmax_upperbound_zoom))
+
 plt.savefig('%s/%s_vs_%s.color%s.all.zoom.histogram.png'%(dirname, p1_name, p2_name, c_name))
 
 ax = plotScatterplot(fitParameters, p1_name, p2_name, c_name, subset, vmin=0, vmax=1)
+ax.set_xlim((dG_lowerbound, dG_upperbound))
 plt.savefig('%s/%s_vs_%s.color%s.below_qvalue.histogram.png'%(dirname, p1_name, p2_name, c_name))
-ax.set_ylim((0, 2))
-ax.set_xlim((-14, -2))
+ax.set_ylim((0, fmax_upperbound_zoom))
 plt.savefig('%s/%s_vs_%s.color%s.below_qvalue.zoom.histogram.png'%(dirname, p1_name, p2_name, c_name))
 
 # delta G versus fmin
@@ -158,15 +191,13 @@ p2_name = 'fmin'
 c_name = 'rsq'
 ax = plotScatterplot(fitParameters, p1_name, p2_name, c_name, vmin=0, vmax=1)
 plt.savefig('%s/%s_vs_%s.color%s.all.histogram.png'%(dirname, p1_name, p2_name, c_name))
-ax.set_ylim((-0.01, 0.11))
 ax.set_xlim((-14, -2))
-plt.savefig('%s/%s_vs_%s.color%s.all.zoom.histogram.png'%(dirname, p1_name, p2_name, c_name))
+#plt.savefig('%s/%s_vs_%s.color%s.all.zoom.histogram.png'%(dirname, p1_name, p2_name, c_name))
 
 ax = plotScatterplot(fitParameters, p1_name, p2_name, c_name, subset, vmin=0, vmax=1)
 plt.savefig('%s/%s_vs_%s.color%s.below_qvalue.histogram.png'%(dirname, p1_name, p2_name, c_name))
-ax.set_ylim((-0.01, 0.11))
 ax.set_xlim((-14, -2))
-plt.savefig('%s/%s_vs_%s.color%s.below_qvalue.zoom.histogram.png'%(dirname, p1_name, p2_name, c_name))
+#plt.savefig('%s/%s_vs_%s.color%s.below_qvalue.zoom.histogram.png'%(dirname, p1_name, p2_name, c_name))
 
 # fmin vs fmax
 subset = np.arange(num_clusters)[np.array(fitParameters['qvalue'] < 0.05)]

@@ -19,13 +19,16 @@ function fitBindingCurve(bindingCurveFilename, min_constraints, max_constraints,
     
     % set default initial guess
     if ~exist('scale_factor', 'var');
-        scale_factor = 1
+        scale_factor = 1;
     end
     
     fmax_pos = 1;
     dG_pos = 2;
     fmin_pos = 3;
-
+    
+    change_fmax_init = isnan(initial_points(fmax_pos));
+    change_fmin_ub = isnan(max_constraints(fmin_pos));
+    
     %% cycle through each row and fit
     for i=1:numtottest;
         frac_bound = binding_curves(i,:);
@@ -34,8 +37,10 @@ function fitBindingCurve(bindingCurveFilename, min_constraints, max_constraints,
         f = @CurveFitFun.findBindingCurve;
         
         % fine tune initial parameters
-        if isnan(max_constraints(fmin_pos)); max_constraints(fmin_pos) = max(min(frac_bound)*2, 0.1); end
-        if isnan(initial_points(fmax_pos)); initial_points(fmax_pos) = all_cluster(i); end
+        if change_fmin_ub; max_constraints(fmin_pos) = max(min(frac_bound)*2, 0.1); end
+        if change_fmax_init;
+            initial_points(fmax_pos) = all_cluster(i)*scale_factor;
+        end
  
         if length(indx) < 3 || ~isfinite(sum((f(initial_points, concentrations(indx)) - frac_bound(indx)).^2));
             fprintf('Skipping iteration %d of %d\n', i, numtottest)

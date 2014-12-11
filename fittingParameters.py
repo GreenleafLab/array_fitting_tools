@@ -49,15 +49,21 @@ class Parameters():
         self.barcode_col = 7 # 1 indexed
         self.sequence_col = 5 # 1 indexed
         
+        # estimate conversion of f_abs_red to f_abs_green
+        self.scale_factor = self.find_scale_factor(f_abs_green, f_abs_red, subset_index=f_abs_green>self.find_fmax_lowerbound(f_abs_green_nonbinders, self.fdr_cutoff) )
+    
         # fit stability
         self.vary_fmax_lowerbounds = np.linspace(0, 1000, 11)
         self.vary_mx_factor_fmax = np.logspace(-1, 4, 11)
         self.vary_fmax_upperbounds = np.array([self.find_fmax_upperbound(f_abs_green, mx_factor_fmax) for mx_factor_fmax in self.vary_mx_factor_fmax])
+        
+        self.vary_scale_factor = np.logspace(-2, 2, 11) # to vary fmax initial guess
+        
         self.vary_dG_initial = np.linspace(self.fitParameters['dG']['lowerbound'],
                                            self.fitParameters['dG']['upperbound'], 11)
-        
-        self.scale_factor = self.find_scale_factor(f_abs_green, f_abs_red, subset_index=f_abs_green>self.find_fmax_lowerbound(f_abs_green_nonbinders, self.fdr_cutoff) )
-        
+        self.vary_fmin_upperbound = np.hstack((np.logspace(1, np.log10(5000), 10), np.nan))
+
+
 
     def find_fmax_upperbound(self, f_abs_green, scale_factor=None):
         if scale_factor is None:
