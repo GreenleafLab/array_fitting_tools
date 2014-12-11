@@ -236,7 +236,7 @@ def matchCPsignalToLibrary(barcodeToSequenceFilename, sortedAllCPsignalFile, seq
     return
 
 def findKds(bindingSeriesFilename, outputFilename, fmax_min, fmax_max, fmax_initial, kd_min, kd_max, kd_initial, fmin_min, fmin_max, fmin_initial, scale_factor):
-    matlabFunctionCallString = "fitBindingCurve('%s', [%4.2f, %4.2f, %4.2f], [%4.2f, %4.2f, %4.2f], '%s', [%4.2f, %4.2f, %4.2f], '%4.2f' );"%(bindingSeriesFilename,
+    matlabFunctionCallString = "fitBindingCurve('%s', [%4.2f, %4.2f, %4.2f], [%4.2f, %4.2f, %4.2f], '%s', [%4.2f, %4.2f, %4.2f], %4.2f );"%(bindingSeriesFilename,
                                                                                                                 
                                                                                                                 fmax_min, kd_min, fmin_min,
                                                                                                                 fmax_max, kd_max, fmin_max,
