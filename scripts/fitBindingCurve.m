@@ -1,6 +1,6 @@
 % use this function to return the fivt parameters in a new file
 
-function fitBindingCurve(bindingCurveFilename, min_constraints, max_constraints, outputFitFilename, initial_points)
+function fitBindingCurve(bindingCurveFilename, min_constraints, max_constraints, outputFitFilename, initial_points, scale_factor)
     %%
     % load binding curves
     load(bindingCurveFilename);
@@ -18,8 +18,8 @@ function fitBindingCurve(bindingCurveFilename, min_constraints, max_constraints,
     options = optimset('Display', 'off');
     
     % set default initial guess
-    if ~exist('initial_points', 'var');
-        initial_points = [0.5,400, 0];
+    if ~exist('scale_factor', 'var');
+        scale_factor = 1
     end
     
     fmax_pos = 1;
@@ -28,16 +28,17 @@ function fitBindingCurve(bindingCurveFilename, min_constraints, max_constraints,
 
     %% cycle through each row and fit
     for i=1:numtottest;
-        frac_bound = binding_curves(i,:)./all_cluster(i);
+        frac_bound = binding_curves(i,:);
         qvalue(i) = CurveFitFun.findFDR(binding_curves(i, end), null_scores);
         indx = find(~isnan(frac_bound));
         f = @CurveFitFun.findBindingCurve;
         
         % fine tune initial parameters
-        max_constraints(fmin_pos) = min(min(frac_bound)*2, max_constraints(fmin_pos))
+        if isnan(max_constraints(fmin_pos)); max_constraints(fmin_pos) = max(min(frac_bound)*2, 0.1); end
+        if isnan(initial_points(fmax_pos)); initial_points(fmax_pos) = all_cluster(i); end
  
         if length(indx) < 3 || ~isfinite(sum((f(initial_points, concentrations(indx)) - frac_bound(indx)).^2));
-            fprintf('Skipping iteration %d of %d', i, numtottest)
+            fprintf('Skipping iteration %d of %d\n', i, numtottest)
             continue
         else
             % fit
@@ -51,7 +52,7 @@ function fitBindingCurve(bindingCurveFilename, min_constraints, max_constraints,
             SSresid = fval;
             SStotal = sum((frac_bound(indx) - mean(frac_bound(indx))).^2);
             rsq(i) = 1 - SSresid/SStotal;
-            exit_flag(i) = exitflag
+            exit_flag(i) = exitflag;
             [~,R] = qr(jacobian,0);
             mse = sum(abs(residual).^2)/(size(jacobian,1)-size(jacobian,2));
             Rinv = inv(R);
