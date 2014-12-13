@@ -64,10 +64,9 @@ args = parser.parse_args()
 #add global vars path to system
 if args.fitting_parameters_path is not None:
     sys.path.insert(0, args.fitting_parameters_path)
-
-# import parameters
 import fittingParameters
-parameters = fittingParameters.Parameters()
+
+
 
 # FUNCITONS
 def collectLogs(inLog): #multiprocessing callback function to collect the output of the worker processes
@@ -86,6 +85,8 @@ print 'Finding CPfluor files in directories given in "%s"...'%args.CPfluor_dirs_
 fluor_dirs_red, fluor_dirs, concentrations = IMlibs.loadMapFile(args.CPfluor_dirs_to_quantify)
 fluorNamesByTileDict = IMlibs.getFluorFileNames(fluor_dirs, tileList)
 fluorNamesByTileRedDict = IMlibs.getFluorFileNames(fluor_dirs_red, tileList)
+
+
 
 # initiate multiprocessing
 if args.num_cores is None:
@@ -176,6 +177,9 @@ if np.sum(already_exist) < len(filteredCPseqFilenameDict):
 
 
 ################ Map to variants ################
+barcode_col = 7 # used to set these in fitting parameters, but  now that requires knowledge of signals.
+sequence_col = 5 
+
 if args.barcode_dir is not None:
     barcode_directory = args.barcode_dir
 else:
@@ -195,7 +199,7 @@ if os.path.isfile(sortedAllCPsignalFile):
     print 'Sorted and concatenated CPsignal file exists "%s". Skipping...'%sortedAllCPsignalFile
 else:
     print 'Making sorted and concatenated CPsignal file "%s"...'%sortedAllCPsignalFile
-    IMlibs.sortConcatenateCPsignal(reducedSignalNamesByTileDict, parameters.barcode_col, sortedAllCPsignalFile)
+    IMlibs.sortConcatenateCPsignal(reducedSignalNamesByTileDict, barcode_col, sortedAllCPsignalFile)
 
 # map barcodes to consensus
 compressedBarcodeFile = IMlibs.getCompressedBarcodeFilename(sortedAllCPsignalFile)
@@ -203,7 +207,7 @@ if os.path.isfile(compressedBarcodeFile):
     print 'Compressed barcode file exists "%s". Skipping...'%compressedBarcodeFile
 else:
     print 'Making compressed barcode file "%s"...'%compressedBarcodeFile
-    IMlibs.compressBarcodes(sortedAllCPsignalFile, parameters.barcode_col, parameters.sequence_col, compressedBarcodeFile)
+    IMlibs.compressBarcodes(sortedAllCPsignalFile, barcode_col, sequence_col, compressedBarcodeFile)
 
 # map barcode to sequence
 barcodeToSequenceFilename = IMlibs.getBarcodeMapFilename(compressedBarcodeFile)
@@ -221,7 +225,7 @@ else:
     print 'Making annotated CPsignal file "%s"...'%annotatedSignalFilename
     IMlibs.matchCPsignalToLibrary(barcodeToSequenceFilename, sortedAllCPsignalFile, annotatedSignalFilename)
 
-# get binding series
+################ Fit ################
 fittedBindingFilename = IMlibs.getFittedFilename(annotatedSignalFilename)
 
 if os.path.isfile(fittedBindingFilename):
@@ -235,40 +239,26 @@ else:
     bindingSeriesFilenameParts = IMlibs.getBindingSeriesFilenameParts(annotatedSignalFilename, numCores)
     fitParametersFilenameParts = IMlibs.getfitParametersFilenameParts(bindingSeriesFilenameParts)
     null_scores = IMlibs.loadNullScores(signalNamesByTileDict, filterSet)
-    
-    # split into parts and fit
-    resultList = {}
-    workerPool = multiprocessing.Pool(processes=numCores) #create a multiprocessing pool that uses at most the specified number of cores
+
+    # split into parts 
     for i, bindingSeriesFilename in bindingSeriesFilenameParts.items():
         sio.savemat(bindingSeriesFilename, {'concentrations':concentrations,
                                             'binding_curves': bindingSeriesSplit[i].astype(float),
                                             'all_cluster':allClusterSignalSplit[i].astype(float),
                                             'null_scores':null_scores,
                                             })
-        workerPool.apply_async(IMlibs.findKds, args=(bindingSeriesFilename, fitParametersFilenameParts[i],
-                                                     parameters.fmax_min, parameters.fmax_max, parameters.fmax_initial,
-                                                     parameters.dG_min, parameters.dG_max, parameters.dG_initial,
-                                                     parameters.fmin_min, parameters.fmin_max, parameters.fmin_initial),
-                               )
-    workerPool.close()
-    workerPool.join()
-    
-    #print logs
-    for currFile,currLog in resultList.items():
-        print '[++++++++++++++++++++++++++++++ MATLAB ANALYSE IMAGE LOG FOR ' + currFile + ' ++++++++++++++++++++++++++++++]'
-        print currLog[-100:]
-    
-    # remove binding series filenames
-    IMlibs.removeFilenameParts(bindingSeriesFilenameParts)
-    
-    # join together parts
-    fitParameters = IMlibs.joinTogetherFitParts(fitParametersFilenameParts)
+    # set fit parameters
+    parameters = fittingParameters.Parameters(concentrations, bindingSeries[:,-1], allClusterSignal, null_scores)
+    fitParameters = IMlibs.fitSetKds(fitParametersFilenameParts, bindingSeriesFilenameParts, parameters.fitParameters, parameters.scale_factor)
     
     # save fittedBindingFilename
     fitParametersFilename = IMlibs.getFitParametersFilename(annotatedSignalFilename)
     IMlibs.saveDataFrame(fitParameters, fitParametersFilename, index=False, float_format='%4.3f')
     IMlibs.removeFilenameParts(fitParametersFilenameParts)
     IMlibs.makeFittedCPsignalFile(fitParametersFilename,annotatedSignalFilename, fittedBindingFilename)
+    
+    # remove binding series filenames
+    IMlibs.removeFilenameParts(bindingSeriesFilenameParts)
     
 # Reduce by Variant
 perVariantFilename = IMlibs.getPerVariantFilename()

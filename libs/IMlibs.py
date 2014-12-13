@@ -8,6 +8,7 @@ import time
 import re
 import uuid
 import subprocess
+import multiprocessing
 import numpy as np
 import pandas as pd
 import scipy.io as sio
@@ -234,6 +235,20 @@ def matchCPsignalToLibrary(barcodeToSequenceFilename, sortedAllCPsignalFile, seq
     print "python %s -b %s -i %s -o %s "%(script, barcodeToSequenceFilename, sortedAllCPsignalFile, sequenceToLibraryFilename)
     os.system("python %s -b %s -i %s -o %s "%(script, barcodeToSequenceFilename, sortedAllCPsignalFile, sequenceToLibraryFilename))
     return
+
+def fitSetKds(fitParametersFilenameParts, bindingSeriesFilenameParts, initialFitParameters, scale_factor):
+    workerPool = multiprocessing.Pool(processes=len(bindingSeriesFilenameParts)) #create a multiprocessing pool that uses at most the specified number of cores
+    for i, bindingSeriesFilename in bindingSeriesFilenameParts.items():
+        result = workerPool.apply_async(findKds, args=(bindingSeriesFilename, fitParametersFilenameParts[i],
+                                                     initialFitParameters['fmax']['lowerbound'], initialFitParameters['fmax']['upperbound'], initialFitParameters['fmax']['initial'],
+                                                     initialFitParameters['dG']['lowerbound'],   initialFitParameters['dG']['upperbound'],   initialFitParameters['dG']['initial'],
+                                                     initialFitParameters['fmin']['lowerbound'], initialFitParameters['fmin']['upperbound'], initialFitParameters['fmin']['initial'],
+                                                     scale_factor,)
+                               )
+    workerPool.close()
+    workerPool.join()
+    fitParameters = joinTogetherFitParts(fitParametersFilenameParts)
+    return fitParameters
 
 def findKds(bindingSeriesFilename, outputFilename, fmax_min, fmax_max, fmax_initial, kd_min, kd_max, kd_initial, fmin_min, fmin_max, fmin_initial, scale_factor):
     matlabFunctionCallString = "fitBindingCurve('%s', [%4.2f, %4.2f, %4.2f], [%4.2f, %4.2f, %4.2f], '%s', [%4.2f, %4.2f, %4.2f], %4.2f );"%(bindingSeriesFilename,

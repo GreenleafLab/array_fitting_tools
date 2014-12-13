@@ -170,8 +170,8 @@ if __name__ == '__main__':
     
     # define some parameters
     parameters = fittingParameters.Parameters(concentrations,
-                                              table_reduced[7],
-                                              table_reduced['all_cluster_signal'],
+                                              table[7],
+                                              table['all_cluster_signal'],
                                               null_scores)
     num_clusters = len(table_reduced)
     dirname = 'binding_curves_rigid/fit_no_norm_figs'
@@ -371,13 +371,118 @@ if __name__ == '__main__':
     plt.savefig('%s/%s_vs_%s.color%s.%s_qvalue.zoom.scatterplot.png'%(dirname, p1_name, p2_name, c_name, labels[below_fdr_indx]))
     
     # also compare correlation of dG to fmax at different thresholds
-    thresholds = np.logspace(-2, 2)
-    correlation = np.array([st.spearmanr(fitParameters['dG'][np.array(fitParameters['qvalue']<threshold)], fitParameters['fmax'][np.array(fitParameters['qvalue']<threshold)])[0] for threshold in thresholds])
-    correlation_var = np.array([st.spearmanr(fitParameters['dG'][np.array(fitParameters['qvalue']<threshold)], fitParameters['fmax'][np.array(fitParameters['qvalue']<threshold)])[1] for threshold in thresholds])
+    thresholds = np.logspace(-3, 0)
+    p1_name = 'fmin'
+    p2_name = 'fmax'
+    correlation = np.array([st.spearmanr(fitParameters[p1_name][np.array(fitParameters['qvalue']<threshold)], fitParameters[p2_name][np.array(fitParameters['qvalue']<threshold)])[0] for threshold in thresholds])
+    correlation_var = np.array([st.spearmanr(fitParameters[p1_name][np.array(fitParameters['qvalue']<threshold)], fitParameters[p2_name][np.array(fitParameters['qvalue']<threshold)])[1] for threshold in thresholds])
     fig = plt.figure()
-    ax = fig.add_subplot(111)
+    ax2 = fig.add_subplot(211)
+    ax2.bar(np.arange(len(thresholds)), [np.sum(fitParameters['qvalue']<threshold)/float(len(fitParameters)) for threshold in thresholds])
+    ax2.xaxis.set_major_locator(plt.NullLocator())
+    ax2.set_ylabel('fraction of clusters passing')
+    ax = fig.add_subplot(212)
     ax.errorbar(thresholds, correlation, yerr=correlation_var, fmt='o-')
     ax.set_xscale('log')
     ax.set_xlabel('fdr cutoff')
-    ax.set_ylabel('rank correlation dG to fmax')
+    ax.set_ylabel('rank correlation %s to %s'%(p1_name, p2_name))
+    plt.savefig('%s/correlation_%s_to_%s.png'%(dirname, p1_name, p2_name))
     
+    ##### example fmin uppersbound affecting dG #####
+    variation_type = ['fmin', 'upperbound']
+    params = [np.nan, 1e2, 1e3]
+    numtottest = len(params)
+    fitParametersFinal = ['']*numtottest
+    for i in range(numtottest):
+        initialFitParameters = parameters.fitParameters.copy()
+        initialFitParameters[variation_type[0]][variation_type[1]] = params[i] 
+        fitParametersFinal[i] = fit_one(fitParametersFilenameParts, bindingSeriesFilename,initialFitParameters,parameters.scale_factor)
+    # plot
+    subset_indx = np.all((np.abs(fitParametersFinal[1]['dG']-fitParametersFinal[0]['dG']) > fitParametersFinal[1]['dG_var'],
+                          np.abs(fitParametersFinal[2]['dG']-fitParametersFinal[0]['dG']) > fitParametersFinal[2]['dG_var']), axis=0)
+    for loc in [0,1,2,3,4,5]:
+        for i in range(numtottest):
+            for name in fitParametersFinal[i]: table_reduced[name] = np.array(fitParametersFinal[i][name])
+            variantFun.plotCluster(table_reduced[subset_indx].iloc[loc], concentrations)
+            plt.title('%s = %4.1f'%(' '.join(variation_type), params[i]))
+            plt.savefig('%s/example_binding_curves.%s_%s_%4.2f.cluster_%d.pdf'%(dirname,variation_type[0], variation_type[1], params[i], table_reduced[subset_indx].iloc[loc].name ))
+            
+    ##### example fmax lowerbound affecting dG #####
+    variation_type = ['fmax', 'lowerbound']
+    params = [0, 300, 600]
+    numtottest = len(params)
+    fitParametersFinal = ['']*numtottest
+    for i in range(numtottest):
+        initialFitParameters = parameters.fitParameters.copy()
+        initialFitParameters[variation_type[0]][variation_type[1]] = params[i] 
+        fitParametersFinal[i] = fit_one(fitParametersFilenameParts, bindingSeriesFilename,initialFitParameters,parameters.scale_factor)    
+    subset_indx = np.all((np.abs(fitParametersFinal[1]['dG']-fitParametersFinal[0]['dG']) > fitParametersFinal[1]['dG_var'],
+                          np.array(fitParametersFinal[1]['qvalue'] > threshold)), axis=0)
+    for loc in range(1, 5):
+        for i in range(2):
+            for name in fitParametersFinal[i]: table_reduced[name] = np.array(fitParametersFinal[i][name])
+            variantFun.plotCluster(table_reduced[subset_indx].iloc[loc], concentrations)
+            plt.title('%s = %4.1f'%(' '.join(variation_type), params[i]))
+            plt.ylim((0, 600))
+            plt.savefig('%s/example_binding_curves.%s_%s_%4.2f.cluster_%d.pdf'%(dirname,variation_type[0], variation_type[1], params[i], table_reduced[subset_indx].iloc[loc].name ))
+            
+    
+    ##### what about if you leave off last point? #####
+    numtottest = 9
+    fitParametersFinal = ['']*numtottest
+    variation_type = ['dG', 'numpoints']
+    
+    # all points
+    a = range(8)
+    indx = a
+    for i, bindingSeriesFilename in bindingSeriesFilenameParts.items():
+        sio.savemat(bindingSeriesFilename, {'concentrations':concentrations[indx],
+                                            'binding_curves': bindingSeriesSplit[i][:, indx].astype(float),
+                                            'all_cluster':allClusterSignalSplit[i].astype(float),
+                                            'null_scores':null_scores,
+                                            })
+    fitParametersFinal[0] = fit_one(fitParametersFilenameParts, bindingSeriesFilename,parameters.fitParameters,parameters.scale_factor)
+    
+    # missing one point
+    for j in range(8):
+        # remove last binding point
+        a = range(8)
+        a.remove(j)
+        indx = a
+        for i, bindingSeriesFilename in bindingSeriesFilenameParts.items():
+            sio.savemat(bindingSeriesFilename, {'concentrations':concentrations[indx],
+                                                'binding_curves': bindingSeriesSplit[i][:, indx].astype(float),
+                                                'all_cluster':allClusterSignalSplit[i].astype(float),
+                                                'null_scores':null_scores,
+                                                })
+        fitParametersFinal[j+1] =  fit_one(fitParametersFilenameParts, bindingSeriesFilename,parameters.fitParameters,parameters.scale_factor)
+        
+    # histogram
+    labels = np.hstack(('all', ['missing point %d'%i for i in range(1,9)]))
+    fitParameters = fitParametersFinal[0]
+    subset = np.arange(num_clusters)[np.array(fitParameters['qvalue'] < threshold)]
+    parameter = 'dG'
+    numbins = 50.0
+    binsize = (parameters.fitParameters[parameter]['upperbound'] - parameters.fitParameters[parameter]['lowerbound'])/numbins
+    xbins = np.arange(parameters.fitParameters[parameter]['lowerbound'], parameters.fitParameters[parameter]['upperbound']+binsize*2, binsize)-binsize/2
+    histogram.compare([fitParametersFinal[i][parameter].iloc[subset] for i in range(numtottest)],
+        cmap='Paired', xbins=xbins, normalize=False, labels = labels)
+    plt.xlabel(parameter)
+    plt.ylabel('number')
+    plt.ylim((0, 500))
+    plt.savefig('%s/%s_stability.below_qvalue.histogram_dGs.png'%(dirname, '_'.join(variation_type)))
+    
+    # plot
+    resulting_dGs = np.array([fitParametersFinal[i]['dG'] for i in range(numtottest)])
+    resulting_var_dGs = np.array([fitParametersFinal[i]['dG_var'] for i in range(numtottest)])
+
+    varying_params = range(numtottest)
+    indx_to_compare = 0
+    for i in range(2):
+        ax = plotErrorBarGraph(varying_params, resulting_dGs, resulting_var_dGs, variation_type,
+                               subset=subsets[i], color=colors[i], indx_0=indx_to_compare)
+        plt.savefig('%s/%s_stability.%s_qvalue.png'%(dirname, '_'.join(variation_type), labels[i]))
+    ax = plotFracAffectedGraph(varying_params, resulting_dGs, resulting_var_dGs, subsets, colors, labels, indx_0=indx_to_compare)
+    plt.savefig('%s/%s_stability.fraction_below_var.pdf'%(dirname, '_'.join(variation_type)))
+    ax.set_ylim((0, 0.2))
+    plt.savefig('%s/%s_stability.fraction_below_var.zoom.pdf'%(dirname, '_'.join(variation_type)))

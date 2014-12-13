@@ -66,14 +66,15 @@ def plotBoxplot(data, labels):
 def plotCluster(series, concentrations, name=None):
     if name is None:
         name = '%4.0f'%(series['variant_number'])
+    parameters = Parameters()
+    series['kd'] = np.exp(series['dG']/parameters.RT)/1E-9
     fig = plt.figure(figsize=(4,4))
     ax = fig.add_subplot(111)
-    ax.plot(concentrations, [series[i]/series['all_cluster_signal'] for i in range(8)], 'o')
+    ax.plot(concentrations, [series[i] for i in range(8)], 'o')
     ax.plot(np.logspace(-1, 4, 50), bindingCurve(np.logspace(-1, 4, 50), series['kd'], series['fmax'], series['fmin']),'k')
     ax.set_xscale('log')
     ax.set_xlabel('concentration (nM)')
     ax.set_ylabel('normalized fluorescence')
-    ax.set_ylim((0, 1.5))
     plt.title(name)
     plt.tight_layout()
     return
@@ -93,6 +94,7 @@ def plotVariant(sub_table, concentrations, name=None, to_filter=None):
     binding_curves = np.array([np.array(sub_table[i]) for i in range(num_concentrations)])
     frac_bound = np.median(binding_curves, axis=1)
     [percentile25, percentile75] = np.percentile(binding_curves, [25,75],axis=1)
+    sub_table['kd'] = np.exp(sub_table['dG']/parameters.RT)/1E-9
     fig = plt.figure(figsize=(4,4))
     ax = fig.add_subplot(111)
     ax.errorbar(concentrations, frac_bound, yerr=[frac_bound-percentile25, percentile75-frac_bound], fmt='o')

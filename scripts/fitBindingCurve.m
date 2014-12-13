@@ -27,7 +27,6 @@ function fitBindingCurve(bindingCurveFilename, min_constraints, max_constraints,
     fmin_pos = 3;
     
     change_fmax_init = isnan(initial_points(fmax_pos));
-    change_fmin_ub = isnan(max_constraints(fmin_pos));
     
     %% cycle through each row and fit
     for i=1:numtottest;
@@ -37,7 +36,11 @@ function fitBindingCurve(bindingCurveFilename, min_constraints, max_constraints,
         f = @CurveFitFun.findBindingCurve;
         
         % fine tune initial parameters
-        if change_fmin_ub; max_constraints(fmin_pos) = max(min(frac_bound)*2, 0.1); end
+        if ~isnan(frac_bound(1)); % i.e. only further constrain if the first point was fit
+            max_constraints(fmin_pos) = max(min(frac_bound)*2, 0.1);
+        end
+        
+        % change fmax initial to be the all cluster data times a ascale factor converting red to green
         if change_fmax_init;
             initial_points(fmax_pos) = all_cluster(i)*scale_factor;
         end
