@@ -116,7 +116,7 @@ else:
     
 if np.sum(already_exist) < len(filteredCPseqFilenameDict):
     # initiate multiprocessing
-    workerPool = multiprocessing.Pool(processes=numCores) #create a multiprocessing pool that uses at most the specified number of cores
+    #workerPool = multiprocessing.Pool(processes=numCores) #create a multiprocessing pool that uses at most the specified number of cores
     for i, tile in enumerate(tileList):
         if not already_exist[i]:
             currCPseqfile = filteredCPseqFilenameDict[tile]
@@ -125,11 +125,11 @@ if np.sum(already_exist) < len(filteredCPseqFilenameDict):
             currCPseqSignalOut = signalNamesByTileDict[tile]
             print "Making signal file %s from %s"%(currCPseqSignalOut, currCPseqfile)
             # make CP signal files
-            workerPool.apply_async(IMlibs.findCPsignalFile, args=(currCPseqfile, currRedCPfluors, currGreenCPfluors, currCPseqSignalOut))
+            IMlibs.findCPsignalFile(currCPseqfile, currRedCPfluors, currGreenCPfluors, currCPseqSignalOut)
         else:
             print "Signal file %s already exists"%currCPseqSignalOut
-    workerPool.close()
-    workerPool.join()
+    #workerPool.close()
+    #workerPool.join()
 
 
 ################ Reduce signal files ################
@@ -249,7 +249,7 @@ else:
                                             })
     # set fit parameters
     parameters = fittingParameters.Parameters(concentrations, bindingSeries[:,-1], allClusterSignal, null_scores)
-    fitParameters = IMlibs.fitSetKds(fitParametersFilenameParts, bindingSeriesFilenameParts, parameters.fitParameters, parameters.scale_factor)
+    fitParameters = IMlibs.fitSetKds(fitParametersFilenameParts, bindingSeriesFilenameParts, parameters.fitParameters)
     
     # save fittedBindingFilename
     fitParametersFilename = IMlibs.getFitParametersFilename(annotatedSignalFilename)
