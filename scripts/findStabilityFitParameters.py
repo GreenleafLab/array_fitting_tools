@@ -263,15 +263,14 @@ if __name__ == '__main__':
     
     ###### Parameter correlation plots ######
     fitParameters = fit_one(fitParametersFilenameParts, bindingSeriesFilename,parameters.fitParameters,parameters.scale_factor)
-    dG_upperbound = parameters.fitParameters['dG']['upperbound']
-    dG_lowerbound = parameters.fitParameters['dG']['lowerbound']
+
     
     # delta G
     parameter = 'dG'
     numbins = 50.0
     binsize = (parameters.fitParameters[parameter]['upperbound'] - parameters.fitParameters[parameter]['lowerbound'])/numbins
     xbins = np.arange(parameters.fitParameters[parameter]['lowerbound'], parameters.fitParameters[parameter]['upperbound']+binsize*2, binsize)-binsize/2
-    ax = plotHistogram(fitParameters, parameter, subsets[0], subsets[1], xbins=xbins)
+    ax = plotHistogram(fitParameters, parameter, subsets[1], subsets[0], xbins=xbins)
     ax.set_xlim((parameters.fitParameters[parameter]['lowerbound'], parameters.fitParameters[parameter]['upperbound']))
     plt.savefig('%s/deltaG.histogram.png'%(dirname))
     
@@ -280,7 +279,7 @@ if __name__ == '__main__':
     numbins = 50.0
     binsize = (parameters.fitParameters[parameter]['upperbound'] - parameters.fitParameters[parameter]['lowerbound'])/numbins
     xbins = np.arange(parameters.fitParameters[parameter]['lowerbound'], parameters.fitParameters[parameter]['upperbound']+binsize*2, binsize)-binsize/2
-    ax = plotHistogram(fitParameters, parameter, subset_above, subset_below, xbins=xbins)
+    ax = plotHistogram(fitParameters, parameter, subsets[1], subsets[0], xbins=xbins)
     ax.set_xlim((parameters.fitParameters[parameter]['lowerbound'], parameters.fitParameters[parameter]['upperbound']))
     plt.xticks(rotation=70)
     plt.subplots_adjust(bottom=0.25)
@@ -292,7 +291,7 @@ if __name__ == '__main__':
     fmax_upperbound_zoom = 2000
     binsize = (fmax_upperbound_zoom - parameters.fitParameters[parameter]['lowerbound'])/numbins
     xbins = np.arange(parameters.fitParameters[parameter]['lowerbound'], fmax_upperbound_zoom+binsize*2, binsize)-binsize/2
-    ax = plotHistogram(fitParameters, parameter, subset_above, subset_below, xbins=xbins)
+    ax = plotHistogram(fitParameters, parameter,  subsets[1], subsets[0], xbins=xbins)
     ax.set_xlim((parameters.fitParameters[parameter]['lowerbound'], fmax_upperbound_zoom))
     plt.xticks(rotation=70)
     plt.subplots_adjust(bottom=0.2)
@@ -303,7 +302,7 @@ if __name__ == '__main__':
     upperbound = 5000
     binsize = (upperbound - parameters.fitParameters[parameter]['lowerbound'])/numbins
     xbins = np.arange(parameters.fitParameters[parameter]['lowerbound'], upperbound+binsize*2, binsize)-binsize/2
-    ax = plotHistogram(fitParameters, parameter, subset_above, subset_below, xbins=xbins)
+    ax = plotHistogram(fitParameters, parameter,  subsets[1], subsets[0], xbins=xbins)
     plt.xticks(rotation=70)
     plt.ylim((0, 3000))
     plt.subplots_adjust(bottom=0.2)
@@ -313,7 +312,7 @@ if __name__ == '__main__':
     fmin_upperbound_zoom = 600
     binsize = (fmin_upperbound_zoom - parameters.fitParameters[parameter]['lowerbound'])/numbins
     xbins = np.arange(parameters.fitParameters[parameter]['lowerbound'], fmin_upperbound_zoom+binsize*2, binsize)-binsize/2
-    ax = plotHistogram(fitParameters, parameter, subset_above, subset_below, xbins=xbins)
+    ax = plotHistogram(fitParameters, parameter,  subsets[1], subsets[0], xbins=xbins)
     plt.xticks(rotation=70)
     plt.ylim((0, 3000))
     plt.subplots_adjust(bottom=0.2)
