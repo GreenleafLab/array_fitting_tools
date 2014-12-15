@@ -126,8 +126,7 @@ if np.sum(already_exist) < len(filteredCPseqFilenameDict):
             print "Making signal file %s from %s"%(currCPseqSignalOut, currCPseqfile)
             # make CP signal files
             IMlibs.findCPsignalFile(currCPseqfile, currRedCPfluors, currGreenCPfluors, currCPseqSignalOut)
-        else:
-            print "Signal file %s already exists"%currCPseqSignalOut
+
     #workerPool.close()
     #workerPool.join()
 
@@ -249,7 +248,7 @@ else:
                                             })
     # set fit parameters
     parameters = fittingParameters.Parameters(concentrations, bindingSeries[:,-1], allClusterSignal, null_scores)
-    fitParameters = IMlibs.fitSetKds(fitParametersFilenameParts, bindingSeriesFilenameParts, parameters.fitParameters)
+    fitParameters = IMlibs.fitSetKds(fitParametersFilenameParts, bindingSeriesFilenameParts, parameters.fitParameters, parameters.scale_factor)
     
     # save fittedBindingFilename
     fitParametersFilename = IMlibs.getFitParametersFilename(annotatedSignalFilename)
