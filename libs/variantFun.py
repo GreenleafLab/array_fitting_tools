@@ -20,26 +20,25 @@ class Parameters():
         self.min_deltaG = -12
         self.max_deltaG = -3
         
-def perVariantInfo(table):
-    variants = np.arange(0, np.max(table['variant_number']))
-    columns = [name for name in table][:12] + ['numTests', 'numRejects', 'kd', 'dG', 'fmax', 'fmin']
+def perVariantInfo(table, variants=None):
+    if variants is None:
+        variants = np.arange(0, np.max(table['variant_number']))
+    columns = [name for name in table][:12] + ['numTests', 'numRejects', 'dG', 'fmax', 'fmin', 'qvalue']
     newtable = pd.DataFrame(columns=columns, index=np.arange(len(variants)))
     for i, variant in enumerate(variants):
         if i%1000==0: print 'computing iteration %d'%i
         sub_table = table[table['variant_number']==variant]
         if len(sub_table) > 0:
-            sub_table_filtered = filterFitParameters(sub_table)[['kd', 'dG', 'fmax', 'fmin']]
+            sub_table_filtered = filterFitParameters(sub_table)[['dG', 'fmax', 'fmin', 'qvalue']]
             newtable.iloc[i]['numTests'] = len(sub_table_filtered)
             newtable.iloc[i]['numRejects'] = len(sub_table) - len(sub_table_filtered)
-            newtable.iloc[i]['kd':] = np.median(sub_table_filtered, 0)
+            newtable.iloc[i]['dG':] = np.median(sub_table_filtered, 0)
             newtable.iloc[i][:'total_length'] = sub_table.iloc[0][:'total_length']
     return newtable
         
 
 def filterFitParameters(sub_table):
-    sub_table = sub_table[sub_table['fit_success']==1]
     sub_table = sub_table[sub_table['rsq']>0.5]
-    sub_table = sub_table[sub_table['fraction_consensus']>=67] # 2/3 majority
     return sub_table
 
 def bindingCurve(concentrations, kd, fmax=None, fmin=None):
