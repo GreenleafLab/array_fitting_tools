@@ -138,7 +138,7 @@ if __name__ == '__main__':
     
     #### SCRIPT #####
     # load fitted dGs to be able to get a somewhat reresentative subset
-    fittedBindingFilename = 'binding_curves_rigid/reduced_signals/barcode_mapping/AAYFY_ALL_filtered_tecto_sorted.annotated.CPfitted'
+    fittedBindingFilename = 'binding_curves_rigid_tile456/reduced_signals/barcode_mapping/binding_curves_rigid_filtered_tecto_sorted.annotated.CPfitted'
     table = IMlibs.loadFittedCPsignal(fittedBindingFilename)
     indx_subset = np.array(np.argsort(table['dG'])[np.arange(0, len(table), 100)])
     table_reduced = table.iloc[indx_subset]
@@ -174,7 +174,7 @@ if __name__ == '__main__':
                                               table['all_cluster_signal'],
                                               null_scores)
     num_clusters = len(table_reduced)
-    dirname = 'binding_curves_rigid/fit_no_norm_figs'
+    dirname = 'binding_curves_rigid/fit_no_norm_wtiles456_figs'
     threshold = 0.05
     subsets = [np.arange(num_clusters)[np.array(table_reduced['qvalue'] < threshold)],
                np.arange(num_clusters)[np.array(table_reduced['qvalue'] > threshold)]]
@@ -263,14 +263,16 @@ if __name__ == '__main__':
     
     ###### Parameter correlation plots ######
     fitParameters = fit_one(fitParametersFilenameParts, bindingSeriesFilename,parameters.fitParameters,parameters.scale_factor)
+    num_clusters = len(table)
+    subsets = [np.arange(num_clusters)[np.array(table['qvalue'] < threshold)],
+               np.arange(num_clusters)[np.array(table['qvalue'] > threshold)]]
 
-    
     # delta G
     parameter = 'dG'
     numbins = 50.0
     binsize = (parameters.fitParameters[parameter]['upperbound'] - parameters.fitParameters[parameter]['lowerbound'])/numbins
     xbins = np.arange(parameters.fitParameters[parameter]['lowerbound'], parameters.fitParameters[parameter]['upperbound']+binsize*2, binsize)-binsize/2
-    ax = plotHistogram(fitParameters, parameter, subsets[1], subsets[0], xbins=xbins)
+    ax = plotHistogram(table, parameter, subsets[1], subsets[0], xbins=xbins)
     ax.set_xlim((parameters.fitParameters[parameter]['lowerbound'], parameters.fitParameters[parameter]['upperbound']))
     plt.savefig('%s/deltaG.histogram.png'%(dirname))
     
@@ -279,7 +281,7 @@ if __name__ == '__main__':
     numbins = 50.0
     binsize = (parameters.fitParameters[parameter]['upperbound'] - parameters.fitParameters[parameter]['lowerbound'])/numbins
     xbins = np.arange(parameters.fitParameters[parameter]['lowerbound'], parameters.fitParameters[parameter]['upperbound']+binsize*2, binsize)-binsize/2
-    ax = plotHistogram(fitParameters, parameter, subsets[1], subsets[0], xbins=xbins)
+    ax = plotHistogram(table, parameter, subsets[1], subsets[0], xbins=xbins)
     ax.set_xlim((parameters.fitParameters[parameter]['lowerbound'], parameters.fitParameters[parameter]['upperbound']))
     plt.xticks(rotation=70)
     plt.subplots_adjust(bottom=0.25)
@@ -291,9 +293,10 @@ if __name__ == '__main__':
     fmax_upperbound_zoom = 2000
     binsize = (fmax_upperbound_zoom - parameters.fitParameters[parameter]['lowerbound'])/numbins
     xbins = np.arange(parameters.fitParameters[parameter]['lowerbound'], fmax_upperbound_zoom+binsize*2, binsize)-binsize/2
-    ax = plotHistogram(fitParameters, parameter,  subsets[1], subsets[0], xbins=xbins)
+    ax = plotHistogram(table, parameter,  subsets[1], subsets[0], xbins=xbins)
     ax.set_xlim((parameters.fitParameters[parameter]['lowerbound'], fmax_upperbound_zoom))
     plt.xticks(rotation=70)
+    plt.ylim((0, 200000))
     plt.subplots_adjust(bottom=0.2)
     plt.savefig('%s/%s.zoom.histogram.png'%(dirname, parameter))
     
@@ -302,9 +305,9 @@ if __name__ == '__main__':
     upperbound = 5000
     binsize = (upperbound - parameters.fitParameters[parameter]['lowerbound'])/numbins
     xbins = np.arange(parameters.fitParameters[parameter]['lowerbound'], upperbound+binsize*2, binsize)-binsize/2
-    ax = plotHistogram(fitParameters, parameter,  subsets[1], subsets[0], xbins=xbins)
+    ax = plotHistogram(table, parameter,  subsets[1], subsets[0], xbins=xbins)
     plt.xticks(rotation=70)
-    plt.ylim((0, 3000))
+    plt.ylim((0, 200000))
     plt.subplots_adjust(bottom=0.2)
     plt.savefig('%s/%s.histogram.png'%(dirname, parameter))
     # fmin zoom
@@ -312,9 +315,9 @@ if __name__ == '__main__':
     fmin_upperbound_zoom = 600
     binsize = (fmin_upperbound_zoom - parameters.fitParameters[parameter]['lowerbound'])/numbins
     xbins = np.arange(parameters.fitParameters[parameter]['lowerbound'], fmin_upperbound_zoom+binsize*2, binsize)-binsize/2
-    ax = plotHistogram(fitParameters, parameter,  subsets[1], subsets[0], xbins=xbins)
+    ax = plotHistogram(table, parameter,  subsets[1], subsets[0], xbins=xbins)
     plt.xticks(rotation=70)
-    plt.ylim((0, 3000))
+    plt.ylim((0, 200000))
     plt.subplots_adjust(bottom=0.2)
     plt.savefig('%s/%s.zoom.histogram.png'%(dirname, parameter))
     
@@ -325,13 +328,13 @@ if __name__ == '__main__':
     p1_name = 'dG'
     p2_name = 'fmax'
     c_name = 'rsq'
-    ax = plotScatterplot(fitParameters, p1_name, p2_name, c_name, vmin=0, vmax=1)
+    ax = plotScatterplot(table_reduced, p1_name, p2_name, c_name, vmin=0, vmax=1)
     ax.set_xlim((parameters.fitParameters[p1_name]['lowerbound'], parameters.fitParameters[p1_name]['upperbound']))
     plt.savefig('%s/%s_vs_%s.color%s.all.scatterplot.png'%(dirname, p1_name, p2_name, c_name))
     ax.set_ylim((0, fmax_upperbound_zoom))
     plt.savefig('%s/%s_vs_%s.color%s.all.zoom.scatterplot.png'%(dirname, p1_name, p2_name, c_name))
     
-    ax = plotScatterplot(fitParameters, p1_name, p2_name, c_name, subsets[below_fdr_indx], vmin=0, vmax=1)
+    ax = plotScatterplot(table_reduced, p1_name, p2_name, c_name, subsets[below_fdr_indx], vmin=0, vmax=1)
     ax.set_xlim((parameters.fitParameters[p1_name]['lowerbound'], parameters.fitParameters[p1_name]['upperbound']))
     plt.savefig('%s/%s_vs_%s.color%s.%s_qvalue.scatterplot.png'%(dirname, p1_name, p2_name, c_name, labels[below_fdr_indx]))
     ax.set_ylim((0, fmax_upperbound_zoom))

@@ -38,7 +38,10 @@ def perVariantInfo(table, variants=None):
         
 
 def filterFitParameters(sub_table):
-    sub_table = sub_table[sub_table['rsq']>0.5]
+    binding_curves = np.array([np.array(sub_table[i]) for i in range(8)])
+    num_curves = binding_curves.shape[1]
+    indices = np.arange(num_curves)[np.all((np.array(sub_table['rsq'] > 0.5), np.sum(np.isnan(binding_curves), 0) < 2), axis=0)]
+    sub_table = sub_table.iloc[indices]
     return sub_table
 
 def bindingCurve(concentrations, kd, fmax=None, fmin=None):
@@ -91,13 +94,13 @@ def plotVariant(sub_table, concentrations, name=None, to_filter=None):
     # plot  
     num_concentrations = len(concentrations)
     binding_curves = np.array([np.array(sub_table[i]) for i in range(num_concentrations)])
-    frac_bound = np.median(binding_curves, axis=1)
-    [percentile25, percentile75] = np.percentile(binding_curves, [25,75],axis=1)
-    sub_table['kd'] = np.exp(sub_table['dG']/parameters.RT)/1E-9
+    binding_curves_norm = (binding_curves-np.array(sub_table['fmin']))/np.array(sub_table['fmax'])
+    frac_bound = np.median(binding_curves_norm, axis=1)
+    [percentile25, percentile75] = np.percentile(binding_curves_norm, [25,75],axis=1)
     fig = plt.figure(figsize=(4,4))
     ax = fig.add_subplot(111)
     ax.errorbar(concentrations, frac_bound, yerr=[frac_bound-percentile25, percentile75-frac_bound], fmt='o')
-    ax.plot(np.logspace(-1, 4, 50), bindingCurve(np.logspace(-1, 4, 50), np.median(sub_table['kd']), np.median(sub_table['fmax']), np.median(sub_table['fmin'])),'k')
+    ax.plot(np.logspace(-1, 4, 50), bindingCurve(np.logspace(-1, 4, 50), np.median(sub_table['kd'])),'k')
     ax.set_xscale('log')
     ax.set_xlabel('concentration (nM)')
     ax.set_ylabel('normalized fluorescence')
@@ -106,10 +109,11 @@ def plotVariant(sub_table, concentrations, name=None, to_filter=None):
     plt.tight_layout()
     
     # make histogram
+    binsize = 0.2
     parameters = Parameters()
     fig = plt.figure(figsize=(4,4))
     ax = fig.add_subplot(111)
-    xbins = np.arange(parameters.min_deltaG, parameters.max_deltaG)-0.5
+    xbins = np.arange(parameters.min_deltaG, parameters.max_deltaG+2*binsize, binsize)-binsize*0.5
     histogram.compare([parameters.RT*np.log(sub_table['kd']*1E-9)], bar=True, xbins=xbins, normalize=False )
     ax.set_xlim((parameters.min_deltaG-1, parameters.max_deltaG+1))
     ax.set_xlabel('dG (kcal/mol)')
@@ -118,6 +122,8 @@ def plotVariant(sub_table, concentrations, name=None, to_filter=None):
     plt.title(name)
     plt.tight_layout()
     return
+
+
 
 def plotVariantBoxplots(table, variant_table, helix_context, total_length, loop=None, receptor=None, max_diff_helix_length=None, helix_one_length=None):
     if loop is None:
