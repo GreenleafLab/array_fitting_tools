@@ -91,6 +91,12 @@ ax.legend_=None
 plt.tight_layout()
 plt.savefig(os.path.join(imageDirectory, 'variant_good_tests.histogram.pdf'))
 
+# save colorcoding/markers guide
+variantFun.plotMarkers()
+plt.savefig(os.path.join(imageDirectory, 'markers.guide.pdf'))
+variantFun.plotColors()
+plt.savefig(os.path.join(imageDirectory, 'colors.guide.pdf'))
+
 # plot one set of variants
 criteria_dict = {'junction_sequence': 'TT_T', 'helix_context':'rigid', 'loop':'goodLoop', 'receptor':'R1'}
 variants = variantFun.findVariantNumbers(table, criteria_dict)
