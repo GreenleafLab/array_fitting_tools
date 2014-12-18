@@ -48,11 +48,39 @@ table = IMlibs.loadFittedCPsignal(fittedBindingFilename)
 table['dG'] = parameters.RT*np.log(table['kd']*1E-9)
 
 # get another dict that gives info on a per variant basis
-variantFittedFilename = os.path.splitext(fittedBindingFilename)[0]+'.perVariant.fitParameters'
-variant_table = pd.read_table(variantFittedFilename, index_col=0)
-        
+indx_subset = np.array(np.argsort(table['dG'])[np.arange(0, len(table), 100)])
+variants = np.unique(table['variant_number'].iloc[indx_subset][np.isfinite(table['variant_number'].iloc[indx_subset])])
+perVariant = variantFun.perVariantInfo(table, variants=variants)
 
-# make plots
+variantFittedFilename = os.path.splitext(fittedBindingFilename)[0]+'.perVariant.CPfitted'
+variant_table = pd.read_table(variantFittedFilename, index_col=0)
+
+# plot scatterplots of how qvalue relates to dG
+fig = plt.figure(figsize=(5, 4))
+ax = fig.add_subplot(111)
+#im = ax.scatter(variant_table['dG'].astype(float), -np.log10(variant_table['qvalue']), c=variant_table['fmax'], vmin=200, vmax=2000,alpha=0.1)
+im = ax.scatter(table_reduced['dG'].astype(float), -np.log10(table_reduced['qvalue']), c=table_reduced['fmax'], vmin=200, vmax=2000,alpha=0.1)
+ax.set_xlabel('delta G (kcal/mol)')
+ax.set_ylabel('-log10(qvalue)')
+ax.grid()
+cbar = plt.colorbar(im)
+cbar.set_label('fmax')
+plt.subplots_adjust(bottom=0.15, left=0.15)
+plt.savefig(os.path.join(imageDirectory, 'dG_vs_qvalue.pdf'))
+
+# plot scatterplots of how qvalue relates to dG
+fig = plt.figure(figsize=(5, 5))
+ax = fig.add_subplot(111)
+ax.scatter(variant_table['dG'].astype(float), -np.log10(variant_table['qvalue']), c=variant_table['fmax'], vmin=200, vmax=2000, alpha=0.1)
+ax.set_xlabel('delta G (kcal/mol)')
+ax.set_ylabel('-log10(qvalue)')
+ax.grid()
+plt.subplots_adjust(bottom=0.15, left=0.15)
+plt.savefig(os.path.join(imageDirectory, 'dG_qvalue.pdf'))
+criteria = np.all((np.array(variant_table['qvalue'] < 0.06), np.array(variant_table['qvalue']>0.04)), axis=0)
+histogram.compare([variant_table['dG'][criteria]])
+
+# plot number of measurements per varaint
 fig = plt.figure(figsize=(5, 4))
 ax = fig.add_subplot(111)
 histogram.compare([variant_table['numTests']], bar=True, xbins=np.arange(0, 30)-.5)
@@ -63,6 +91,43 @@ ax.legend_=None
 plt.tight_layout()
 plt.savefig(os.path.join(imageDirectory, 'variant_good_tests.histogram.pdf'))
 
+# plot one set of variants
+criteria_dict = {'junction_sequence': 'TT_T', 'helix_context':'rigid', 'loop':'goodLoop', 'receptor':'R1'}
+variants = variantFun.findVariantNumbers(table, criteria_dict)
+per_variant = variantFun.perVariantInfo(table, variants=variants)
+variantFun.plot_over_coordinate(per_variant)
+plt.savefig(os.path.join(imageDirectory, 'junction_TT_T.central.num_variants.pdf'))
+plt.close()
+plt.savefig(os.path.join(imageDirectory, 'junction_TT_T.central.length_landscape.pdf'))
+# save sequences
+f = open('test.fasta', 'w')
+for i in range(len(per_variant)):
+    header = '>'+'_'.join(np.array(per_variant.loc[i, 'topology':'total_length'], dtype=str))
+    f.write(header + '\n')
+    f.write(per_variant.loc[i, 'sequence'] + '\n')
+f.close()
+# plot another set
+criteria_dict = {'junction_sequence': 'ATT_TT', 'helix_context':'rigid', 'loop':'goodLoop', 'receptor':'R1'}
+variants = variantFun.findVariantNumbers(table, criteria_dict)
+per_variant2 = variantFun.perVariantInfo(table, variants=variants)
+variantFun.plot_over_coordinate(per_variant.append(per_variant2))
+plt.savefig(os.path.join(imageDirectory, 'junction_TT_T.w_ATT_TT.central.num_variants.pdf'))
+plt.close()
+plt.savefig(os.path.join(imageDirectory, 'junction_TT_T.w_ATT_TT.central.length_landscape.pdf'))
+
+seq = '_T'
+criteria_dict = {'junction_sequence': seq, 'helix_context':'rigid', 'loop':'goodLoop', 'receptor':'R1'}
+variants = variantFun.findVariantNumbers(table, criteria_dict)
+per_variant = variantFun.perVariantInfo(table, variants=variants)
+variantFun.plot_over_coordinate(per_variant)
+plt.savefig(os.path.join(imageDirectory,'junction_%s.central.num_variants.pdf'%seq))
+plt.close()
+plt.savefig(os.path.join(imageDirectory,'junction_%s.central.length_landscape.pdf'%seq))
+
+seq = 'TT_TTA'
+criteria_dict = {'junction_sequence': seq, 'helix_context':'rigid', 'loop':'goodLoop', 'receptor':'R1'}
+variants = variantFun.findVariantNumbers(table, criteria_dict)
+per_variant2 = variantFun.perVariantInfo(table, variants=variants)
 # plot rigid
 variant_descriptions = {'rigid':0,
                         'rigid+1':21744,
