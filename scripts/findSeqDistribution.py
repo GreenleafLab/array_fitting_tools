@@ -10,6 +10,8 @@ figure out how many barcodes per designed library variant (d.l.v.), and plot his
 import numpy as np
 from optparse import OptionParser
 import matplotlib.pyplot as plt
+import matplotlib 
+matplotlib.use('Agg')
 import pandas as pd
 import sys
 import os

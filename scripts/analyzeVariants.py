@@ -21,6 +21,8 @@ import scipy.io as sio
 import pandas as pd
 import variantFun
 import IMlibs
+import multiprocessing
+import plotfun
 parameters = variantFun.Parameters()
 
 #set up command line argument parser
@@ -38,14 +40,16 @@ if not len(sys.argv) > 1:
 args = parser.parse_args()
 
 # outdirectory
-imageDirectory = 'imageAnalysis/reduced_signals/barcode_mapping/figs'
+#imageDirectory = 'imageAnalysis/reduced_signals/barcode_mapping/figs'
+imageDirectory  = '/home/namita/RigidAnalysis/figs'
+
 # load concentrations
 xValuesFilename, fluor_dirs_red, fluor_dirs, concentrations = IMlibs.loadMapFile(args.CPfluor_dirs_to_quantify)
 
 # load table
 fittedBindingFilename = args.CPfitted
 table = IMlibs.loadFittedCPsignal(fittedBindingFilename)
-table['dG'] = parameters.RT*np.log(table['kd']*1E-9)
+#table['dG'] = parameters.RT*np.log(table['kd']*1E-9)
 
 # get another dict that gives info on a per variant basis
 variantFittedFilename = os.path.splitext(fittedBindingFilename)[0]+'.perVariant.fitParameters'

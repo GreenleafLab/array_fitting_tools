@@ -10,36 +10,93 @@ import histogram
 import plotfun
 import scipy.io as sio
 import matplotlib.pyplot as plt
-import CPlibs
+#import CPlibs
+import scikits.bootstrap
+import scipy as scipy
+from multiprocessing import Pool
+import functools
 
 class Parameters():
     def __init__(self):
-    
         # save the units of concentration given in the binding series
         self.RT = 0.582  # kcal/mol at 20 degrees celsius
         self.min_deltaG = -12
         self.max_deltaG = -3
-        
+
+                
 def perVariantInfo(table):
-    variants = np.arange(0, np.max(table['variant_number']))
-    columns = [name for name in table][:12] + ['numTests', 'numRejects', 'kd', 'dG', 'fmax', 'fmin']
+    #variants_1 = np.arange(0, np.max(table['variant_number']),dtype=int)
+    variants = range(0,int(np.max(table['variant_number'])))
+    #something is wrong with 595,681
+    wd = '/home/namita/RigidAnalysis' 
+    filename = os.path.join(wd, 'BadVariants.txt')
+    f = open(filename, 'w')
+
+    columns = [name for name in table][:12] + ['numTests', 'numRejects', 'kd', 'dG', 'fmax', 'fmin','qvalue', 'errdG_L', 'errdG_R', ]
     newtable = pd.DataFrame(columns=columns, index=np.arange(len(variants)))
-    for i, variant in enumerate(variants):
-        if i%1000==0: print 'computing iteration %d'%i
-        sub_table = table[table['variant_number']==variant]
-        if len(sub_table) > 0:
-            sub_table_filtered = filterFitParameters(sub_table)[['kd', 'dG', 'fmax', 'fmin']]
-            newtable.iloc[i]['numTests'] = len(sub_table_filtered)
-            newtable.iloc[i]['numRejects'] = len(sub_table) - len(sub_table_filtered)
-            newtable.iloc[i]['kd':] = np.median(sub_table_filtered, 0)
-            newtable.iloc[i][:'total_length'] = sub_table.iloc[0][:'total_length']
-    return newtable
+    pool = Pool(processes=20)   
+    datapervar= pool.map(functools.partial(generateVarStats, table, f), variants)
+    #newtable.iloc[variants] = pool.map(functools.partial(generateVarStats, table), variants)
+    pool.close()
+    f.close()
+    print('here!')
+    for variant in variants:
+        #this is really slow, there's got to be a better way of unpacking datapervar
+        if (variant % 1000) == 0:
+            print(variant)
+        newtable.iloc[variant] = datapervar[variant].iloc[0]
+    
+    return newtable    
+    
+def versionNum():
+    print('v3')
+    
+    
+    
+def generateVarStats(table,f,variant):
+    sub_table = table[table['variant_number']==variant]
+    #how do you intialize a list?
+   # print(variant)
+   #doesn't like 15356
+    columns = [name for name in table][:12] + ['numTests', 'numRejects', 'kd', 'dG', 'fmax', 'fmin','qvalue', 'errdG_L', 'errdG_R', ]
+    newtable_pervar = pd.DataFrame(columns=columns, index = xrange(0,1))
+    if len(sub_table) > 0:        
+        sub_table_filtered = filterFitParameters(sub_table)[['kd', 'dG', 'fmax','qvalue', 'fmin']]
+        if not(sub_table_filtered.empty):
+            newtable_pervar.iloc[0]['numTests'] = len(sub_table_filtered)
+            newtable_pervar.iloc[0]['numRejects'] = len(sub_table) - len(sub_table_filtered)
+            newtable_pervar.iloc[0]['kd':'qvalue'] = np.median(sub_table_filtered, 0)
+            newtable_pervar.iloc[0][:'total_length'] = sub_table.iloc[0][:'total_length']
+        if len(sub_table_filtered) > 1:
+                    #get bootstrapped error bars on mean, would have liked to do median but get errors...   
+                    try:
+                        if (variant % 1000) == 0:
+                            print(variant)
+                        bootval = scikits.bootstrap.ci(data=sub_table_filtered['dG'], statfunction=np.median, method='pi')    
+                        newtable_pervar.iloc[0]['errdG_L'] = bootval[0]-np.median(sub_table_filtered, 0)[1]
+                        newtable_pervar.iloc[0]['errdG_R'] = bootval[1]-np.median(sub_table_filtered, 0)[1]
+                    except IndexError:
+                        print('value error')
+                        print(variant)
+                        indexbad = np.array(variant)
+                        np.savetxt(filename, indexbad)
+                        #could also use 
+                        f.write('%d\t\n'%variant)
+                        
+                        #save to text file the name of the variant, could do an np.savetxt,         
+                    
+                  
+    return newtable_pervar
         
 
 def filterFitParameters(sub_table):
-    sub_table = sub_table[sub_table['fit_success']==1]
+    #sub_table = sub_table[sub_table['fit_success']==1]
     sub_table = sub_table[sub_table['rsq']>0.5]
-    sub_table = sub_table[sub_table['fraction_consensus']>=67] # 2/3 majority
+    #find where the binding series starts
+    firstconc = int(np.where(sub_table.columns == 0)[0])
+    numconcs = 8
+    #filters out anything that has a single NaN concentration
+    sub_table = sub_table[sub_table.iloc[:,firstconc:firstconc+numconcs].isnull().sum(1) == 0 ]
     return sub_table
 
 def bindingCurve(concentrations, kd, fmax=None, fmin=None):
@@ -262,7 +319,6 @@ def plot_length_changes_helices(table, variant_table, topology, loop=None, recep
     # choose just one sequence of that topology to look at
     seq1 = variant_table[criteria_central]['junction_sequence'].iloc[0]
     criteria_central = np.all((criteria_central, np.array(variant_table['junction_sequence']) == seq1), axis=0)
-    
     sub_table = variant_table[criteria_central]
     helix_context = np.unique(sub_table['helix_context'])
     total_lengths = np.array([8,9,10,11,12])
@@ -287,3 +343,65 @@ def plot_length_changes_helices(table, variant_table, topology, loop=None, recep
     ax.set_ylim((-1, 5))
     plt.tight_layout()
     return
+    
+#def helixContextAnalysis(table, variant_table, topology, loop = 'goodLoop', receptor = 'R1', offset = 0):
+#    if loop is None:
+#        loop = 'goodLoop'
+#    if receptor is None:
+#        receptor='R1'
+#    if offset is None:
+#        offset = 0  # amount to change helix_one_length by from default
+#    couldPlot = True
+#    criteria_central = np.all((np.array(variant_table['receptor'] == receptor),
+#                           np.array(variant_table['loop']==loop)),
+#                          axis=0)
+#    length = 10
+#    if topology == '':
+#        criteria_central = np.all((criteria_central, np.array(variant_table['junction_sequence'] =='_'),np.array(variant_table['total_length']==length)), axis=0)
+#    else:
+#        criteria_central = np.all((criteria_central, np.array(variant_table['topology']==topology),np.array(variant_table['total_length']==length)), axis=0)
+#    # choose just one sequence of that topology to look at
+#    #seq1 = variant_table[criteria_central]['junction_sequence'].iloc[0]
+#    #criteria_central = np.all((criteria_central, np.array(variant_table['junction_sequence']) == seq1), axis=0)
+#    sub_table = variant_table[criteria_central]
+#    helix_context = np.unique(sub_table['helix_context'])
+#    delta_G_initial = variant_table.loc[0]['dG']
+#    newtable = pd.DataFrame(columns=['helix_context','dG', 'ddG', 'likelihood'], index = xrange(0,len(sub_table)))
+#    count = 0
+#    for i, sequence in enumerate(helix_context):
+#        dG = sub_table[np.all((np.array(sub_table['helix_context']==sequence)),axis=0)]['dG']
+#        count = count + len(dG)
+#        delta_deltaG = dG - delta_G_initial
+#        newtable.iloc[i]['helix_context'] = sequence
+#        newtable.iloc[i]['dG'] =  dG.iloc[0]
+#        newtable.iloc[i]['ddG'] = delta_deltaG
+#        
+#        
+#    #next time load mploadtext. 
+#    for i, sequence in enumerate(np.unique(newtable['helix_context'])):
+#        if sequence == 'h02':
+#            newtable.iloc[i]['likelihood'] = -4.62
+#        if sequence == 'h06':
+#            newtable.iloc[i]['likelihood'] = -5.16
+#        if sequence == 'h08':
+#            newtable.iloc[i]['likelihood'] = -5.30
+#        if sequence == 'h10':
+#            newtable.iloc[i]['likelihood'] = -5.54
+#        if sequence == 'h12':
+#            newtable.iloc[i]['likelihood'] = -5.64
+#        if sequence == 'h14':
+#            newtable.iloc[i]['likelihood'] = -5.67
+#        if sequence == 'h16':
+#            newtable.iloc[i]['likelihood'] = -6.15
+#        if sequence == 'h21':
+#            newtable.iloc[i]['likelihood'] = -6.44
+#        if sequence == 'h25':
+#            newtable.iloc[i]['likelihood'] = -6.57
+#        if sequence == 'h28':
+#            newtable.iloc[i]['likelihood'] = -6.76
+            
+        
+            
+    
+    
+    

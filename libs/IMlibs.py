@@ -12,13 +12,13 @@ import numpy as np
 import pandas as pd
 import scipy.io as sio
 import matplotlib.pyplot as plt
-import CPlibs
+#import CPlibs
 
 def spawnMatlabJob(matlabFunctionCallString):
     try:
         #construct the command-line matlab call 
         functionCallString =                      "try,"
-        functionCallString = functionCallString +      "addpath('{0}', '{1}');".format('/home/sarah/array_image_tools_SKD/libs', '/home/sarah/array_image_tools_SKD/scripts') #placeholder TEMP DEBUG CHANGE
+        functionCallString = functionCallString +      "addpath('{0}', '{1}');".format('/home/namita/Code/array_image_tools_SKD/libs', '/home/namita/Code/array_image_tools_SKD/scripts') #placeholder TEMP DEBUG CHANGE
         functionCallString = functionCallString +     matlabFunctionCallString + ';'
         functionCallString = functionCallString + "catch e,"
         functionCallString = functionCallString +     "disp(getReport(e,'extended'));"
@@ -142,7 +142,8 @@ def getFPfromCPsignal(signalNamesByTileDict):
     return bindingSeriesFilenameDict
 
 def pasteTogetherSignal(cpSeqFilename, signal, outfilename):
-    tmpfilename = 'signal_'+str(time.time())
+    output_directory = os.path.dirname(outfilename)
+    tmpfilename = os.path.join(output_directory, 'signal_'+str(time.time()))
     np.savetxt(tmpfilename, signal, fmt='%s')
     os.system("paste %s %s > %s"%(cpSeqFilename, tmpfilename, outfilename+'.tmp'))
     os.system("mv %s %s"%(outfilename+'.tmp', outfilename))
@@ -218,19 +219,19 @@ def sortConcatenateCPsignal(reducedSignalNamesByTileDict, barcode_col, sortedAll
     return
 
 def compressBarcodes(sortedAllCPsignalFile, barcode_col, seq_col, compressedBarcodeFile):
-    script = '/home/sarah/array_image_tools_SKD/scripts/compressBarcodes.py'
+    script = '/home/namita/Code/array_image_tools_SKD/scripts/compressBarcodes.py'
     print "python %s -i %s -o %s -c %d -C %d"%(script, sortedAllCPsignalFile, compressedBarcodeFile, barcode_col, seq_col)
     os.system("python %s -i %s -o %s -c %d -C %d"%(script, sortedAllCPsignalFile, compressedBarcodeFile, barcode_col, seq_col))
     return
 
 def barcodeToSequenceMap(compressedBarcodeFile, libraryDesignFile, outFile):
-    script = '/home/sarah/array_image_tools_SKD/scripts/findSeqDistribution.py'
+    script = '/home/namita/Code/array_image_tools_SKD/scripts/findSeqDistribution.py'
     print "python %s -b %s -l %s -o %s "%(script, compressedBarcodeFile, libraryDesignFile, outFile)
     os.system("python %s -b %s -l %s -o %s "%(script, compressedBarcodeFile, libraryDesignFile, outFile))
     return
 
 def matchCPsignalToLibrary(barcodeToSequenceFilename, sortedAllCPsignalFile, sequenceToLibraryFilename):
-    script = '/home/sarah/array_image_tools_SKD/scripts/matchCPsignalLibrary.py'
+    script = '/home/namita/Code/array_image_tools_SKD/scripts/matchCPsignalLibrary.py'
     print "python %s -b %s -i %s -o %s "%(script, barcodeToSequenceFilename, sortedAllCPsignalFile, sequenceToLibraryFilename)
     os.system("python %s -b %s -i %s -o %s "%(script, barcodeToSequenceFilename, sortedAllCPsignalFile, sequenceToLibraryFilename))
     return
@@ -338,9 +339,21 @@ def loadCPseqSignal(filename):
     """
     cols = ['tileID','filter','read1_seq','read1_quality','read2_seq','read2_quality','index1_seq','index1_quality','index2_seq', 'index2_quality','all_cluster_signal','binding_series']
     table = pd.read_csv(filename, sep='\t', header=None, names=cols, index_col=False)
+    #we ended here!!
+    #count = 0
+    #    
+    #binding_series = np.zeros((len(table),8))
+    #for series in table['binding_series']:
+    #    if (len(np.array(series.split(','), dtype=float)) ==8):
+    #        binding_series[count] = np.array(series.split(','), dtype=float)
+    #        count += 1
+    #import pdb; pdb.set_trace()
     binding_series = np.array([np.array(series.split(','), dtype=float) for series in table['binding_series']])
+    
     for col in range(binding_series.shape[1]):
+        print('newversion')
         table[col] = binding_series[:, col]
+  
     return table
 
 def loadNullScores(signalNamesByTileDict, filterSet):
@@ -361,7 +374,15 @@ def loadBindingCurveFromCPsignal(filename):
     then return the binding series, normalized by all cluster image.
     """
     table = pd.read_table(filename, usecols=(10,11))
-    binding_series = np.array([np.array(series.split(','), dtype=float) for series in table['binding_series']])
+    count = 0
+    binding_series = np.zeros((len(table),8))
+    for series in table['binding_series']:
+        if (len(np.array(series.split(','), dtype=float)) ==8):
+            binding_series[count] = np.array(series.split(','), dtype=float)
+            count += 1
+     
+    #binding_series = np.array([np.array(series.split(','), dtype=float) for series in table['binding_series']])
+    
     return binding_series, np.array(table['all_cluster_signal'])
 
 def loadFittedCPsignal(filename):
