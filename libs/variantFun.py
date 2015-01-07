@@ -25,9 +25,7 @@ class Parameters():
 
                 
 def perVariantInfo(table):
-    #variants_1 = np.arange(0, np.max(table['variant_number']),dtype=int)
     variants = range(0,int(np.max(table['variant_number'])))
-    #something is wrong with 595,681
     wd = '/home/namita/RigidAnalysis' 
     filename = os.path.join(wd, 'BadVariants.txt')
     f = open(filename, 'w')
@@ -36,7 +34,6 @@ def perVariantInfo(table):
     newtable = pd.DataFrame(columns=columns, index=np.arange(len(variants)))
     pool = Pool(processes=20)   
     datapervar= pool.map(functools.partial(generateVarStats, table, f), variants)
-    #newtable.iloc[variants] = pool.map(functools.partial(generateVarStats, table), variants)
     pool.close()
     f.close()
     print('here!')
@@ -47,12 +44,7 @@ def perVariantInfo(table):
         newtable.iloc[variant] = datapervar[variant].iloc[0]
     
     return newtable    
-    
-def versionNum():
-    print('v3')
-    
-    
-    
+        
 def generateVarStats(table,f,variant):
     sub_table = table[table['variant_number']==variant]
     #how do you intialize a list?
@@ -344,62 +336,7 @@ def plot_length_changes_helices(table, variant_table, topology, loop=None, recep
     plt.tight_layout()
     return
     
-#def helixContextAnalysis(table, variant_table, topology, loop = 'goodLoop', receptor = 'R1', offset = 0):
-#    if loop is None:
-#        loop = 'goodLoop'
-#    if receptor is None:
-#        receptor='R1'
-#    if offset is None:
-#        offset = 0  # amount to change helix_one_length by from default
-#    couldPlot = True
-#    criteria_central = np.all((np.array(variant_table['receptor'] == receptor),
-#                           np.array(variant_table['loop']==loop)),
-#                          axis=0)
-#    length = 10
-#    if topology == '':
-#        criteria_central = np.all((criteria_central, np.array(variant_table['junction_sequence'] =='_'),np.array(variant_table['total_length']==length)), axis=0)
-#    else:
-#        criteria_central = np.all((criteria_central, np.array(variant_table['topology']==topology),np.array(variant_table['total_length']==length)), axis=0)
-#    # choose just one sequence of that topology to look at
-#    #seq1 = variant_table[criteria_central]['junction_sequence'].iloc[0]
-#    #criteria_central = np.all((criteria_central, np.array(variant_table['junction_sequence']) == seq1), axis=0)
-#    sub_table = variant_table[criteria_central]
-#    helix_context = np.unique(sub_table['helix_context'])
-#    delta_G_initial = variant_table.loc[0]['dG']
-#    newtable = pd.DataFrame(columns=['helix_context','dG', 'ddG', 'likelihood'], index = xrange(0,len(sub_table)))
-#    count = 0
-#    for i, sequence in enumerate(helix_context):
-#        dG = sub_table[np.all((np.array(sub_table['helix_context']==sequence)),axis=0)]['dG']
-#        count = count + len(dG)
-#        delta_deltaG = dG - delta_G_initial
-#        newtable.iloc[i]['helix_context'] = sequence
-#        newtable.iloc[i]['dG'] =  dG.iloc[0]
-#        newtable.iloc[i]['ddG'] = delta_deltaG
-#        
-#        
-#    #next time load mploadtext. 
-#    for i, sequence in enumerate(np.unique(newtable['helix_context'])):
-#        if sequence == 'h02':
-#            newtable.iloc[i]['likelihood'] = -4.62
-#        if sequence == 'h06':
-#            newtable.iloc[i]['likelihood'] = -5.16
-#        if sequence == 'h08':
-#            newtable.iloc[i]['likelihood'] = -5.30
-#        if sequence == 'h10':
-#            newtable.iloc[i]['likelihood'] = -5.54
-#        if sequence == 'h12':
-#            newtable.iloc[i]['likelihood'] = -5.64
-#        if sequence == 'h14':
-#            newtable.iloc[i]['likelihood'] = -5.67
-#        if sequence == 'h16':
-#            newtable.iloc[i]['likelihood'] = -6.15
-#        if sequence == 'h21':
-#            newtable.iloc[i]['likelihood'] = -6.44
-#        if sequence == 'h25':
-#            newtable.iloc[i]['likelihood'] = -6.57
-#        if sequence == 'h28':
-#            newtable.iloc[i]['likelihood'] = -6.76
-            
+      
         
             
     

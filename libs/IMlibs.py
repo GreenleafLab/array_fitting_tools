@@ -339,7 +339,6 @@ def loadCPseqSignal(filename):
     """
     cols = ['tileID','filter','read1_seq','read1_quality','read2_seq','read2_quality','index1_seq','index1_quality','index2_seq', 'index2_quality','all_cluster_signal','binding_series']
     table = pd.read_csv(filename, sep='\t', header=None, names=cols, index_col=False)
-    #we ended here!!
     #count = 0
     #    
     #binding_series = np.zeros((len(table),8))
@@ -347,11 +346,9 @@ def loadCPseqSignal(filename):
     #    if (len(np.array(series.split(','), dtype=float)) ==8):
     #        binding_series[count] = np.array(series.split(','), dtype=float)
     #        count += 1
-    #import pdb; pdb.set_trace()
     binding_series = np.array([np.array(series.split(','), dtype=float) for series in table['binding_series']])
     
     for col in range(binding_series.shape[1]):
-        print('newversion')
         table[col] = binding_series[:, col]
   
     return table
