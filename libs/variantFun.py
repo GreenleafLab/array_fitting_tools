@@ -39,15 +39,17 @@ def perVariantInfo(table, variants=None):
             newtable.iloc[i]['numRejects'] = len(sub_table) - len(sub_table_filtered)
             newtable.iloc[i]['dG':'qvalue'] = np.median(sub_table_filtered, 0)
             newtable.iloc[i][:'total_length'] = sub_table.iloc[0][:'total_length']
-            newtable.iloc[i]['dG_lb'], newtable.iloc[i]['dG_ub'] = bootstrap.ci(sub_table_filtered['dG'], np.median)
+            try:
+                newtable.iloc[i]['dG_lb'], newtable.iloc[i]['dG_ub'] = bootstrap.ci(sub_table_filtered['dG'], np.median)
+            except IndexError: print variant
     return newtable
         
 
 def filterFitParameters(sub_table):
     binding_curves = np.array([np.array(sub_table[i]) for i in range(8)])
     num_curves = binding_curves.shape[1]
-    #indices = np.arange(num_curves)[np.all((np.array(sub_table['rsq'] > 0.5), np.sum(np.isnan(binding_curves), 0) < 2), axis=0)]
-    indices = np.arange(num_curves)[np.array(sub_table['rsq'] > 0.5)]
+    indices = np.arange(num_curves)[np.all((np.array(sub_table['rsq'] > 0), np.sum(np.isnan(binding_curves), 0) < 2), axis=0)]
+    #indices = np.arange(num_curves)[np.array(sub_table['rsq'] > 0.5)]
     sub_table = sub_table.iloc[indices]
     return sub_table
 
@@ -220,8 +222,31 @@ def plotColors():
     
     return
 
-
-
+def makeFasta(per_variant, filename=None, image_dir=None):
+    if filename is None:
+        filename = 'test.fasta'
+    if image_dir is None:
+        image_dir = os.getcwd()
+    filename = os.path.join(os.getcwd(), filename)
+    f = open(filename, 'w')
+    for i in range(len(per_variant)):
+        header = '>'+ '_'.join(np.array(per_variant.iloc[i].loc[['variant_number','total_length', 'helix_one_length','junction_length','junction_sequence',  'helix_context', 'loop','receptor']], dtype=str)).replace('.0','')
+        f.write(header + '\n')
+        f.write(per_variant.iloc[i].loc['sequence'] + '\n')
+    f.close()
+    makeSecondaryStructurePics(filename, image_dir)
+    return
+    
+def makeSecondaryStructurePics(filename, image_dir=None):
+    if image_dir is None:
+        image_dir = os.getcwd()
+    if not os.path.exists(image_dir):
+        os.mkdir(image_dir)
+    curr_dir = os.getcwd()
+    os.chdir(image_dir)
+    os.system("cat %s | RNAfold"%filename)
+    os.chdir(curr_dir)
+    return
 
 def getMarker(series):
     fmt_list = ['o', '^', 'v', '<', '>', 's', 's', '*', '*', '.', '.', 'x', 'x', '+', '+', '1', '1', '2', '2', '3', '3', '4', '4']
@@ -239,11 +264,14 @@ def getMarker(series):
     
     return fmt, wiggle, color
 
-def plot_dG_errorbars_vs_length(series):
+def plot_dG_errorbars_vs_coordinate(series, xvalue):
     ax = plt.gca()
     fmt, wiggle, color = getMarker(series)
-    ax.errorbar(series['total_length']+wiggle, series['dG'],
-                    yerr=[[series['dG'] - series['dG_lb']], [series['dG_ub'] - series['dG']]], fmt=fmt, color=color, ecolor='k')
+    if np.isnan(series['dG_lb']) or np.isnan(series['dG_ub']):
+        ax.plot(xvalue+wiggle, series['dG'], fmt, color=color)
+    else:
+        ax.errorbar(xvalue+wiggle, series['dG'], yerr=[[series['dG'] - series['dG_lb']], [series['dG_ub'] - series['dG']]],
+                    fmt=fmt, color=color, ecolor='k')
     return
 
 def plot_parameter_vs_length(series, p1, p2):
@@ -252,48 +280,71 @@ def plot_parameter_vs_length(series, p1, p2):
     ax.plot(series[p1]+wiggle, series[p2], fmt, color=color)
     return ax
 
-def plot_over_coordinate(per_variant):
-    per_variant.sort('total_length', inplace=True)
-    total_lengths = np.unique(per_variant['total_length']).astype(int)
-    fig = plt.figure(figsize=(4,4))
+
+def plot_over_coordinate(per_variant, to_fill=None, x_param=None, x_param_name=None, sort_index=None):
+    # plot variant delta G's over a coordinate given, or total length (default)
+    if sort_index is None:
+        per_variant.sort(['total_length', 'helix_two_length', 'dG'], inplace=True)
+    else: per_variant = per_variant.iloc[sort_index]
+    if to_fill is None: to_fill = False    # by default, don't plot 'landscape ' background
+    if x_param is None: x_param = per_variant['total_length'].astype(int)
+    if x_param_name is None: x_param_name = 'total_length'
+    x_param_unique = np.unique(x_param)
+    x_param = np.array(x_param) # force to be array for proper indexing later
+    
+    # initiate figure
+    fig_width = 4 + 3./96*len(x_param_unique) - 4*3./96
+    fig = plt.figure(figsize=(fig_width, 4))
     ax = fig.add_subplot(111)
     
     # plot gray boundaries
-    ax.fill_between(total_lengths, [np.mean(per_variant[per_variant['total_length']==length]['dG_lb']) for length in total_lengths],
-                    [np.mean(per_variant[per_variant['total_length']==length]['dG_ub']) for length in total_lengths],
-                    facecolor='0.5', alpha=0.05, linewidth=0)
-    #ax.fill_between(total_lengths, [np.min(per_variant[per_variant['total_length']==length]['dG']) for length in total_lengths],
-    #                [np.max(per_variant[per_variant['total_length']==length]['dG']) for length in total_lengths],
-    #                facecolor='0.5', alpha=0.05, linewidth=0)
-    
+    if to_fill:
+        ax.fill_between(x_param_unique, [np.mean(per_variant[per_variant['total_length']==length]['dG_lb']) for length in x_param_unique],
+                        [np.mean(per_variant[per_variant['total_length']==length]['dG_ub']) for length in x_param_unique],
+                        facecolor='0.5', alpha=0.05, linewidth=0)
+
     # plot points with errorbars
     for i in range(len(per_variant)):
         series = per_variant.iloc[i]
-        plot_dG_errorbars_vs_length(series)
+        plot_dG_errorbars_vs_coordinate(series, x_param[i])
     
     # plot ticks and labels
-    ax.set_xticks(total_lengths)
+    if len(x_param_unique) < 10:
+        ax.set_xticks(x_param_unique)
     ax.legend_ = None
-    ax.set_xlabel('total length')
+    ax.set_xlabel(x_param_name)
     ax.set_ylabel('dG (kcal/mol)')
     ax.set_ylim((-12, -6))
-    ax.set_xlim((total_lengths[0]-1, total_lengths[-1]+1))
-    plt.subplots_adjust(bottom=0.15, left=0.2)
+    ax.set_xlim((x_param_unique[0]-1, x_param_unique[-1]+1))
+    #plt.subplots_adjust(bottom=0.15, left=0.2)
+    plt.tight_layout()
     ax.grid(linestyle=':', alpha=0.5)
+    ax.xaxis.set_ticks_position('bottom')
+    ax.yaxis.set_ticks_position('left')
+    ax.tick_params(direction='out')
     
+    # plot bar graph
     xvalues = np.arange(len(per_variant))
-    fig = plt.figure(figsize=(4,3))
+    fig = plt.figure(figsize=(fig_width,3))
     ax = fig.add_subplot(111)
     ax.bar(xvalues, per_variant['numTests'], color='0.75', linewidth=0)
-    ax.set_xticks(xvalues+0.4)
-    ax.set_xticklabels(np.array(per_variant['total_length'], dtype=int), rotation=90)
+    if len(x_param_unique) < 10:
+        ax.set_xticks(xvalues+0.4)
+        ax.set_xticklabels(np.array(x_param, dtype=int), rotation=90)
+    ax.xaxis.set_ticks_position('bottom')
+    ax.yaxis.set_ticks_position('left')
+    ax.tick_params(direction='out')
     ax.set_ylabel('number of tests')
-    ax.set_xlabel('total length')
+    ax.set_xlabel(x_param_name)
+    ax.set_xlim((xvalues[0]-0.4, xvalues[-1]+1))
+    ax.set_ylim((0, 35))
     for i in xvalues:
         series = per_variant.iloc[i]
         fmt, wiggle, color = getMarker(series)
         ax.plot(i+0.4, series['numTests']+1, fmt, color=color)
-    plt.subplots_adjust(bottom=0.2, left=0.2)
+    #plt.subplots_adjust(bottom=0.2, left=0.2)
+    plt.tight_layout()
+    
     return
     
 

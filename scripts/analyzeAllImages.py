@@ -260,8 +260,7 @@ else:
     IMlibs.removeFilenameParts(bindingSeriesFilenameParts)
     
 # Reduce by Variant
-perVariantFilename = IMlibs.getPerVariantFilename()
-table = IMlibs.loadFittedCPsignal(fittedBindingFilename)
+
 
     
 # Now reduce into variants. Save the variant number, characterization info, number

@@ -38,9 +38,11 @@ if not len(sys.argv) > 1:
 args = parser.parse_args()
 
 # outdirectory
-imageDirectory = 'imageAnalysis/reduced_signals/barcode_mapping/figs'
+imageDirectory = 'binding_curves_rigid_tile456/reduced_signals/barcode_mapping/figs'
+structuresDirectory = 'secondary_structures'
+
 # load concentrations
-xValuesFilename, fluor_dirs_red, fluor_dirs, concentrations = IMlibs.loadMapFile(args.CPfluor_dirs_to_quantify)
+fluor_dirs_red, fluor_dirs, concentrations = IMlibs.loadMapFile(args.CPfluor_dirs_to_quantify)
 
 # load table
 fittedBindingFilename = args.CPfitted
@@ -98,42 +100,76 @@ variantFun.plotColors()
 plt.savefig(os.path.join(imageDirectory, 'colors.guide.pdf'))
 
 # plot one set of variants
-criteria_dict = {'junction_sequence': 'TT_T', 'helix_context':'rigid', 'loop':'goodLoop', 'receptor':'R1'}
+seq = 'TT_T'
+criteria_dict = {'junction_sequence': seq, 'helix_context':'rigid', 'loop':'goodLoop', 'receptor':'R1'}
 variants = variantFun.findVariantNumbers(table, criteria_dict)
 per_variant = variantFun.perVariantInfo(table, variants=variants)
 variantFun.plot_over_coordinate(per_variant)
-plt.savefig(os.path.join(imageDirectory, 'junction_TT_T.central.num_variants.pdf'))
+plt.savefig(os.path.join(imageDirectory, 'junction_%s.central.num_variants.pdf'%seq))
 plt.close()
-plt.savefig(os.path.join(imageDirectory, 'junction_TT_T.central.length_landscape.pdf'))
-# save sequences
-f = open('test.fasta', 'w')
-for i in range(len(per_variant)):
-    header = '>'+'_'.join(np.array(per_variant.loc[i, 'topology':'total_length'], dtype=str))
-    f.write(header + '\n')
-    f.write(per_variant.loc[i, 'sequence'] + '\n')
-f.close()
+plt.savefig(os.path.join(imageDirectory, 'junction_%s.central.length_landscape.pdf'%seq))
+
+
 # plot another set
 criteria_dict = {'junction_sequence': 'ATT_TT', 'helix_context':'rigid', 'loop':'goodLoop', 'receptor':'R1'}
 variants = variantFun.findVariantNumbers(table, criteria_dict)
 per_variant2 = variantFun.perVariantInfo(table, variants=variants)
 variantFun.plot_over_coordinate(per_variant.append(per_variant2))
-plt.savefig(os.path.join(imageDirectory, 'junction_TT_T.w_ATT_TT.central.num_variants.pdf'))
+plt.savefig(os.path.join(imageDirectory, 'junction_%s.w_ATT_TT.central.num_variants.pdf'%seq))
 plt.close()
-plt.savefig(os.path.join(imageDirectory, 'junction_TT_T.w_ATT_TT.central.length_landscape.pdf'))
+plt.savefig(os.path.join(imageDirectory, 'junction_%s.w_ATT_TT.central.length_landscape.pdf'%seq))
 
-seq = '_T'
-criteria_dict = {'junction_sequence': seq, 'helix_context':'rigid', 'loop':'goodLoop', 'receptor':'R1'}
+# save sequences
+variantFun.makeFasta(per_variant.append(per_variant2), image_dir=os.path.join(structuresDirectory, seq))
+
+# plot another set
+seq = 'TG_TTT'
+criteria_dict = {'junction_sequence': seq, 'helix_context':'wc', 'loop':'goodLoop', 'receptor':'R1'}
 variants = variantFun.findVariantNumbers(table, criteria_dict)
 per_variant = variantFun.perVariantInfo(table, variants=variants)
 variantFun.plot_over_coordinate(per_variant)
-plt.savefig(os.path.join(imageDirectory,'junction_%s.central.num_variants.pdf'%seq))
+plt.savefig(os.path.join(imageDirectory,'junction_%s.central.num_variants.pdf'%('.'.join(criteria_dict.values()))))
 plt.close()
-plt.savefig(os.path.join(imageDirectory,'junction_%s.central.length_landscape.pdf'%seq))
+plt.savefig(os.path.join(imageDirectory,'junction_%s.central.length_landscape.pdf'%('.'.join(criteria_dict.values()))))
+variantFun.makeFasta(per_variant, image_dir=os.path.join(structuresDirectory, criteria_dict['helix_context'], seq))
 
-seq = 'TT_TTA'
-criteria_dict = {'junction_sequence': seq, 'helix_context':'rigid', 'loop':'goodLoop', 'receptor':'R1'}
-variants = variantFun.findVariantNumbers(table, criteria_dict)
-per_variant2 = variantFun.perVariantInfo(table, variants=variants)
+# plot all 2x2 loops of length 10
+topology = 'M_M_M'
+length = 11
+helix_one_length = 4
+variants = variantFun.findVariantNumbers(table, {'topology':topology, 'helix_context':'rigid', 'loop':'goodLoop', 'receptor':'R1', 'total_length':length, 'helix_one_length':helix_one_length})
+per_variant = variantFun.perVariantInfo(table, variants=variants)
+variantFun.plot_over_coordinate(per_variant, x_param=np.arange(len(per_variant)), x_param_name='variant')
+plt.savefig(os.path.join(imageDirectory,'junction_%s.length_%d.helix_one_length_%d.num_variants.pdf'%(topology, length, helix_one_length)))
+plt.close()
+plt.savefig(os.path.join(imageDirectory,'junction_%s.length_%d.helix_one_length_%d.dGs.pdf'%(topology, length, helix_one_length)))
+
+# plot same set 2x2 loops of length 11
+topology = 'M_M'
+length = 10
+helix_one_length = 4
+variants = variantFun.findVariantNumbers(table, {'topology':topology, 'helix_context':'rigid', 'loop':'goodLoop', 'receptor':'R1', 'total_length':length, 'helix_one_length':helix_one_length})
+per_variant = variantFun.perVariantInfo(table, variants=variants)
+per_variant2 =  variantFun.perVariantInfo(table, variantFun.findVariantNumbers(table, {'topology':topology, 'helix_context':'rigid', 'loop':'goodLoop', 'receptor':'R1', 'total_length':length+1, 'helix_one_length':helix_one_length}))
+indx = np.array([int(np.where(per_variant['junction_sequence']==seq)[0]) if len(np.where(per_variant['junction_sequence']==seq)[0]) > 0 else np.nan for seq in per_variant2.sort('dG').loc[:, 'junction_sequence']])
+indx = indx[np.isfinite(indx)].astype(int)
+variantFun.plot_over_coordinate(per_variant, x_param=np.arange(len(indx)), x_param_name='variant', sort_index = indx)
+plt.savefig(os.path.join(imageDirectory,'junction_%s.length_%d.helix_one_length_%d.ordered_by_length_11bp.num_variants.pdf'%(topology, length, helix_one_length)))
+plt.close()
+plt.savefig(os.path.join(imageDirectory,'junction_%s.length_%d.helix_one_length_%d.ordered_by_length_11bp.dGs.pdf'%(topology, length, helix_one_length)))
+
+# save sequences
+indx = np.array(per_variant.sort('dG').index)[np.hstack((range(7), range(-12,0)))]
+variantFun.makeFasta(per_variant.iloc[indx], image_dir=os.path.join(structuresDirectory, 'M_M_M_11bp'))
+print '\t'.join(np.array(per_variant.iloc[indx[:7]].loc[:, 'variant_number'], dtype=int).astype(str))
+
+# plot Kink Turns
+topology = 'KT'
+variants = variantFun.findVariantNumbers(table, {'topology':topology, 'helix_context':'rigid', 'loop':'goodLoop', 'receptor':'R1'})
+per_variant = variantFun.perVariantInfo(table, variants=variants)
+variantFun.plot_over_coordinate(per_variant, x_param=np.arange(len(indx)), x_param_name='variant', sort_index = indx)
+
+
 # plot rigid
 variant_descriptions = {'rigid':0,
                         'rigid+1':21744,
