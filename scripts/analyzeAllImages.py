@@ -116,7 +116,7 @@ else:
     
 if np.sum(already_exist) < len(filteredCPseqFilenameDict):
     # initiate multiprocessing
-    #workerPool = multiprocessing.Pool(processes=numCores) #create a multiprocessing pool that uses at most the specified number of cores
+    workerPool = multiprocessing.Pool(processes=numCores) #create a multiprocessing pool that uses at most the specified number of cores
     for i, tile in enumerate(tileList):
         if not already_exist[i]:
             currCPseqfile = filteredCPseqFilenameDict[tile]
@@ -127,8 +127,8 @@ if np.sum(already_exist) < len(filteredCPseqFilenameDict):
             # make CP signal files
             IMlibs.findCPsignalFile(currCPseqfile, currRedCPfluors, currGreenCPfluors, currCPseqSignalOut)
 
-    #workerPool.close()
-    #workerPool.join()
+    workerPool.close()
+    workerPool.join()
 
 
 ################ Reduce signal files ################

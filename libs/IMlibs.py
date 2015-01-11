@@ -142,14 +142,6 @@ def getFPfromCPsignal(signalNamesByTileDict):
         bindingSeriesFilenameDict[tiles] = os.path.splitext(cpSignalFilename)[0] + '.fit_parameters'
     return bindingSeriesFilenameDict
 
-def pasteTogetherSignal(cpSeqFilename, signal, outfilename):
-    tmpfilename = 'signal_'+str(time.time())
-    np.savetxt(tmpfilename, signal, fmt='%s')
-    os.system("paste %s %s > %s"%(cpSeqFilename, tmpfilename, outfilename+'.tmp'))
-    os.system("mv %s %s"%(outfilename+'.tmp', outfilename))
-    os.system("rm %s"%tmpfilename)
-    return
-
 def findCPsignalFile(cpSeqFilename, redFluors, greenFluors, cpSignalFilename):
  
     # find signal in red
@@ -164,11 +156,12 @@ def findCPsignalFile(cpSeqFilename, redFluors, greenFluors, cpSignalFilename):
         if currCPfluor == '':
             signal_green[:,i] = np.ones(num_lines)*np.nan
         else:
-            signal_green[:,i] = getSignalFromCPFluor(currCPfluor)
+            signal_green[:,i] = IMlibs.getSignalFromCPFluor(currCPfluor)
             
     # combine signal in both
     signal_comma_format = np.array(['\t'.join([signal[i].astype(str), ','.join(signal_green[i].astype(str))]) for i in range(num_lines)])   
-    pasteTogetherSignal(cpSeqFilename, signal_comma_format, cpSignalFilename)       
+    cp_seq = np.ravel(pd.read_table(cpSeqFilename, delimiter='\n', header=None))
+    np.savetxt(cpSignalFilename, np.transpose(np.vstack((cp_seq, signal_comma_format))), fmt='%s', delimiter='\t')      
     return
 
 def reduceCPsignalFile(cpSignalFilename, filterSet, reducedCPsignalFilename):
