@@ -165,7 +165,9 @@ def findCPsignalFile(cpSeqFilename, redFluors, greenFluors, cpSignalFilename):
     return
 
 def reduceCPsignalFile(cpSignalFilename, filterSet, reducedCPsignalFilename):
-    os.system("awk '{i=index($2, \"%s\"); if (i>0 && $9!=\"\" && $9!=\"nan\") print}' %s > %s"%(filterSet, cpSignalFilename, reducedCPsignalFilename))
+    # take only lines that contain the filterSet
+    os.system("awk '{i=index($2, \"%s\"); if (i>0) print}' %s > %s"%(filterSet, cpSignalFilename, reducedCPsignalFilename))
+    #os.system("awk '{i=index($2, \"%s\"); if (i>0 && $9!=\"\" && $9!=\"nan\") print}' %s > %s"%(filterSet, cpSignalFilename, reducedCPsignalFilename))
     return
 
 def getAllSortedCPsignalFilename(reducedSignalNamesByTileDict, directory):
@@ -302,13 +304,14 @@ def loadCompressedBarcodeFile(filename):
     return mydata
 
 def findSequenceRepresentation(consensus_sequences, compare_to, exact_match=None):
+    # initialize
     if exact_match is None:
         exact_match = False # default is to search for whether it contains the sequence .
                             # set to True if the sequences must match exactly
-    num_bc_per_variant = np.zeros(len(compare_to), dtype=int) # number barcodes per variant
+    num_bc_per_variant = np.zeros(len(compare_to), dtype=int) # number consensus sequences per designed sequence
     is_designed = np.zeros(len(consensus_sequences), dtype=int)-1 # -1 if no designed sequence is found that matches. else index
-    # cycle through designed sequences. Find if they are in the
-    # actual sequences
+    
+    # cycle through designed sequences. Find if they are in the actual sequences
     for i, sequence in enumerate(compare_to):
         if i%1000==0:
             print "checking %dth sequence"%i
