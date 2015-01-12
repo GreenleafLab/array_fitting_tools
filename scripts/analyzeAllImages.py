@@ -49,6 +49,8 @@ parser.add_argument('-fd','--CPfluor_dirs_to_quantify', help='text file giving t
 parser.add_argument('-os','--signal_dir', help='save signal files to here. default = filtered_tile_dir/signals')
 parser.add_argument('-osr','--signal_dir_reduced', default=None,help='save signal files reduced by filter set to here. default = signal_dir/reduced_signals')
 parser.add_argument('-fs','--filter_set', help='name of filter to fit binding curve', required=True)
+parser.add_argument('-seq', '--CPseq', default=None, help='CPseq file for barcode mapping, default=reduced CPsignal file')
+parser.add_argument('-bar', '--unique_barcode', default=None, help='unique_barcode file for library. default=make from seq input or filtered seqs')
 parser.add_argument('-lc','--library_characterization', help='file with the characterization data of the deisgned library')
 parser.add_argument('-bd','--barcode_dir', help='save files associated with barcode mapping here. default=signal_dir_reduced/barcode_mapping')
 parser.add_argument('-n','--num_cores', help='maximum number of cores to use')
@@ -125,7 +127,7 @@ if np.sum(already_exist) < len(filteredCPseqFilenameDict):
             currCPseqSignalOut = signalNamesByTileDict[tile]
             print "Making signal file %s from %s"%(currCPseqSignalOut, currCPseqfile)
             # make CP signal files
-            IMlibs.findCPsignalFile(currCPseqfile, currRedCPfluors, currGreenCPfluors, currCPseqSignalOut)
+            workerPool.apply_async(IMlibs.findCPsignalFile, args=(currCPseqfile, currRedCPfluors, currGreenCPfluors, currCPseqSignalOut))
 
     workerPool.close()
     workerPool.join()
@@ -176,8 +178,9 @@ if np.sum(already_exist) < len(filteredCPseqFilenameDict):
 
 
 ################ Map to variants ################
-barcode_col = 7 # used to set these in fitting parameters, but  now that requires knowledge of signals.
-sequence_col = 5 
+parameters = fittingParameters.Parameters()
+barcode_col = parameters.barcode_col   # columns of CPseq that contains barcodes
+sequence_col = parameters.sequence_col # columns of CPseq that contain sequences
 
 if args.barcode_dir is not None:
     barcode_directory = args.barcode_dir
@@ -200,16 +203,27 @@ else:
     print 'Making sorted and concatenated CPsignal file "%s"...'%sortedAllCPsignalFile
     IMlibs.sortConcatenateCPsignal(reducedSignalNamesByTileDict, barcode_col, sortedAllCPsignalFile)
 
-# map barcodes to consensus
-compressedBarcodeFile = IMlibs.getCompressedBarcodeFilename(sortedAllCPsignalFile)
-if os.path.isfile(compressedBarcodeFile):
-    print 'Compressed barcode file exists "%s". Skipping...'%compressedBarcodeFile
-else:
-    print 'Making compressed barcode file "%s"...'%compressedBarcodeFile
-    IMlibs.compressBarcodes(sortedAllCPsignalFile, barcode_col, sequence_col, compressedBarcodeFile)
+# map barcodes to consensus if unique barcode file isn't given in arguments
+if args.unique_barcode is None:
+    
+    # use either the sortedAllCPsignal file or the CPseq file in arguments
+    if args.CPseq is None:
+        currCPseqfile = sortedAllCPsignalFile
+    else:
+        print 'Sorting given CPseq file %s...'%args.CPseq
+        currCPseqfile = IMlibs.getSortedFilename(args.CPseq)
+        IMlibs.sortCPsignal(args.CPseq, currCPseqfile, parameters.barcode_col)
+        
+    compressedBarcodeFile = IMlibs.getCompressedBarcodeFilename(currCPseqfile)
+    if os.path.isfile(compressedBarcodeFile):
+        print 'Compressed barcode file exists "%s". Skipping...'%compressedBarcodeFile
+    else:
+        print 'Making compressed barcode file "%s from %s"...'%(compressedBarcodeFile, currCPseqfile)
+        IMlibs.compressBarcodes(currCPseqfile, barcode_col, sequence_col, compressedBarcodeFile)
+else: compressedBarcodeFile = args.unique_barcode
 
 # map barcode to sequence
-barcodeToSequenceFilename = IMlibs.getBarcodeMapFilename(compressedBarcodeFile)
+barcodeToSequenceFilename = IMlibs.getBarcodeMapFilename(sortedAllCPsignalFile)
 if os.path.isfile(barcodeToSequenceFilename):
     print 'barcode to sequence map file exists "%s". Skipping...'%barcodeToSequenceFilename
 else:
@@ -217,7 +231,7 @@ else:
     IMlibs.barcodeToSequenceMap(compressedBarcodeFile, args.library_characterization, barcodeToSequenceFilename)
 
 # map barcode to CP signal
-annotatedSignalFilename = IMlibs.getAnnotatedSignalFilename(barcodeToSequenceFilename)
+annotatedSignalFilename = IMlibs.getAnnotatedSignalFilename(sortedAllCPsignalFile)
 if os.path.isfile(annotatedSignalFilename):
     print 'annotated CPsignal file already exists "%s". Skipping...'%annotatedSignalFilename
 else:
@@ -259,7 +273,7 @@ else:
     # remove binding series filenames
     IMlibs.removeFilenameParts(bindingSeriesFilenameParts)
     
-# Reduce by Variant
+################ Reduce into Variant Table ################
 
 
     
