@@ -33,7 +33,6 @@ import shutil
 import uuid
 import numpy as np
 import scipy.io as sio
-import CPlibs
 import IMlibs
 
 
@@ -79,7 +78,7 @@ def collectLogs(inLog): #multiprocessing callback function to collect the output
 
 # import CPseq filtered files split by tile
 print 'Finding CPseq files in directory "%s"...'%args.filtered_tile_dir
-filteredCPseqFilenameDict = CPlibs.findTileFilesInDirectory(args.filtered_tile_dir, ['_filtered.CPseq'], [])
+filteredCPseqFilenameDict = IMlibs.findTileFilesInDirectory(args.filtered_tile_dir, ['_filtered.CPseq'], [])
 tileList = filteredCPseqFilenameDict.keys()
 
 # import directory names to analyze

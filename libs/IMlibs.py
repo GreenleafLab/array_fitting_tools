@@ -13,9 +13,9 @@ import numpy as np
 import pandas as pd
 import scipy.io as sio
 import matplotlib.pyplot as plt
-import CPlibs
 
 def spawnMatlabJob(matlabFunctionCallString):
+    # from CPlibs
     try:
         #construct the command-line matlab call 
         functionCallString =                      "try,"
@@ -52,6 +52,24 @@ def spawnMatlabJob(matlabFunctionCallString):
         return logString
     except Exception, e:
         return 'Python exception generated in spawnMatlabJob: ' + e.message
+
+
+def findTileFilesInDirectory(dirPath, extensionList, excludedExtensionList):
+    # from CPlibs
+    dirList = os.listdir(dirPath)
+
+    filenameDict = {}
+    for currFilename in dirList:
+        if filenameMatchesAListOfExtensions(currFilename,extensionList) and not filenameMatchesAListOfExtensions(currFilename,excludedExtensionList):
+            currTileNum = getTileNumberFromFilename(currFilename)
+            if currTileNum != '':
+                filenameDict[currTileNum] = os.path.join(dirPath,currFilename)
+    if len(filenameDict) == 0:
+        print '      NONE FOUND'
+    else:
+        for currTile,currFilename in filenameDict.items():
+            print '      found tile ' + currTile + ': "' + currFilename + '"'
+    return filenameDict
 
 def loadMapFile(mapFilename):
     """
