@@ -27,7 +27,7 @@ function fitBindingCurve(bindingCurveFilename, min_constraints, max_constraints,
     fmin_pos = 3;
     
     change_fmax_init = isnan(initial_points(fmax_pos));
-    
+    numtottest = 9;
     %% cycle through each row and fit
     for i=1:numtottest;
         frac_bound = binding_curves(i,:);
@@ -42,7 +42,12 @@ function fitBindingCurve(bindingCurveFilename, min_constraints, max_constraints,
         
         % change fmax initial to be the all cluster data times a ascale factor converting red to green
         if change_fmax_init;
-            initial_points(fmax_pos) = all_cluster(i)*scale_factor;
+            if isnan(all_cluster(i));
+                red_max = nanmean(all_cluster);
+            else
+                red_max = all_cluster(i);
+            initial_points(fmax_pos) = red_max*scale_factor;
+            end
         end
  
         if length(indx) < 3 || ~isfinite(sum((f(initial_points, concentrations(indx)) - frac_bound(indx)).^2));
