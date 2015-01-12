@@ -19,7 +19,6 @@ def spawnMatlabJob(matlabFunctionCallString):
     try:
         #construct the command-line matlab call 
         functionCallString =                      "try,"
-        functionCallString = functionCallString +      "addpath('{0}', '{1}');".format('/home/sarah/array_image_tools_SKD/libs', '/home/sarah/array_image_tools_SKD/scripts') #placeholder TEMP DEBUG CHANGE
         functionCallString = functionCallString +     matlabFunctionCallString + ';'
         functionCallString = functionCallString + "catch e,"
         functionCallString = functionCallString +     "disp(getReport(e,'extended'));"
@@ -156,7 +155,7 @@ def findCPsignalFile(cpSeqFilename, redFluors, greenFluors, cpSignalFilename):
         if currCPfluor == '':
             signal_green[:,i] = np.ones(num_lines)*np.nan
         else:
-            signal_green[:,i] = IMlibs.getSignalFromCPFluor(currCPfluor)
+            signal_green[:,i] = getSignalFromCPFluor(currCPfluor)
             
     # combine signal in both
     signal_comma_format = np.array(['\t'.join([signal[i].astype(str), ','.join(signal_green[i].astype(str))]) for i in range(num_lines)])   
@@ -175,14 +174,17 @@ def getAllSortedCPsignalFilename(reducedSignalNamesByTileDict, directory):
     newfilename = os.path.basename(filename[:filename.find('tile')] + filename[filename.find('filtered'):])
     return os.path.join(directory, os.path.splitext(newfilename)[0] + '_sorted.CPsignal')
 
+def getSortedFilename(filename):
+    return os.path.splitext(filename)[0] + '.sorted' + os.path.splitext(filename)[1]
+
 def getCompressedBarcodeFilename(sortedAllCPsignalFile):
     return os.path.splitext(sortedAllCPsignalFile)[0] + '.unique_barcodes'
 
-def getBarcodeMapFilename(compressedBarcodeFile):
-    return os.path.splitext(compressedBarcodeFile)[0] + '.barcode_to_seq'
+def getBarcodeMapFilename(sortedAllCPsignalFile):
+    return os.path.splitext(sortedAllCPsignalFile)[0] + '.barcode_to_seq'
 
-def getAnnotatedSignalFilename(barcodeToSequenceFilename):
-    return os.path.splitext(barcodeToSequenceFilename)[0] + '.annotated.CPsignal'
+def getAnnotatedSignalFilename(sortedAllCPsignalFile):
+    return os.path.splitext(sortedAllCPsignalFile)[0] + '.annotated.CPsignal'
 
 def getFittedFilename(sequenceToLibraryFilename):
     return os.path.splitext(sequenceToLibraryFilename)[0] + '.CPfitted'
@@ -201,34 +203,40 @@ def getfitParametersFilenameParts(bindingSeriesFilenameParts):
 
 def getFitParametersFilename(sequenceToLibraryFilename):
     return os.path.splitext(sequenceToLibraryFilename)[0] + '.fitParameters'
- 
-def sortConcatenateCPsignal(reducedSignalNamesByTileDict, barcode_col, sortedAllCPsignalFile):
-    # save concatenated and sorted CPsignal file
-    allCPsignals = ' '.join([value for value in reducedSignalNamesByTileDict.itervalues()])
-    os.system("cat %s > %s"%(allCPsignals, sortedAllCPsignalFile))
 
+def sortCPsignal(cpSeqFile, sortedAllCPsignalFile, barcode_col):
     # make sure file is sorted
-    mydata = pd.read_table(sortedAllCPsignalFile, index_col=False, header=None)
+    mydata = pd.read_table(cpSeqFile, index_col=False, header=None)
     mydata.sort(barcode_col-1, inplace=True)
     mydata.to_csv(sortedAllCPsignalFile, sep='\t', na_rep='nan', header=False, index=False)
     return
 
+def sortConcatenateCPsignal(reducedSignalNamesByTileDict, barcode_col, sortedAllCPsignalFile):
+    # save concatenated and sorted CPsignal file
+    allCPsignals = ' '.join([value for value in reducedSignalNamesByTileDict.itervalues()])
+    os.system("cat %s > %s"%(allCPsignals, sortedAllCPsignalFile))
+    sortCPsignal(sortedAllCPsignalFile, sortedAllCPsignalFile, barcode_col)
+    return
+
 def compressBarcodes(sortedAllCPsignalFile, barcode_col, seq_col, compressedBarcodeFile):
-    script = '/home/sarah/array_image_tools_SKD/scripts/compressBarcodes.py'
-    print "python %s -i %s -o %s -c %d -C %d"%(script, sortedAllCPsignalFile, compressedBarcodeFile, barcode_col, seq_col)
-    os.system("python %s -i %s -o %s -c %d -C %d"%(script, sortedAllCPsignalFile, compressedBarcodeFile, barcode_col, seq_col))
+    script = 'compressBarcodes'
+    to_run = "python -m %s -i %s -o %s -c %d -C %d"%(script, sortedAllCPsignalFile, compressedBarcodeFile, barcode_col, seq_col)
+    print to_run
+    os.system(to_run)
     return
 
 def barcodeToSequenceMap(compressedBarcodeFile, libraryDesignFile, outFile):
-    script = '/home/sarah/array_image_tools_SKD/scripts/findSeqDistribution.py'
-    print "python %s -b %s -l %s -o %s "%(script, compressedBarcodeFile, libraryDesignFile, outFile)
-    os.system("python %s -b %s -l %s -o %s "%(script, compressedBarcodeFile, libraryDesignFile, outFile))
+    script = 'findSeqDistribution'
+    to_run =  "python -m %s -b %s -l %s -o %s "%(script, compressedBarcodeFile, libraryDesignFile, outFile)
+    print to_run
+    os.system(to_run)
     return
 
 def matchCPsignalToLibrary(barcodeToSequenceFilename, sortedAllCPsignalFile, sequenceToLibraryFilename):
-    script = '/home/sarah/array_image_tools_SKD/scripts/matchCPsignalLibrary.py'
-    print "python %s -b %s -i %s -o %s "%(script, barcodeToSequenceFilename, sortedAllCPsignalFile, sequenceToLibraryFilename)
-    os.system("python %s -b %s -i %s -o %s "%(script, barcodeToSequenceFilename, sortedAllCPsignalFile, sequenceToLibraryFilename))
+    script = 'matchCPsignalLibrary'
+    to_run =  "python -m %s -b %s -i %s -o %s "%(script, barcodeToSequenceFilename, sortedAllCPsignalFile, sequenceToLibraryFilename)
+    print to_run
+    os.system(to_run)
     return
 
 def fitSetKds(fitParametersFilenameParts, bindingSeriesFilenameParts, initialFitParameters, scale_factor):
