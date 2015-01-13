@@ -9,10 +9,14 @@ import re
 import uuid
 import subprocess
 import multiprocessing
+from multiprocessing import Pool
 import numpy as np
 import pandas as pd
 import scipy.io as sio
 import matplotlib.pyplot as plt
+from scikits.bootstrap import bootstrap
+import functools
+
 
 def spawnMatlabJob(matlabFunctionCallString):
     # from CPlibs
@@ -53,6 +57,12 @@ def spawnMatlabJob(matlabFunctionCallString):
     except Exception, e:
         return 'Python exception generated in spawnMatlabJob: ' + e.message
 
+def filenameMatchesAListOfExtensions(filename, extensionList):
+    # from CPlibs
+    for currExt in extensionList:
+        if filename.lower().endswith(currExt.lower()):
+            return True
+    return False
 
 def findTileFilesInDirectory(dirPath, extensionList, excludedExtensionList):
     # from CPlibs
@@ -70,6 +80,16 @@ def findTileFilesInDirectory(dirPath, extensionList, excludedExtensionList):
         for currTile,currFilename in filenameDict.items():
             print '      found tile ' + currTile + ': "' + currFilename + '"'
     return filenameDict
+
+def getTileNumberFromFilename(inFilename):
+    # from CPlibs
+    (path,filename) = os.path.split(inFilename) #split the file into parts
+    (basename,ext) = os.path.splitext(filename)
+    matches = re.findall('tile[0-9]{1,3}',basename.lower())
+    tileNumber = ''
+    if matches != []:
+        tileNumber = '{:03}'.format(int(matches[-1][4:]))
+    return tileNumber
 
 def loadMapFile(mapFilename):
     """
@@ -187,6 +207,8 @@ def reduceCPsignalFile(cpSignalFilename, filterSet, reducedCPsignalFilename):
     #os.system("awk '{i=index($2, \"%s\"); if (i>0 && $9!=\"\" && $9!=\"nan\") print}' %s > %s"%(filterSet, cpSignalFilename, reducedCPsignalFilename))
     return
 
+########## FILENAME CHANGERS ##########
+
 def getAllSortedCPsignalFilename(reducedSignalNamesByTileDict, directory):
     filename = [value for value in reducedSignalNamesByTileDict.itervalues()][0]
     newfilename = os.path.basename(filename[:filename.find('tile')] + filename[filename.find('filtered'):])
@@ -222,6 +244,10 @@ def getfitParametersFilenameParts(bindingSeriesFilenameParts):
 def getFitParametersFilename(sequenceToLibraryFilename):
     return os.path.splitext(sequenceToLibraryFilename)[0] + '.fitParameters'
 
+def getPerVariantFilename(fittedBindingFilename):
+    return os.path.splitext(fittedBindingFilename)[0] + '.perVariant.CPfitted'
+
+########## ACTUAL FUNCTIONS ##########
 def sortCPsignal(cpSeqFile, sortedAllCPsignalFile, barcode_col):
     # make sure file is sorted
     mydata = pd.read_table(cpSeqFile, index_col=False, header=None)
@@ -440,19 +466,93 @@ def plotVariant(sub_table, concentrations):
     plt.tight_layout()
     return
 
-def reduceByVariant(table):
+def reduceByVariant(fittedBindingFilename, variantFittedFilename, variants=None):
+    
+    columns = [name for name in table][:12] + ['numTests', 'numRejects', 'kd', 'dG', 'fmax', 'fmin']
 
     variants = np.arange(0, np.max(table['variant_number']))
-    columns = [name for name in table][:12] + ['numTests', 'numRejects', 'kd', 'dG', 'fmax', 'fmin']
+
+    columns = [name for name in table][:12] + ['numTests', 'numRejects', 'dG', 'fmax', 'fmin', 'qvalue', 'dG_lb', 'dG_ub']
     newtable = pd.DataFrame(columns=columns, index=np.arange(len(variants)))
     for i, variant in enumerate(variants):
         if i%1000==0: print 'computing iteration %d'%i
         sub_table = table[table['variant_number']==variant]
         if len(sub_table) > 0:
-            sub_table_filtered = filterFitParameters(sub_table)[['kd', 'dG', 'fmax', 'fmin']]
+            sub_table_filtered = filterFitParameters(sub_table)[['dG', 'fmax', 'fmin', 'qvalue']]
+            sub_table_filtered = sub_table.copy()[['dG', 'fmax', 'fmin', 'qvalue']]
             newtable.iloc[i]['numTests'] = len(sub_table_filtered)
             newtable.iloc[i]['numRejects'] = len(sub_table) - len(sub_table_filtered)
-            newtable.iloc[i]['kd':] = np.median(sub_table_filtered, 0)
+            newtable.iloc[i]['dG':'qvalue'] = np.median(sub_table_filtered, 0)
             newtable.iloc[i][:'total_length'] = sub_table.iloc[0][:'total_length']
+            try:
+                newtable.iloc[i]['dG_lb'], newtable.iloc[i]['dG_ub'] = bootstrap.ci(sub_table_filtered['dG'], np.median)
+            except IndexError: print variant
     return newtable
+
+def perVariantInfo(fittedBindingFilename, variantFittedFilename, numCores=None, variants=None):
+    # define defaults
+    if numCores is None: numCores = 1   # default is to only use one core
+    if variants is None: variants = range(int(np.max(table['variant_number'])))
+    
+    # load table
+    table = loadFittedCPsignal(fittedBindingFilename)
+    
+    # define columns as all the ones between variant number and fraction consensus
+    fixed_index = int(np.where(np.array([name for name in table]) == 'fraction_consensus')[0])
+    columns = [name for name in table][:fixed_index] + ['numTests', 'numRejects', 'dG', 'fmax', 'fmin', 'qvalue', 'dG_lb', 'dG_ub']
+    
+    # multiprocess reducing and bootstrapping
+    pool = Pool(processes=numCores)   
+    datapervar = pool.map(functools.partial(generateVarStats, table, columns), variants)
+    pool.close()
+    
+    # store all in one new table
+    newtable = pd.DataFrame(columns=columns, index=np.arange(len(variants)))
+    print('here!')
+    for variant in variants:
+        #this is really slow, there's got to be a better way of unpacking datapervar
+        if (variant % 1000) == 0:
+            print(variant)
+        newtable.iloc[variant] = datapervar[variant]
+    
+    # save as new file
+    return newtable
+
+def filterFitParameters(sub_table):
+    not_nan_binding_points = [0,1] # if first two binding points are NaN, filter
+    barcode_filter = np.array(sub_table['fraction_consensus'] > 50)
+    nan_filter = np.all(np.isfinite(sub_table[not_nan_binding_points]), 1)
+    fit_filter = np.array(sub_table['rsq'] > 0)
+    
+    # use barcode_filter, nan_filter to reduce sub_table
+    sub_table  = sub_table.iloc[np.arange(len(sub_table))][np.all((nan_filter, barcode_filter), axis=0)]
+    return sub_table
+        
+def generateVarStats(table, variant, columns):
+    # find subset of table that has variant number equal to variant
+    print variant
+    sub_table = table[table['variant_number']==variant]
+
+    sub_series = pd.Series(index=columns)
+    
+    if len(sub_table) > 0:
+        test_names = ['dG', 'fmax','qvalue', 'fmin']
+        sub_table_filtered = filterFitParameters(sub_table)[test_names]
+        if not(sub_table_filtered.empty):
+            numTests = len(sub_table_filtered)
+            sub_series['numTests'] = len(sub_table_filtered)
+            sub_series['numRejects'] = len(sub_table) - len(sub_table_filtered)
+            sub_series[test_names] = np.median(sub_table_filtered, 0)
+            sub_series[:'total_length'] = sub_table.iloc[0][:'total_length']
+        if len(sub_table_filtered) > 1:
+            #get bootstrapped error bars on mean, would have liked to do median but get errors...   
+            try:
+                if (variant % 1000) == 0:
+                    print(variant)
+                sub_series['dG_lb'], sub_series['dG_ub'] = bootstrap.ci(data=sub_table_filtered['dG'], statfunction=np.median)
+            except IndexError:
+                print('value error on %d'%variant)                 
+    return sub_series
+
+
     

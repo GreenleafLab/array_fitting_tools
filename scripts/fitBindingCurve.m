@@ -27,7 +27,7 @@ function fitBindingCurve(bindingCurveFilename, min_constraints, max_constraints,
     fmin_pos = 3;
     
     change_fmax_init = isnan(initial_points(fmax_pos));
-    numtottest = 9;
+
     %% cycle through each row and fit
     for i=1:numtottest;
         frac_bound = binding_curves(i,:);

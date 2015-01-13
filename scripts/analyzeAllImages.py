@@ -214,12 +214,17 @@ if args.unique_barcode is None:
         IMlibs.sortCPsignal(args.CPseq, currCPseqfile, parameters.barcode_col)
         
     compressedBarcodeFile = IMlibs.getCompressedBarcodeFilename(currCPseqfile)
-    if os.path.isfile(compressedBarcodeFile):
-        print 'Compressed barcode file exists "%s". Skipping...'%compressedBarcodeFile
-    else:
-        print 'Making compressed barcode file "%s from %s"...'%(compressedBarcodeFile, currCPseqfile)
-        IMlibs.compressBarcodes(currCPseqfile, barcode_col, sequence_col, compressedBarcodeFile)
-else: compressedBarcodeFile = args.unique_barcode
+else:
+    compressedBarcodeFile = args.unique_barcode
+    
+# make compressed barcode file if it doesn't exist
+if os.path.isfile(compressedBarcodeFile):
+    print 'Compressed barcode file exists "%s". Skipping...'%compressedBarcodeFile
+else:
+    print 'Making compressed barcode file "%s from %s"...'%(compressedBarcodeFile, currCPseqfile)
+    IMlibs.compressBarcodes(currCPseqfile, barcode_col, sequence_col, compressedBarcodeFile)
+
+    
 
 # map barcode to sequence
 barcodeToSequenceFilename = IMlibs.getBarcodeMapFilename(sortedAllCPsignalFile)
@@ -273,7 +278,13 @@ else:
     IMlibs.removeFilenameParts(bindingSeriesFilenameParts)
     
 ################ Reduce into Variant Table ################
+variantFittedFilename = IMlibs.getPerVariantFilename(fittedBindingFilename)
 
+if os.path.isfile(variantFittedFilename):
+    print 'per variant fitted CPsignal file exists "%s". Skipping...'%variantFittedFilename
+else:
+    print 'Making per variant table from %s...'%fittedBindingFilename
+    newtable = IMlibs.perVariantInfo(fittedBindingFilename, variantFittedFilename, numCores=numCores, variants=range(10))
 
     
 # Now reduce into variants. Save the variant number, characterization info, number
