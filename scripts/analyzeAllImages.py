@@ -284,8 +284,9 @@ if os.path.isfile(variantFittedFilename):
     print 'per variant fitted CPsignal file exists "%s". Skipping...'%variantFittedFilename
 else:
     print 'Making per variant table from %s...'%fittedBindingFilename
-    newtable = IMlibs.perVariantInfo(fittedBindingFilename, variantFittedFilename, numCores=numCores, variants=range(10))
-
+    table = IMlibs.loadFittedCPsignal(fittedBindingFilename)
+    variant_table = IMlibs.findVariantTable(table, numCores=numCores)
+    IMlibs.saveDataFrame(variant_table, variantFittedFilename)
     
 # Now reduce into variants. Save the variant number, characterization info, number
 # of times tested, only if fraction_consensus is greater than 0.67 (2/3rd),

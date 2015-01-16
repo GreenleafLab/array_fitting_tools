@@ -134,7 +134,7 @@ plt.savefig(os.path.join(imageDirectory,'junction_%s.central.length_landscape.pd
 variantFun.makeFasta(per_variant, image_dir=os.path.join(structuresDirectory, criteria_dict['helix_context'], seq))
 
 # plot all 2x2 loops of length 10
-topology = 'M_M_M'
+topology = 'M_M'
 length = 11
 helix_one_length = 4
 variants = variantFun.findVariantNumbers(table, {'topology':topology, 'helix_context':'rigid', 'loop':'goodLoop', 'receptor':'R1', 'total_length':length, 'helix_one_length':helix_one_length})

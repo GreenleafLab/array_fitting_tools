@@ -203,7 +203,9 @@ def findCPsignalFile(cpSeqFilename, redFluors, greenFluors, cpSignalFilename):
 
 def reduceCPsignalFile(cpSignalFilename, filterSet, reducedCPsignalFilename):
     # take only lines that contain the filterSet
-    os.system("awk '{i=index($2, \"%s\"); if (i>0) print}' %s > %s"%(filterSet, cpSignalFilename, reducedCPsignalFilename))
+    to_run = "awk '{i=index($2, \"%s\"); if (i>0) print}' %s > %s"%(filterSet, cpSignalFilename, reducedCPsignalFilename)
+    print to_run
+    #os.system(to_run)
     #os.system("awk '{i=index($2, \"%s\"); if (i>0 && $9!=\"\" && $9!=\"nan\") print}' %s > %s"%(filterSet, cpSignalFilename, reducedCPsignalFilename))
     return
 
@@ -489,69 +491,63 @@ def reduceByVariant(fittedBindingFilename, variantFittedFilename, variants=None)
             except IndexError: print variant
     return newtable
 
-def perVariantInfo(fittedBindingFilename, variantFittedFilename, numCores=None, variants=None):
+def findVariantTable(table, numCores=None, variants=None):
     # define defaults
     if numCores is None: numCores = 1   # default is to only use one core
-    if variants is None: variants = range(int(np.max(table['variant_number'])))
+    if variants is None: variants = np.arange(int(np.max(table['variant_number'])))
     
-    # load table
-    table = loadFittedCPsignal(fittedBindingFilename)
-    
+    # initialize temp file
     # define columns as all the ones between variant number and fraction consensus
     fixed_index = int(np.where(np.array([name for name in table]) == 'fraction_consensus')[0])
-    columns = [name for name in table][:fixed_index] + ['numTests', 'numRejects', 'dG', 'fmax', 'fmin', 'qvalue', 'dG_lb', 'dG_ub']
+    columns = [name for name in table][:fixed_index]
+    test_stats = ['dG', 'fmin', 'fmax', 'qvalue']
+    bootstrap_parameter_index = 0
     
     # multiprocess reducing and bootstrapping
     pool = Pool(processes=numCores)   
-    datapervar = pool.map(functools.partial(generateVarStats, table, columns), variants)
+    datapervar = pool.map(functools.partial(perVariantStats, table, columns, test_stats, test_stats[bootstrap_parameter_index]),
+                          np.array_split(np.array(variants), numCores))
     pool.close()
     
-    # store all in one new table
-    newtable = pd.DataFrame(columns=columns, index=np.arange(len(variants)))
-    print('here!')
-    for variant in variants:
-        #this is really slow, there's got to be a better way of unpacking datapervar
-        if (variant % 1000) == 0:
-            print(variant)
-        newtable.iloc[variant] = datapervar[variant]
-    
-    # save as new file
-    return newtable
+    return pd.concat(datapervar)
 
 def filterFitParameters(sub_table):
     not_nan_binding_points = [0,1] # if first two binding points are NaN, filter
-    barcode_filter = np.array(sub_table['fraction_consensus'] > 50)
     nan_filter = np.all(np.isfinite(sub_table[not_nan_binding_points]), 1)
+    barcode_filter = np.array(sub_table['fraction_consensus'] > 50)
     fit_filter = np.array(sub_table['rsq'] > 0)
     
     # use barcode_filter, nan_filter to reduce sub_table
     sub_table  = sub_table.iloc[np.arange(len(sub_table))][np.all((nan_filter, barcode_filter), axis=0)]
     return sub_table
-        
-def generateVarStats(table, variant, columns):
-    # find subset of table that has variant number equal to variant
-    print variant
-    sub_table = table[table['variant_number']==variant]
 
-    sub_series = pd.Series(index=columns)
+def newColumns(test_stats, parameter):
+    return test_stats+['numTests', 'numRejects', parameter+'_ub', parameter+'_lb']
+
+def perVariantStats(table, columns, test_stats, parameter, variants):
+    print variants
+    newtable = pd.DataFrame(columns=columns+newColumns(test_stats, parameter), index=variants)
+    for variant in variants:
+        sub_table = table[table['variant_number']==variant]
+        if not sub_table.empty:
+            newtable.loc[variant, columns] = sub_table.iloc[0][columns]
+            newtable.loc[variant, newColumns(test_stats, parameter)] = perVariantError(sub_table, test_stats, parameter)
+    return newtable
+        
+def perVariantError(sub_table, test_stats, parameter):
+    # find subset of table that has variant number equal to variant
+    sub_table_filtered = filterFitParameters(sub_table)
+    sub_series = pd.Series(index = newColumns(test_stats, parameter))
+    sub_series['numTests'] = len(sub_table_filtered)
+    sub_series['numRejects'] = len(sub_table) - len(sub_table_filtered)
+    sub_series[test_stats] = sub_table_filtered.median(axis=0)[test_stats]
     
-    if len(sub_table) > 0:
-        test_names = ['dG', 'fmax','qvalue', 'fmin']
-        sub_table_filtered = filterFitParameters(sub_table)[test_names]
-        if not(sub_table_filtered.empty):
-            numTests = len(sub_table_filtered)
-            sub_series['numTests'] = len(sub_table_filtered)
-            sub_series['numRejects'] = len(sub_table) - len(sub_table_filtered)
-            sub_series[test_names] = np.median(sub_table_filtered, 0)
-            sub_series[:'total_length'] = sub_table.iloc[0][:'total_length']
-        if len(sub_table_filtered) > 1:
-            #get bootstrapped error bars on mean, would have liked to do median but get errors...   
-            try:
-                if (variant % 1000) == 0:
-                    print(variant)
-                sub_series['dG_lb'], sub_series['dG_ub'] = bootstrap.ci(data=sub_table_filtered['dG'], statfunction=np.median)
-            except IndexError:
-                print('value error on %d'%variant)                 
+    if len(sub_table_filtered) > 1:
+        # get bootstrapped error bars 
+        try:
+            sub_series[parameter+'_lb'], sub_series[parameter+'_ub'] = bootstrap.ci(data=sub_table_filtered[parameter], statfunction=np.median)
+        except IndexError:
+            print('value error on %d'%sub_table['variant_number'].iloc[0])                 
     return sub_series
 
 
