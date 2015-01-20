@@ -455,23 +455,43 @@ def plot_length_changes_helices(table, variant_table, topology, loop=None, recep
     helix_context = np.unique(sub_table['helix_context'])
     total_lengths = np.array([8,9,10,11,12])
     delta_G_initial = variant_table.loc[0]['dG']
+    delta_G_ub_initial = variant_table.loc[0]['dG_ub']-variant_table.loc[0]['dG']
+    delta_G_lb_initial = variant_table.loc[0]['dG_lb']-variant_table.loc[0]['dG']
+    
     delta_deltaG = np.ones((len(helix_context), len(total_lengths)))*np.nan
+    delta_deltaGerrub = np.ones((len(helix_context), len(total_lengths)))*np.nan
+    delta_deltaGerrlb = np.ones((len(helix_context), len(total_lengths)))*np.nan
     for i, sequence in enumerate(helix_context):
         for j, length in enumerate(total_lengths):
             helix_one_length = np.floor((length - sub_table['junction_length'].iloc[0])*0.5) + offset
+            #variant_number = sub_table[np.all((np.array(sub_table['helix_context']==sequence),
+            #                                   np.array(sub_table['total_length']==length),
+            #                                   np.array(sub_table['helix_one_length']==helix_one_length)),axis=0)]['variant_number']
             variant_number = sub_table[np.all((np.array(sub_table['helix_context']==sequence),
                                                np.array(sub_table['total_length']==length),
-                                               np.array(sub_table['helix_one_length']==helix_one_length)),axis=0)]['variant_number']
+                                               np.array(sub_table['helix_one_length']==helix_one_length)),axis=0)].index
+            #calculate ddG, and errorbars ddG (sqrt of sum or squares)
             if len(variant_number)>0:
                 delta_deltaG[i][j] = sub_table.loc[variant_number]['dG'] - delta_G_initial
+                delta_deltaGerrub[i][j] = np.sqrt(pow(sub_table.loc[variant_number]['dG_ub']-sub_table.loc[variant_number]['dG'],2) + pow(delta_G_ub_initial,2))
+                delta_deltaGerrlb[i][j] = np.sqrt(pow(sub_table.loc[variant_number]['dG_lb']-sub_table.loc[variant_number]['dG'],2) + pow(delta_G_lb_initial,2))
     fig = plt.figure(figsize=(4,4))
     ax = fig.add_subplot(111)
     plotfun.plot_manylines(delta_deltaG, cmap='Paired', marker='o', labels=helix_context, alpha=0.5)
+    values = range(len(delta_deltaG))
+    cm = plt.cm.Paired
+    cNorm  = colors.Normalize(vmin=0, vmax=values[-1])
+    scalarMap = cmx.ScalarMappable(norm=cNorm, cmap=cm)
+    
+    #put error bars on numbers
+    for i, row in enumerate(delta_deltaG):
+        ax.errorbar(total_lengths-8,row, yerr=[delta_deltaGerrub[i,:], delta_deltaGerrlb[i,:]], fmt='.', color=scalarMap.to_rgba(i),ecolor=scalarMap.to_rgba(i)) 
     ax.set_xticks(total_lengths-8)
     ax.set_xticklabels(total_lengths.astype(str))
     ax.legend_ = None
     ax.set_xlabel('total length')
     ax.set_ylabel('delta delta G')
     ax.set_ylim((-1, 5))
+    ax.set_xlim((-0.5,4.5))
     plt.tight_layout()
     return
