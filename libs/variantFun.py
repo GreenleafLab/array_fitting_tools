@@ -495,3 +495,8 @@ def plot_length_changes_helices(table, variant_table, topology, loop=None, recep
     ax.set_xlim((-0.5,4.5))
     plt.tight_layout()
     return
+    
+def ConvertNomen(topologies):
+    topos = {'':'','B1':'1x0', 'B2':'0x1', 'B1_B1':'2x0', 'B2_B2':'0x2', 'B1_B1_B1':'3x0', 'B2_B2_B2':'0x3', 'M':'1x1','M_B1':'1x2', 'B2_M':'2x1', 'M_M':'2x2',
+                                    'B2_B2_M':'2x3', 'M_B1_B1':'3x2', 'B2_M_M':'2x3', 'M_M_B1':'3x2', 'M_M_M':'3x3'}
+    return [topos[t] for t in topologies]

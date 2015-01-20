@@ -236,7 +236,8 @@ for topology in ['','B1', 'B2', 'B1_B1', 'B2_B2', 'B1_B1_B1', 'B2_B2_B2', 'M','M
 
 for topology in ['','B1', 'B2','B1_B1','B2_B2','B1_B1_B1','B2_B2_B2']:
     variantFun.plot_length_changes_helices(table, variant_table, topology)
-    plt.title('%s %s'%(helix_context, topology))
+    #plt.title('%s %s'%(helix_context, topology))
+    plt.title('%s'%(variantFun.ConvertNomen([topology])[0]))
     #plt.tight_layout()
     plt.savefig(os.path.join(imageDirectory, 'all_lengths.all_helices.topology_%s.lines.pdf'%(topology)))
     
