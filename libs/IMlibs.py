@@ -203,9 +203,10 @@ def findCPsignalFile(cpSeqFilename, redFluors, greenFluors, cpSignalFilename):
 
 def reduceCPsignalFile(cpSignalFilename, filterSet, reducedCPsignalFilename):
     # take only lines that contain the filterSet
-    to_run = "awk '{i=index($2, \"%s\"); if (i>0) print}' %s > %s"%(filterSet, cpSignalFilename, reducedCPsignalFilename)
+    to_run = "awk '{n=split($2, a,\":\"); b=0; for (i=1; i<=n; i++) if (a[i]==\"%s\") b=1; if (b==1) print $0}' %s > %s"%(filterSet, cpSignalFilename, reducedCPsignalFilename)
+    #to_run = "awk '{i=index($2, \"%s\"); if (i>0) print}' %s > %s"%(filterSet, cpSignalFilename, reducedCPsignalFilename)
     print to_run
-    #os.system(to_run)
+    os.system(to_run)
     #os.system("awk '{i=index($2, \"%s\"); if (i>0 && $9!=\"\" && $9!=\"nan\") print}' %s > %s"%(filterSet, cpSignalFilename, reducedCPsignalFilename))
     return
 

@@ -55,7 +55,7 @@ variants = np.unique(table['variant_number'].iloc[indx_subset][np.isfinite(table
 perVariant = variantFun.perVariantInfo(table, variants=variants)
 
 variantFittedFilename = os.path.splitext(fittedBindingFilename)[0]+'.perVariant.CPfitted'
-variant_table = pd.read_table(variantFittedFilename, index_col=0)
+variant_table = pd.read_table(variantFittedFilename)
 
 # plot scatterplots of how qvalue relates to dG
 fig = plt.figure(figsize=(5, 4))
@@ -100,11 +100,11 @@ variantFun.plotColors()
 plt.savefig(os.path.join(imageDirectory, 'colors.guide.pdf'))
 
 # plot one set of variants
-seq = 'TT_T'
+seq = '_'
 criteria_dict = {'junction_sequence': seq, 'helix_context':'rigid', 'loop':'goodLoop', 'receptor':'R1'}
 variants = variantFun.findVariantNumbers(table, criteria_dict)
 per_variant = variantFun.perVariantInfo(table, variants=variants)
-variantFun.plot_over_coordinate(per_variant)
+variantFun.plot_over_coordinate(variant_table.loc[variants])
 plt.savefig(os.path.join(imageDirectory, 'junction_%s.central.num_variants.pdf'%seq))
 plt.close()
 plt.savefig(os.path.join(imageDirectory, 'junction_%s.central.length_landscape.pdf'%seq))
