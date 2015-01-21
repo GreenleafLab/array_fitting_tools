@@ -181,16 +181,18 @@ if __name__ == '__main__':
     # find number of times each sequence that has at least one representation is in the
     # original block of seqeunces
     num_bc_per_variant, is_designed = IMlibs.findSequenceRepresentation(consensus_sequences, compare_to)
-    print "Done with mapping. Making plots.."
-    
-    # make plots
-    plotBarcodesPerVariant(num_bc_per_variant, outDir)
-    plotClustersPerBarcode(consensus, is_designed, outDir)
-    plotClustersPerVariant(num_bc_per_variant, consensus, is_designed, outDir)
+    print "Done with mapping. Saving.."
+
     
     # get dict of barcode map
-    print "making final barcode to sequence mapping file"
     barcodeMap = findBarcodeDict(consensus, is_designed, designed_library_unique)
     barcodeMap.sort('variant_number', inplace=True)
     IMlibs.saveDataFrame(barcodeMap, outFile, index=True, float_format='%4.0f')
+    
+    # make plots
+    print "Making plots..."
+    plotBarcodesPerVariant(num_bc_per_variant, outDir)
+    plotClustersPerBarcode(consensus, is_designed, outDir)
+    plotClustersPerVariant(num_bc_per_variant, consensus, is_designed, outDir)
+
  
