@@ -280,6 +280,48 @@ def plot_parameter_vs_length(series, p1, p2):
     ax.plot(series[p1]+wiggle, series[p2], fmt, color=color)
     return ax
 
+def plot_scatterplot(table1, table2=None, yvalues=None, parameter=None, errorBar=None ):
+    if parameter is None: parameter = 'dG'
+    if errorBar is None:
+        if parameter == 'dG': errorBar = True
+        else: errorBar = False
+    if table2 is None and yvalues is None:
+        print 'Error: Need to define either a table or vactor of y values'
+        return
+    # intialize figure
+    fig = plt.figure(figsize = (4,4))
+    ax = plt.gca()
+    #ax.plot([-12, -6], [-12, -6], '--', c='0.25')
+    #ax.set_xlim((-12,-6))
+    #ax.set_ylim((-12,-6))
+    ax.grid()
+    
+    for i in range(len(table1)):
+        xvalue = table1.iloc[i].loc[parameter]
+        if table2 is not None:
+            yvalue = table2.iloc[i].loc[parameter]
+        else: yvalue = yvalues[i]
+        xerr = [[0], [0]]
+        yerr = [[0], [0]]
+        if np.isnan(xvalue) or np.isnan(yvalue):
+            print 'Skipping variant %s because no data associated with it'%(str(table1.iloc[i]['variant_number']))
+        else:
+            fmt, wiggle, color = getMarker(table1.iloc[i])
+            if errorBar:
+                if not np.isnan(table1.iloc[i]['dG_lb']): xerr[0][0] =   xvalue - table1.iloc[i]['dG_lb']
+                if not np.isnan(table1.iloc[i]['dG_ub']): xerr[1][0] = -(xvalue - table1.iloc[i]['dG_ub'])
+                if table2 is not None:
+                    if not np.isnan(table2.iloc[i]['dG_lb']): yerr[0][0] =   yvalue - table2.iloc[i]['dG_lb']
+                    if not np.isnan(table2.iloc[i]['dG_ub']): yerr[1][0] = -(yvalue - table2.iloc[i]['dG_ub'])
+                ax.errorbar(xvalue, yvalue, fmt=fmt, color=color, ecolor='k', yerr=yerr, xerr=xerr)
+            else:
+                ax.plot(xvalue, yvalue, fmt, color=color)
+
+    return
+
+
+
+
 
 def plot_over_coordinate(per_variant, to_fill=None, x_param=None, x_param_name=None, sort_index=None):
     # plot variant delta G's over a coordinate given, or total length (default)

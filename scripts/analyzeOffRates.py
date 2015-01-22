@@ -84,7 +84,7 @@ tileList = filteredCPseqFilenameDict.keys()
 # import directory names to analyze
 print 'Finding CPfluor files in directories given in "%s"...'%args.CPfluor_dirs_to_quantify
 fluor_dirs_red, fluor_dirs, concentrations = IMlibs.loadMapFile(args.CPfluor_dirs_to_quantify)
-fluorNamesByTileDict = IMlibs.getFluorFileNames(fluor_dirs, tileList)
+fluorNamesByTileDict, timeStampDict = IMlibs.getFluorFileNamesOffrates(fluor_dirs, tileList)
 fluorNamesByTileRedDict = IMlibs.getFluorFileNames(fluor_dirs_red, tileList)
 
 
@@ -114,7 +114,7 @@ if os.path.isdir(signal_directory): #if the CPsignal file is already present
         else: print "   missing tile %s"%tile
 else:
     os.makedirs(signal_directory) #create a new output directory if it doesn't exist
-    
+
 if np.sum(already_exist) < len(filteredCPseqFilenameDict):
     # initiate multiprocessing
     workerPool = multiprocessing.Pool(processes=numCores) #create a multiprocessing pool that uses at most the specified number of cores
@@ -241,7 +241,7 @@ if os.path.isfile(annotatedSignalFilename):
 else:
     print 'Making annotated CPsignal file "%s"...'%annotatedSignalFilename
     IMlibs.matchCPsignalToLibrary(barcodeToSequenceFilename, sortedAllCPsignalFile, annotatedSignalFilename)
-"""
+
 ################ Fit ################
 fittedBindingFilename = IMlibs.getFittedFilename(annotatedSignalFilename)
 
@@ -250,31 +250,33 @@ if os.path.isfile(fittedBindingFilename):
 else:
     print 'Making fitted CP signal file "%s"...'%annotatedSignalFilename
     # get binding series
-    bindingSeries, allClusterSignal = IMlibs.loadBindingCurveFromCPsignal(annotatedSignalFilename)
+    bindingSeries, allClusterSignal, times = IMlibs.loadOffRatesCurveFromCPsignal(annotatedSignalFilename, timeStampDict, numCores=numCores)
     bindingSeriesSplit = np.array_split(bindingSeries, numCores)
     allClusterSignalSplit = np.array_split(allClusterSignal, numCores)
+    timesSplit = np.array_split(times, numCores)
     bindingSeriesFilenameParts = IMlibs.getBindingSeriesFilenameParts(annotatedSignalFilename, numCores)
     fitParametersFilenameParts = IMlibs.getfitParametersFilenameParts(bindingSeriesFilenameParts)
-    null_scores = IMlibs.loadNullScores(signalNamesByTileDict, filterSet)
+    null_scores = IMlibs.loadNullScores(signalNamesByTileDict, filterSet, index=0)
 
     # split into parts 
     for i, bindingSeriesFilename in bindingSeriesFilenameParts.items():
-        sio.savemat(bindingSeriesFilename, {'concentrations':concentrations,
+        sio.savemat(bindingSeriesFilename, {'times':timesSplit[i].astype(float),
                                             'binding_curves': bindingSeriesSplit[i].astype(float),
                                             'all_cluster':allClusterSignalSplit[i].astype(float),
                                             'null_scores':null_scores,
                                             })
     # set fit parameters
-    parameters = fittingParameters.Parameters(concentrations, bindingSeries[:,-1], allClusterSignal, null_scores)
-    fitParameters = IMlibs.fitSetKds(fitParametersFilenameParts, bindingSeriesFilenameParts, parameters.fitParameters, parameters.scale_factor)
-    
+    parameters = fittingParameters.Parameters(f_abs_green_max=bindingSeries[:,0], f_abs_red=allClusterSignal, f_abs_green_nonbinders=null_scores)
+
+    fitParameters = IMlibs.fitSetKoff(fitParametersFilenameParts, bindingSeriesFilenameParts, parameters.fitParameters, parameters.scale_factor)
+
     # save fittedBindingFilename
     fitParametersFilename = IMlibs.getFitParametersFilename(annotatedSignalFilename)
     IMlibs.saveDataFrame(fitParameters, fitParametersFilename, index=False, float_format='%4.3f')
-    IMlibs.removeFilenameParts(fitParametersFilenameParts)
     IMlibs.makeFittedCPsignalFile(fitParametersFilename,annotatedSignalFilename, fittedBindingFilename)
     
     # remove binding series filenames
+    IMlibs.removeFilenameParts(fitParametersFilenameParts)
     IMlibs.removeFilenameParts(bindingSeriesFilenameParts)
     
 ################ Reduce into Variant Table ################
@@ -286,10 +288,9 @@ else:
     print 'Making per variant table from %s...'%fittedBindingFilename
     table = IMlibs.loadFittedCPsignal(fittedBindingFilename)
     variant_table = IMlibs.findVariantTable(table, numCores=numCores)
-    IMlibs.saveDataFrame(variant_table, variantFittedFilename, float_format='%4.3f')
+    IMlibs.saveDataFrame(variant_table, variantFittedFilename)
     
 # Now reduce into variants. Save the variant number, characterization info, number
 # of times tested, only if fraction_consensus is greater than 0.67 (2/3rd),
 # and save median of normalized binding amount, median of fit parameters, (and quartiles?),
-# error in fit parameters?
 """

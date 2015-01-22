@@ -99,6 +99,8 @@ plt.savefig(os.path.join(imageDirectory, 'markers.guide.pdf'))
 variantFun.plotColors()
 plt.savefig(os.path.join(imageDirectory, 'colors.guide.pdf'))
 
+# plot HIV loops
+criteria_dict = {'junction_sequence': '_', 'helix_context':'rigid', 'loop':'goodLoop'}
 # plot one set of variants
 seq = '_'
 criteria_dict = {'junction_sequence': seq, 'helix_context':'rigid', 'loop':'goodLoop', 'receptor':'R1'}

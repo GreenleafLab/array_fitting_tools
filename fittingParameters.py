@@ -29,19 +29,21 @@ class Parameters():
         self.frac_bound_lowerbound = 0.999
         self.fdr_cutoff = 0.05
         
-        self.fitParameters = pd.DataFrame(columns=['fmax', 'dG', 'fmin'],
+        self.fitParameters = pd.DataFrame(columns=['fmax', 'dG', 'fmin', 'toff'],
                                           index=['lowerbound', 'initial', 'upperbound'])
-        # make sure everything is an array
-        if (f_abs_green_max is not None and concentrations is not None and
-            f_abs_red is not None and f_abs_green_nonbinders is not None):
-            f_abs_green_max = np.array(f_abs_green_max)
+        if concentrations is not None:
             self.concentrations = concentrations
-        
-            currParam = 'dG'
-            self.fitParameters[currParam]['lowerbound'] = self.find_dG_from_Kd(self.find_Kd_from_frac_bound_concentration(self.frac_bound_lowerbound, self.concentrations[0]))
-            self.fitParameters[currParam]['initial'] = self.find_dG_from_Kd(self.concentrations[-1])
-            self.fitParameters[currParam]['upperbound'] = self.find_dG_from_Kd(self.find_Kd_from_frac_bound_concentration(self.frac_bound_upperbound, self.concentrations[-1]))
+        # make sure everything is an array
+        if (f_abs_green_max is not None and f_abs_red is not None and f_abs_green_nonbinders is not None):
             
+            f_abs_green_max = np.array(f_abs_green_max)
+            
+            if concentrations is not None:        
+                currParam = 'dG'
+                self.fitParameters[currParam]['lowerbound'] = self.find_dG_from_Kd(self.find_Kd_from_frac_bound_concentration(self.frac_bound_lowerbound, self.concentrations[0]))
+                self.fitParameters[currParam]['initial'] = self.find_dG_from_Kd(self.concentrations[-1])
+                self.fitParameters[currParam]['upperbound'] = self.find_dG_from_Kd(self.find_Kd_from_frac_bound_concentration(self.frac_bound_upperbound, self.concentrations[-1]))
+                
             currParam = 'fmin'  
             self.fitParameters[currParam]['lowerbound'] = 0
             self.fitParameters[currParam]['initial'] = 0
@@ -53,6 +55,10 @@ class Parameters():
             self.fitParameters[currParam]['initial']= np.nan # this will be defined per cluster
             self.fitParameters[currParam]['upperbound'] = self.find_fmax_upperbound(f_abs_green_max, self.mx_factor_fmax)
             
+            currParam = 'toff'
+            self.fitParameters[currParam]['lowerbound'] = 1E1
+            self.fitParameters[currParam]['initial']= 2E4 
+            self.fitParameters[currParam]['upperbound'] = 1E6
             # estimate conversion of f_abs_red to f_abs_green
             self.scale_factor = self.find_scale_factor(f_abs_green_max, f_abs_red, subset_index=f_abs_green_max>self.find_fmax_lowerbound(f_abs_green_nonbinders, self.fdr_cutoff) )
         

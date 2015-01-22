@@ -16,13 +16,17 @@ classdef CurveFitFun
              fracbound = fmax*concentration./(concentration+exp(dG/0.582)/1e-9)+fmin;
          end
          
+         % function to find off rate curve
+         function fracbound = findOffRate(x, time)
+             fmax = x(1);
+             toff = x(2);
+             fmin = x(3);
+             fracbound = fmax*exp(-time/toff) + fmin;
+         end
+         
          % function to find qvalue
          function q = findFDR(score, null_scores)
              q = sum(abs(null_scores) > abs(score))/length(null_scores);
-         end
-             
-         % function to find offrate
-         function mse = findOffRate(params, concentrations, fraction_bound)
          end
      end
 end
