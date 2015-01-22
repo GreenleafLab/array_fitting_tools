@@ -16,7 +16,8 @@ import scipy.io as sio
 import matplotlib.pyplot as plt
 from scikits.bootstrap import bootstrap
 import functools
-
+import datetime
+import CPlibs
 
 def spawnMatlabJob(matlabFunctionCallString):
     # from CPlibs
@@ -132,6 +133,42 @@ def getFluorFileNames(directories, tileNames):
             except: filename = ''
             filenameDict[tile][i] = filename
     return filenameDict
+
+def parseTimeStampFromFilename(CPfluorFilename):
+    try: 
+        timestamp=CPfluorFilename.strip('.CPfluor').split('_')[-1]
+        date, time = timestamp.split('-')
+        year, month, day = np.array(date.split('.'), dtype=int)
+        hour, minute, second, ms = np.array(time.split('.'), dtype=int)
+        timestamp_object = datetime.datetime(year=year, month=month, day=day, hour=hour, minute=minute, second=second, microsecond=ms*1000)
+    except ValueError:
+        timestamp_object = datetime.datetime.now()
+    return timestamp_object
+    
+
+def getFluorFileNamesOffrates(directories, tileNames):
+    """
+    return dict whose keys are tile numbers and entries are a list of CPfluor files by concentration
+    """
+    filenameDict = {}
+    
+    for tile in tileNames:
+        filenameDict[tile] = np.array([],dtype=str)
+        for i, directory in enumerate(directories):
+            filenameDict[tile] = np.append(filenameDict[tile],
+                                           np.sort(subprocess.check_output('find %s -name "*CPfluor" | grep tile%s'%(directory, tile), shell=True).split()))
+    # check time stamps
+    timeStampDict = {}
+    for tile in tileNames:
+        timeStampDict[tile] = [parseTimeStampFromFilename(filename) for filename in filenameDict[tile]]
+        
+    # modiy such that all have the same length. Add 1 hour to last time stamp of those files that have no data associated
+    maxNumFiles = np.max([len(filenameDict[tile]) for tile in tileNames])
+    for tile in tileNames:
+        if len(filenameDict[tile]) < maxNumFiles:
+            filenameDict[tile] = np.append(filenameDict[tile], ['']*(maxNumFiles - len(filenameDict[tile])))
+            timeStampDict[tile] = np.append(timeStampDict[tile], [timeStampDict[tile][-1] +  datetime.timedelta(hours=1)]*(maxNumFiles - len(timeStampDict[tile])))
+    return filenameDict, timeStampDict
 
 def calculateSignal(df):
     return 2*np.pi*df['amplitude']*df['sigma']*df['sigma']
@@ -300,6 +337,20 @@ def fitSetKds(fitParametersFilenameParts, bindingSeriesFilenameParts, initialFit
     fitParameters = joinTogetherFitParts(fitParametersFilenameParts)
     return fitParameters
 
+def fitSetKoff(fitParametersFilenameParts, bindingSeriesFilenameParts, initialFitParameters, scale_factor):
+    workerPool = multiprocessing.Pool(processes=len(bindingSeriesFilenameParts)) #create a multiprocessing pool that uses at most the specified number of cores
+    for i, bindingSeriesFilename in bindingSeriesFilenameParts.items():
+        result = workerPool.apply_async(findKoff, args=(bindingSeriesFilename, fitParametersFilenameParts[i],
+                                                     initialFitParameters['fmax']['lowerbound'], initialFitParameters['fmax']['upperbound'], initialFitParameters['fmax']['initial'],
+                                                     initialFitParameters['toff']['lowerbound'], initialFitParameters['toff']['upperbound'], initialFitParameters['toff']['initial'],
+                                                     initialFitParameters['fmin']['lowerbound'], initialFitParameters['fmin']['upperbound'], initialFitParameters['fmin']['initial'],
+                                                     scale_factor,)
+                               )
+    workerPool.close()
+    workerPool.join()
+    fitParameters = joinTogetherFitParts(fitParametersFilenameParts)
+    return fitParameters
+
 def findKds(bindingSeriesFilename, outputFilename, fmax_min, fmax_max, fmax_initial, kd_min, kd_max, kd_initial, fmin_min, fmin_max, fmin_initial, scale_factor):
     matlabFunctionCallString = "fitBindingCurve('%s', [%4.2f, %4.2f, %4.2f], [%4.2f, %4.2f, %4.2f], '%s', [%4.2f, %4.2f, %4.2f], %4.2f );"%(bindingSeriesFilename,
                                                                                                                 
@@ -312,7 +363,21 @@ def findKds(bindingSeriesFilename, outputFilename, fmax_min, fmax_max, fmax_init
         logString = spawnMatlabJob(matlabFunctionCallString)
         return (matlabFunctionCallString, logString)
     except Exception,e:
-        return(matlabFunctionCallString,'Python excpetion generated in findKds: ' + e.message + e.stack)   
+        return(matlabFunctionCallString,'Python excpetion generated in findKds: ' + e.message + e.stack)
+    
+def findKoff(bindingSeriesFilename, outputFilename, fmax_min, fmax_max, fmax_initial, kd_min, kd_max, kd_initial, fmin_min, fmin_max, fmin_initial, scale_factor):
+    matlabFunctionCallString = "fitOffRateCurve('%s', [%4.2f, %4.2f, %4.2f], [%4.2f, %4.2f, %4.2f], '%s', [%4.2f, %4.2f, %4.2f], %4.2f );"%(bindingSeriesFilename,
+                                                                                                                
+                                                                                                                fmax_min, kd_min, fmin_min,
+                                                                                                                fmax_max, kd_max, fmin_max,
+                                                                                                                outputFilename,
+                                                                                                                fmax_initial, kd_initial, fmin_initial,
+                                                                                                                scale_factor)
+    try:
+        logString = spawnMatlabJob(matlabFunctionCallString)
+        return (matlabFunctionCallString, logString)
+    except Exception,e:
+        return(matlabFunctionCallString,'Python excpetion generated in findKds: ' + e.message + e.stack)  
 
 def removeFilenameParts(filenameParts):
     for i, filename in filenameParts.items():
@@ -410,16 +475,48 @@ def loadCPseqSignal(filename):
         table[col] = binding_series[:, col]
     return table
 
-def loadNullScores(signalNamesByTileDict, filterSet):
-    tile = '003'
+def loadNullScores(signalNamesByTileDict, filterSet, tile=None, index=None):
+    # find one CPsignal file before reduction. Find subset of rows that don't
+    # contain filterSet
+    if tile is None: tile = '003'   # Default is third tile
     filename = signalNamesByTileDict[tile]
     tmp_filename = signalNamesByTileDict[tile] + 'tmp'
     os.system("grep -v %s %s > %s"%(filterSet, filename, tmp_filename))
+    
+    # Now load the file, specifically the signal specifed
+    # by index.
     table = loadCPseqSignal(tmp_filename)
-    null_scores = table[7][np.isfinite(table[7])]
+    if index is None: index = -1    # Defulat is last ponit in binding series
+    else: index = np.ravel(np.where([name==index for name in table]))[0]
+    null_scores = table.iloc[:, index][np.isfinite(table.iloc[:, index])]
+    
+    # removed leftovers
     os.system("rm %s"%(tmp_filename))
     return np.array(null_scores)
+
+def tileIntToString(currTile):
+    if currTile < 10:
+        tile = '00%d'%currTile
+    else:
+        tile = '0%d'%currTile
+    return tile
     
+
+def getTile(clusterID):
+    flowcellSN,currSide,currSwath,currTile=CPlibs.parseClusterID(clusterID)
+    return tileIntToString(currTile)
+
+def getTimeDelta(timestamp_final, timestamp_initial):
+    return (timestamp_final - timestamp_initial).seconds + (timestamp_final - timestamp_initial).microseconds/1E6 
+
+def getTimeDeltas(timestamps):
+    maxNumFiles = len(timestamps)
+    return np.array([getTimeDelta(timestamps[i], timestamps[0]) for i in range(maxNumFiles)])
+    
+def getTimeDeltaBetweenTiles(timeStampDict, tile):
+    allTiles = np.array(timeStampDict.keys(), dtype=int)
+    minTile = tileIntToString(np.min(allTiles))
+    return getTimeDelta(timeStampDict[tile][0], timeStampDict[minTile][0]) 
 
 def loadBindingCurveFromCPsignal(filename):
     """
@@ -427,13 +524,42 @@ def loadBindingCurveFromCPsignal(filename):
     find the all cluster signal and the binding series (comma separated),
     then return the binding series, normalized by all cluster image.
     """
+
     table = pd.read_table(filename, usecols=(10,11))
     binding_series = np.array([np.array(series.split(','), dtype=float) for series in table['binding_series']])
     return binding_series, np.array(table['all_cluster_signal'])
 
-def loadFittedCPsignal(filename):
+def loadOffRatesCurveFromCPsignal(filename, timeStampDict, numCores=None):
+    """
+    open file after being reduced to the clusters you are interested in.
+    find the all cluster signal and the binding series (comma separated),
+    then return the binding series, normalized by all cluster image.
+    """
+    if numCores is None: numCores = 20
+    print 'loading annotated signal..'
+    table = pd.read_table(filename, usecols=(0,10,11))
+    binding_series = np.array([np.array(series.split(','), dtype=float) for series in table['binding_series']])
+    
+    # get tile ids
+    workerPool = multiprocessing.Pool(processes=numCores) #create a multiprocessing pool that uses at most the specified number of cores
+    tiles = np.array(workerPool.map(getTile, np.array(table.loc[:, 'tileID'])))
+    workerPool.close(); workerPool.join()
 
-    table =  pd.read_table(filename, usecols=tuple(range(21,45)))
+    # make an array of timeStamps   
+    timeDeltas = {}
+    for tile, timeStamps in timeStampDict.items():
+        timeDeltas[tile] = getTimeDeltas(timeStamps) + getTimeDeltaBetweenTiles(timeStampDict, tile)
+    maxNumFiles = np.max([len(timeStamp) for timeStamp in timeStampDict.values()])
+    xvalues = np.ones((len(table), maxNumFiles))*np.nan
+    for tile, timeDelta in timeDeltas.items():
+        xvalues[tiles==tile] = timeDelta
+    return binding_series, np.array(table['all_cluster_signal']), xvalues
+
+def loadFittedCPsignal(filename):
+    f = open(filename); header = np.array(f.readline().split()); f.close()
+    index_start = np.where(header=='variant_number')[0][0]
+    index_end = len(header)
+    table =  pd.read_table(filename, usecols=tuple(range(index_start,index_end)))
     binding_series, all_cluster_image = loadBindingCurveFromCPsignal(filename)
     for col in range(binding_series.shape[1]):
         table[col] = binding_series[:, col]
@@ -533,6 +659,8 @@ def perVariantStats(table, columns, test_stats, parameter, variants):
         if not sub_table.empty:
             newtable.loc[variant, columns] = sub_table.iloc[0][columns]
             newtable.loc[variant, newColumns(test_stats, parameter)] = perVariantError(sub_table, test_stats, parameter)
+        else:
+            newtable.loc[variant] = variant
     return newtable
         
 def perVariantError(sub_table, test_stats, parameter):
