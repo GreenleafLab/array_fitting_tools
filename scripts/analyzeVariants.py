@@ -242,7 +242,15 @@ for topology in ['','B1', 'B2','B1_B1','B2_B2','B1_B1_B1','B2_B2_B2']:
     plt.title('%s'%(variantFun.ConvertNomen([topology])[0]))
     #plt.tight_layout()
     plt.savefig(os.path.join(imageDirectory, 'all_lengths.all_helices.topology_%s.lines.pdf'%(topology)))
+
+for topology in ['','B1', 'B2','B1_B1','B2_B2','B1_B1_B1','B2_B2_B2', 'M', 'M_M', 'M_M_M']:
+    variantFun.plot_changes_helices_allseqs(table, variant_table, topology)
+    #plt.title('%s %s'%(helix_context, topology))
+    plt.title('%s'%(variantFun.ConvertNomen([topology])[0]))
+    #plt.tight_layout()
+    plt.savefig(os.path.join(imageDirectory, 'allseqs.all_helices.topology_%s.lines.pdf'%(topology)))
     
+            
 helix_context = 'rigid'
 total_length = 10
 for topology in ['','B1', 'B2', 'B1_B1', 'B2_B2', 'B1_B1_B1', 'B2_B2_B2', 'M','M_B1', 'B2_M', 'M_M',
@@ -251,3 +259,10 @@ for topology in ['','B1', 'B2', 'B1_B1', 'B2_B2', 'B1_B1_B1', 'B2_B2_B2', 'M','M
     plt.title('%s %d %s'%(helix_context, total_length,topology))
     plt.tight_layout()
     plt.savefig(os.path.join(imageDirectory, 'all_helix1_lengths.%s.topology_%s.total_length_%d.lines.pdf'%(helix_context, topology, total_length)))
+    
+for topology in ['B1', 'B2','B1_B1','B2_B2','B1_B1_B1','B2_B2_B2', 'M', 'M_M', 'M_M_M']:
+    variantFun.plot_HelixvsHelixCorr(table, variant_table, topology)
+    #plt.title('%s %s'%(helix_context, topology))
+    plt.title('%s'%(variantFun.ConvertNomen([topology])[0]))
+    #plt.tight_layout()
+    plt.savefig(os.path.join(imageDirectory, 'SpearmanCorrbtwnhelices_allbutRandWC.topology_%s.pdf'%(topology)))

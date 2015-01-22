@@ -14,6 +14,7 @@ import matplotlib.colors as colors
 import matplotlib.cm as cmx
 import matplotlib as mpl
 import CPlibs
+import scipy.stats as st
 from scikits.bootstrap import bootstrap
 
 class Parameters():
@@ -542,3 +543,129 @@ def ConvertNomen(topologies):
     topos = {'':'','B1':'1x0', 'B2':'0x1', 'B1_B1':'2x0', 'B2_B2':'0x2', 'B1_B1_B1':'3x0', 'B2_B2_B2':'0x3', 'M':'1x1','M_B1':'1x2', 'B2_M':'2x1', 'M_M':'2x2',
                                     'B2_B2_M':'2x3', 'M_B1_B1':'3x2', 'B2_M_M':'2x3', 'M_M_B1':'3x2', 'M_M_M':'3x3'}
     return [topos[t] for t in topologies]
+def plot_changes_helices_allseqs(table, variant_table, topology, loop=None, receptor=None, offset=None):
+    if loop is None:
+        loop = 'goodLoop'
+    if receptor is None:
+        receptor='R1'
+    if offset is None:
+        offset = 0  # amount to change helix_one_length by from default
+    couldPlot = True
+    criteria_central = np.all((np.array(variant_table['receptor'] == receptor),
+                           np.array(variant_table['loop']==loop)),
+                          axis=0)
+    if topology == '':
+        criteria_central = np.all((criteria_central, np.array(variant_table['junction_sequence'] =='_')), axis=0)
+    else:
+        criteria_central = np.all((criteria_central, np.array(variant_table['topology']==topology)), axis=0)
+      
+    
+    sub_table = variant_table[criteria_central]
+    helix_context = np.unique(sub_table['helix_context'])
+    junctionseqs = np.unique(sub_table['junction_sequence'])
+    
+    #choose just one length = 10 
+    length = 10
+    delta_G_initial = variant_table.loc[0]['dG']
+    delta_G_ub_initial = variant_table.loc[0]['dG_ub']-variant_table.loc[0]['dG']
+    delta_G_lb_initial = variant_table.loc[0]['dG_lb']-variant_table.loc[0]['dG']
+    
+    delta_deltaG = np.ones((len(helix_context), len(junctionseqs)))*np.nan
+    delta_deltaGerrub = np.ones((len(helix_context), len(junctionseqs)))*np.nan
+    delta_deltaGerrlb = np.ones((len(helix_context), len(junctionseqs)))*np.nan
+    for i, sequence in enumerate(helix_context):
+        for j, jsequence in enumerate(junctionseqs):
+            helix_one_length = np.floor((length - sub_table['junction_length'].iloc[0])*0.5) + offset
+            variant_number = sub_table[np.all((np.array(sub_table['helix_context']==sequence),
+                                                np.array(sub_table['total_length']==length),
+                                                np.array(sub_table['helix_one_length']==helix_one_length),
+                                                np.array(sub_table['junction_sequence']==jsequence)),axis=0)].index
+            #calculate ddG, and errorbars ddG (sqrt of sum or squares)
+            if len(variant_number)>0:
+                delta_deltaG[i][j],delta_deltaGerrub[i][j],delta_deltaGerrlb[i][j] = variantFun.getddGandErrs(sub_table, variant_number, delta_G_initial,delta_G_ub_initial, delta_G_lb_initial)
+    if len(junctionseqs)>4:   
+        fig = plt.figure(figsize=(12,6))
+    else:
+        fig = plt.figure(figsize=(6,6))
+    ax = fig.add_subplot(111)
+    plotfun.plot_manylines(delta_deltaG, cmap='Paired', marker='o', labels=helix_context, alpha=0.5)
+    values = range(len(delta_deltaG))
+    cm = plt.cm.Paired
+    cNorm  = colors.Normalize(vmin=0, vmax=values[-1])
+    scalarMap = cmx.ScalarMappable(norm=cNorm, cmap=cm)
+    
+    #put error bars on numbers
+    for i, row in enumerate(delta_deltaG):
+        ax.errorbar(np.arange(0,len(junctionseqs)),row, yerr=[delta_deltaGerrub[i,:], delta_deltaGerrlb[i,:]], fmt='.', color=scalarMap.to_rgba(i),ecolor=scalarMap.to_rgba(i)) 
+    ax.set_xticks(np.arange(0,len(junctionseqs)))
+    ax.set_xticklabels(junctionseqs)
+    #ax.legend_ = None
+    ax.set_xlabel('Junction')
+    ax.set_ylabel('delta delta G')
+    ax.set_ylim((-1, 5))
+    ax.set_xlim((-0.5,len(junctionseqs)+1))
+    plt.tight_layout()
+    return
+    
+def getddGandErrs(table, variant_number, delta_G_initial,delta_G_ub_initial,delta_G_lb_initial):    
+    delta_deltaG= table.loc[variant_number]['dG'] - delta_G_initial
+    delta_deltaGerrub = np.sqrt(pow(table.loc[variant_number]['dG_ub']-table.loc[variant_number]['dG'],2) + pow(delta_G_ub_initial,2))
+    delta_deltaGerrlb = np.sqrt(pow(table.loc[variant_number]['dG_lb']-table.loc[variant_number]['dG'],2) + pow(delta_G_lb_initial,2))
+    return delta_deltaG, delta_deltaGerrub, delta_deltaGerrlb
+    
+    
+def plot_HelixvsHelixCorr(table, variant_table, topology, loop=None, receptor=None, offset=None):
+    if loop is None:
+        loop = 'goodLoop'
+    if receptor is None:
+        receptor='R1'
+    if offset is None:
+        offset = 0  # amount to change helix_one_length by from default
+    couldPlot = True
+    criteria_central = np.all((np.array(variant_table['receptor'] == receptor),
+                           np.array(variant_table['loop']==loop)),
+                          axis=0)
+    if topology == '':
+        criteria_central = np.all((criteria_central, np.array(variant_table['junction_sequence'] =='_')), axis=0)
+    else:
+        criteria_central = np.all((criteria_central, np.array(variant_table['topology']==topology)), axis=0)
+      
+    
+    sub_table = variant_table[criteria_central]
+    helix_context = np.unique(sub_table['helix_context'])
+    #do all but last two
+    helix_context = helix_context[1:-2]
+    junctionseqs = np.unique(sub_table['junction_sequence'])
+    
+    #choose just one length = 10 
+    length = 10
+    delta_G_initial = variant_table.loc[0]['dG']
+    delta_G_ub_initial = variant_table.loc[0]['dG_ub']-variant_table.loc[0]['dG']
+    delta_G_lb_initial = variant_table.loc[0]['dG_lb']-variant_table.loc[0]['dG']
+    
+    delta_deltaG = np.ones((len(helix_context), len(junctionseqs)))*np.nan
+    delta_deltaGerrub = np.ones((len(helix_context), len(junctionseqs)))*np.nan
+    delta_deltaGerrlb = np.ones((len(helix_context), len(junctionseqs)))*np.nan
+    for i, sequence in enumerate(helix_context):
+        for j, jsequence in enumerate(junctionseqs):
+            helix_one_length = np.floor((length - sub_table['junction_length'].iloc[0])*0.5) + offset
+            variant_number = sub_table[np.all((np.array(sub_table['helix_context']==sequence),
+                                                np.array(sub_table['total_length']==length),
+                                                np.array(sub_table['helix_one_length']==helix_one_length),
+                                                np.array(sub_table['junction_sequence']==jsequence)),axis=0)].index
+            #calculate ddG, and errorbars ddG (sqrt of sum or squares)
+            if len(variant_number)>0:
+                delta_deltaG[i][j],delta_deltaGerrub[i][j],delta_deltaGerrlb[i][j] = getddGandErrs(sub_table, variant_number, delta_G_initial,delta_G_ub_initial, delta_G_lb_initial)
+    #calculate spearman correlation (rank correlation)
+    rho, p = st.spearmanr(delta_deltaG, axis = 1)
+    fig = plt.figure(figsize=(10,10))
+    plt.pcolor(rho, cmap='RdGy')
+    ax = fig.add_subplot(111)
+    ax.set_xticks(np.arange(0,len(helix_context))+0.5)
+    ax.set_yticks(np.arange(0,len(helix_context))+0.5)
+    ax.set_xticklabels(helix_context)
+    ax.set_yticklabels(helix_context)
+    #ax.legend_ = None
+    #calculate pearson correlation (linear correlation)
+    
+    return
