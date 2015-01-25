@@ -15,7 +15,8 @@ class Parameters():
     stores file names
     """
     def __init__(self, concentrations=None, f_abs_green_max=None,
-                 f_abs_red=None, f_abs_green_nonbinders=None):        
+                 f_abs_red=None, f_abs_green_nonbinders=None, fittype=None):
+        if fittype is None: fittype='binding'
         # save the units of concentration given in the binding series
         self.concentration_units = 1E-9 # i.e. nM
         self.RT = 0.582
@@ -38,27 +39,42 @@ class Parameters():
             
             f_abs_green_max = np.array(f_abs_green_max)
             
-            if concentrations is not None:        
-                currParam = 'dG'
-                self.fitParameters[currParam]['lowerbound'] = self.find_dG_from_Kd(self.find_Kd_from_frac_bound_concentration(self.frac_bound_lowerbound, self.concentrations[0]))
-                self.fitParameters[currParam]['initial'] = self.find_dG_from_Kd(self.concentrations[-1])
-                self.fitParameters[currParam]['upperbound'] = self.find_dG_from_Kd(self.find_Kd_from_frac_bound_concentration(self.frac_bound_upperbound, self.concentrations[-1]))
+            if fittype == 'binding':
+                if concentrations is not None:        
+                    currParam = 'dG'
+                    self.fitParameters[currParam]['lowerbound'] = self.find_dG_from_Kd(self.find_Kd_from_frac_bound_concentration(self.frac_bound_lowerbound, self.concentrations[0]))
+                    self.fitParameters[currParam]['initial'] = self.find_dG_from_Kd(self.concentrations[-1])
+                    self.fitParameters[currParam]['upperbound'] = self.find_dG_from_Kd(self.find_Kd_from_frac_bound_concentration(self.frac_bound_upperbound, self.concentrations[-1]))
+                    
+                currParam = 'fmin'  
+                self.fitParameters[currParam]['lowerbound'] = 0
+                self.fitParameters[currParam]['initial'] = 0
+                self.fitParameters[currParam]['upperbound'] = 70 # this is futher reducedor relaxed if the first point in the binding curve was fit
                 
-            currParam = 'fmin'  
-            self.fitParameters[currParam]['lowerbound'] = 0
-            self.fitParameters[currParam]['initial'] = 0
-            self.fitParameters[currParam]['upperbound'] = 70 # this is futher reducedor relaxed if the first point in the binding curve was fit
+                currParam = 'fmax'
+                self.mx_factor_fmax = 100
+                self.fitParameters[currParam]['lowerbound']= self.find_fmax_lowerbound(f_abs_green_nonbinders, self.fdr_cutoff)
+                self.fitParameters[currParam]['initial']= np.nan # this will be defined per cluster
+                self.fitParameters[currParam]['upperbound'] = self.find_fmax_upperbound(f_abs_green_max, self.mx_factor_fmax)
             
-            currParam = 'fmax'
-            self.mx_factor_fmax = 100
-            self.fitParameters[currParam]['lowerbound']= self.find_fmax_lowerbound(f_abs_green_nonbinders, self.fdr_cutoff)
-            self.fitParameters[currParam]['initial']= np.nan # this will be defined per cluster
-            self.fitParameters[currParam]['upperbound'] = self.find_fmax_upperbound(f_abs_green_max, self.mx_factor_fmax)
-            
-            currParam = 'toff'
-            self.fitParameters[currParam]['lowerbound'] = 1E1
-            self.fitParameters[currParam]['initial']= 2E4 
-            self.fitParameters[currParam]['upperbound'] = 1E6
+            if fittype == 'offrate':    
+                currParam = 'toff'
+                self.fitParameters[currParam]['lowerbound'] = 1E0
+                self.fitParameters[currParam]['initial']= 1E6 
+                self.fitParameters[currParam]['upperbound'] = 1E6
+                
+                currParam = 'fmin'  
+                self.fitParameters[currParam]['lowerbound'] = 0
+                self.fitParameters[currParam]['initial'] = 0
+                self.fitParameters[currParam]['upperbound'] = self.find_fmax_lowerbound(f_abs_green_nonbinders, self.fdr_cutoff) # this is futher reducedor relaxed if the first point in the binding curve was fit
+                
+                currParam = 'fmax'
+                self.fitParameters[currParam]['lowerbound']= 0
+                self.fitParameters[currParam]['initial']= np.nan # this will be defined per cluster
+                self.fitParameters[currParam]['upperbound'] = self.find_fmax_lowerbound(f_abs_green_nonbinders, self.fdr_cutoff) # this is futher reducedor relaxed if the first point in the binding curve was fit
+                
+                
+                
             # estimate conversion of f_abs_red to f_abs_green
             self.scale_factor = self.find_scale_factor(f_abs_green_max, f_abs_red, subset_index=f_abs_green_max>self.find_fmax_lowerbound(f_abs_green_nonbinders, self.fdr_cutoff) )
         

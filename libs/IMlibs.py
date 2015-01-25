@@ -236,7 +236,7 @@ def findCPsignalFile(cpSeqFilename, redFluors, greenFluors, cpSignalFilename):
     signal_comma_format = np.array(['\t'.join([signal[i].astype(str), ','.join(signal_green[i].astype(str))]) for i in range(num_lines)])   
     cp_seq = np.ravel(pd.read_table(cpSeqFilename, delimiter='\n', header=None))
     np.savetxt(cpSignalFilename, np.transpose(np.vstack((cp_seq, signal_comma_format))), fmt='%s', delimiter='\t')      
-    return
+    return signal_green
 
 def reduceCPsignalFile(cpSignalFilename, filterSet, reducedCPsignalFilename):
     # take only lines that contain the filterSet
@@ -283,6 +283,9 @@ def getfitParametersFilenameParts(bindingSeriesFilenameParts):
 
 def getFitParametersFilename(sequenceToLibraryFilename):
     return os.path.splitext(sequenceToLibraryFilename)[0] + '.fitParameters'
+
+def getTimesFilename(annotatedSignalFilename):
+    return os.path.splitext(annotatedSignalFilename)[0] + '.times'
 
 def getPerVariantFilename(fittedBindingFilename):
     return os.path.splitext(fittedBindingFilename)[0] + '.perVariant.CPfitted'
@@ -348,7 +351,7 @@ def fitSetKoff(fitParametersFilenameParts, bindingSeriesFilenameParts, initialFi
                                )
     workerPool.close()
     workerPool.join()
-    fitParameters = joinTogetherFitParts(fitParametersFilenameParts)
+    fitParameters = joinTogetherFitParts(fitParametersFilenameParts, parameter='toff')
     return fitParameters
 
 def findKds(bindingSeriesFilename, outputFilename, fmax_min, fmax_max, fmax_initial, kd_min, kd_max, kd_initial, fmin_min, fmin_max, fmin_initial, scale_factor):
@@ -392,7 +395,8 @@ def saveDataFrame(dataframe, filename, index=None, float_format=None):
     dataframe.to_csv(filename, sep='\t', na_rep="NaN", index=index, float_format=float_format)
     return
 
-def joinTogetherFitParts(fitParametersFilenameParts,  ):
+def joinTogetherFitParts(fitParametersFilenameParts, parameter=None ):
+    if parameter is None: parameter='dG'
     all_fit_parameters = np.empty((0,10))
     for i, fitParametersFilename in fitParametersFilenameParts.items():
         fit_parameters = sio.loadmat(fitParametersFilename)
@@ -403,7 +407,7 @@ def joinTogetherFitParts(fitParametersFilenameParts,  ):
                                                    fit_parameters['qvalue'],
                                                    fit_parameters['params_var']))
                                         ))
-    all_fit_parameters = pd.DataFrame(data=all_fit_parameters, columns=['fmax', 'dG', 'fmin', 'exit_flag', 'rsq', 'rmse', 'qvalue', 'fmax_var', 'dG_var', 'fmin_var'])
+    all_fit_parameters = pd.DataFrame(data=all_fit_parameters, columns=['fmax', parameter, 'fmin', 'exit_flag', 'rsq', 'rmse', 'qvalue', 'fmax_var', parameter+'_var', 'fmin_var'])
     return all_fit_parameters
 
 def makeFittedCPsignalFile(fitParametersFilename,annotatedSignalFilename, fittedBindingFilename):
@@ -516,7 +520,13 @@ def getTimeDeltas(timestamps):
 def getTimeDeltaBetweenTiles(timeStampDict, tile):
     allTiles = np.array(timeStampDict.keys(), dtype=int)
     minTile = tileIntToString(np.min(allTiles))
-    return getTimeDelta(timeStampDict[tile][0], timeStampDict[minTile][0]) 
+    return getTimeDelta(timeStampDict[tile][0], timeStampDict[minTile][0])
+
+def getTimeDeltaDict(timeStampDict):
+    timeDeltas = {}
+    for tile, timeStamps in timeStampDict.items():
+        timeDeltas[tile] = getTimeDeltas(timeStamps) + getTimeDeltaBetweenTiles(timeStampDict, tile)
+    return timeDeltas
 
 def loadBindingCurveFromCPsignal(filename):
     """
@@ -546,14 +556,12 @@ def loadOffRatesCurveFromCPsignal(filename, timeStampDict, numCores=None):
     workerPool.close(); workerPool.join()
 
     # make an array of timeStamps   
-    timeDeltas = {}
-    for tile, timeStamps in timeStampDict.items():
-        timeDeltas[tile] = getTimeDeltas(timeStamps) + getTimeDeltaBetweenTiles(timeStampDict, tile)
+    timeDeltas = getTimeDeltaDict(timeStampDict)
     maxNumFiles = np.max([len(timeStamp) for timeStamp in timeStampDict.values()])
     xvalues = np.ones((len(table), maxNumFiles))*np.nan
     for tile, timeDelta in timeDeltas.items():
         xvalues[tiles==tile] = timeDelta
-    return binding_series, np.array(table['all_cluster_signal']), xvalues
+    return binding_series, np.array(table['all_cluster_signal']), xvalues, tiles  
 
 def loadFittedCPsignal(filename):
     f = open(filename); header = np.array(f.readline().split()); f.close()
@@ -595,31 +603,10 @@ def plotVariant(sub_table, concentrations):
     plt.tight_layout()
     return
 
-def reduceByVariant(fittedBindingFilename, variantFittedFilename, variants=None):
-    
-    columns = [name for name in table][:12] + ['numTests', 'numRejects', 'kd', 'dG', 'fmax', 'fmin']
 
-    variants = np.arange(0, np.max(table['variant_number']))
-
-    columns = [name for name in table][:12] + ['numTests', 'numRejects', 'dG', 'fmax', 'fmin', 'qvalue', 'dG_lb', 'dG_ub']
-    newtable = pd.DataFrame(columns=columns, index=np.arange(len(variants)))
-    for i, variant in enumerate(variants):
-        if i%1000==0: print 'computing iteration %d'%i
-        sub_table = table[table['variant_number']==variant]
-        if len(sub_table) > 0:
-            sub_table_filtered = filterFitParameters(sub_table)[['dG', 'fmax', 'fmin', 'qvalue']]
-            sub_table_filtered = sub_table.copy()[['dG', 'fmax', 'fmin', 'qvalue']]
-            newtable.iloc[i]['numTests'] = len(sub_table_filtered)
-            newtable.iloc[i]['numRejects'] = len(sub_table) - len(sub_table_filtered)
-            newtable.iloc[i]['dG':'qvalue'] = np.median(sub_table_filtered, 0)
-            newtable.iloc[i][:'total_length'] = sub_table.iloc[0][:'total_length']
-            try:
-                newtable.iloc[i]['dG_lb'], newtable.iloc[i]['dG_ub'] = bootstrap.ci(sub_table_filtered['dG'], np.median)
-            except IndexError: print variant
-    return newtable
-
-def findVariantTable(table, numCores=None, variants=None):
+def findVariantTable(table, parameter=None, numCores=None, variants=None):
     # define defaults
+    if parameter is None: parameter = 'dG'
     if numCores is None: numCores = 1   # default is to only use one core
     if variants is None: variants = np.arange(int(np.max(table['variant_number'])))
     
@@ -627,7 +614,7 @@ def findVariantTable(table, numCores=None, variants=None):
     # define columns as all the ones between variant number and fraction consensus
     fixed_index = int(np.where(np.array([name for name in table]) == 'fraction_consensus')[0])
     columns = [name for name in table][:fixed_index]
-    test_stats = ['dG', 'fmin', 'fmax', 'qvalue']
+    test_stats = [parameter, 'fmin', 'fmax', 'qvalue']
     bootstrap_parameter_index = 0
     
     # multiprocess reducing and bootstrapping
@@ -660,7 +647,7 @@ def perVariantStats(table, columns, test_stats, parameter, variants):
             newtable.loc[variant, columns] = sub_table.iloc[0][columns]
             newtable.loc[variant, newColumns(test_stats, parameter)] = perVariantError(sub_table, test_stats, parameter)
         else:
-            newtable.loc[variant] = variant
+            newtable.loc[variant, 'variant_number'] = variant
     return newtable
         
 def perVariantError(sub_table, test_stats, parameter):

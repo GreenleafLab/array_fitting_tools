@@ -24,6 +24,15 @@ class Parameters():
         self.RT = 0.582  # kcal/mol at 20 degrees celsius
         self.min_deltaG = -12
         self.max_deltaG = -3
+        self.concentration_units = 1E-9
+
+def find_dG_from_Kd(Kd):
+    parameters = Parameters()
+    return parameters.RT*np.log(Kd*parameters.concentration_units)
+
+def find_Kd_from_dG(dG):
+    parameters = Parameters()
+    return np.exp(dG/parameters.RT)
         
 def perVariantInfo(table, variants=None):
     if variants is None:
@@ -61,6 +70,14 @@ def bindingCurve(concentrations, dG, fmax=None, fmin=None):
         fmin = 0
     parameters = Parameters()
     return fmax*concentrations/(concentrations + np.exp(dG/parameters.RT)/1E-9) + fmin
+
+def offRateCurve(time, toff, fmax=None, fmin=None):
+    if fmax is None:
+        fmax = 1
+    if fmin is None:
+        fmin = 0
+    return fmax*np.exp(-time/toff) + fmin
+    
 
 def plotBoxplot(data, labels):
     ax = plt.gca()
@@ -133,6 +150,24 @@ def plotVariant(sub_table, concentrations, name=None, to_filter=None):
     plt.title(name)
     plt.tight_layout()
     return
+
+def plotOffrateCurve(series, times):
+    numTimePoints = len(times)
+    fig = plt.figure(figsize=(4,4))
+    ax = fig.add_subplot(111)
+    ax.scatter(times, series.loc[[i for i in range(numTimePoints)]], facecolors='none', edgecolors='k')
+    ax.plot(times, offRateCurve(times, series['toff'], fmax=series['fmax'], fmin=series['fmin']), 'r', label='FDR = %4.2f'%series['qvalue'])
+    ax.set_xlim((times.min(), times.max()))
+    ax.set_ylim((0, np.max([600, series['fmax']])))
+    ax.set_xlabel('time (s)')
+    ax.set_ylabel('f green')
+    handles,labels = ax.get_legend_handles_labels()
+    ax.legend(handles, labels, loc='upper right')
+    plt.ticklabel_format(style='sci', axis='x', scilimits=(0,0))
+    return
+
+def getInfo(per_variant_series):
+    return '_'.join(np.array(per_variant_series.loc[['variant_number','total_length', 'helix_one_length','junction_length','junction_sequence',  'helix_context', 'loop','receptor']], dtype=str)).replace('.0','')
 
 def findVariantNumbers(table, criteria_dict):
     for name, value in criteria_dict.items():
@@ -281,7 +316,7 @@ def plot_parameter_vs_length(series, p1, p2):
     ax.plot(series[p1]+wiggle, series[p2], fmt, color=color)
     return ax
 
-def plot_scatterplot(table1, table2=None, yvalues=None, parameter=None, errorBar=None ):
+def plot_scatterplot(table1, table2=None, yvalues=None, parameter=None, errorBar=None, labels=None ):
     if parameter is None: parameter = 'dG'
     if errorBar is None:
         if parameter == 'dG': errorBar = True
@@ -317,6 +352,13 @@ def plot_scatterplot(table1, table2=None, yvalues=None, parameter=None, errorBar
                 ax.errorbar(xvalue, yvalue, fmt=fmt, color=color, ecolor='k', yerr=yerr, xerr=xerr)
             else:
                 ax.plot(xvalue, yvalue, fmt, color=color)
+        if labels is not None:
+            label = labels[i]
+            plt.annotate(label, xy=(xvalue, yvalue), xytext = (20, -20),
+            textcoords = 'offset points', ha = 'right', va = 'bottom',
+            bbox = dict(boxstyle = 'round,pad=0.5', alpha = 0.5),
+            arrowprops = dict(arrowstyle = '->', connectionstyle = 'arc3,rad=0'))
+
 
     return
 

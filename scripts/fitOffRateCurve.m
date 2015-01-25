@@ -26,8 +26,8 @@ function fitOffRateCurve(bindingCurveFilename, min_constraints, max_constraints,
     toff_pos = 2;
     fmin_pos = 3;
     
-    min_fmin_upperbound = nanmean(binding_curves(:,end));
-    min_fmax_upperbound = max(mean(null_scores) - min_fmin_upperbound, 1);
+    min_fmin_upperbound = max_constraints(fmin_pos);
+    min_fmax_upperbound = max_constraints(fmax_pos);
 
     %% cycle through each row and fit
     for i=1:numtottest;
@@ -40,10 +40,7 @@ function fitOffRateCurve(bindingCurveFilename, min_constraints, max_constraints,
         % fine tune initial parameters
         max_constraints(fmin_pos) = max(min(frac_bound)*2, min_fmin_upperbound);    % upper bound of fmin is either twice the minimum frac bund, or the pre-defined minimum of upperbound of fmin
         max_constraints(fmax_pos) = max(nanmax(frac_bound)*2, min_fmax_upperbound); % upperbound of fmax is either twice the maximum fracbound, or the predefined minimum of upperbound of fmax
-        min_constraints(fmax_pos) = 0;
         initial_points(fmax_pos) = nanmax(frac_bound);
-        max_constraints(fmax_pos) = max(nanmax(frac_bound)*2, min_fmax_upperbound);
-
  
         if length(indx) < 3 || ~isfinite(sum((f(initial_points, time(indx)) - frac_bound(indx)).^2));
             fprintf('Skipping iteration %d of %d\n', i, numtottest)

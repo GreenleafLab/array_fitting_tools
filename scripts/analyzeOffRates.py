@@ -33,6 +33,7 @@ import shutil
 import uuid
 import numpy as np
 import scipy.io as sio
+import pandas as pd
 import IMlibs
 
 
@@ -54,6 +55,8 @@ parser.add_argument('-lc','--library_characterization', help='file with the char
 parser.add_argument('-bd','--barcode_dir', help='save files associated with barcode mapping here. default=signal_dir_reduced/barcode_mapping')
 parser.add_argument('-n','--num_cores', help='maximum number of cores to use')
 parser.add_argument('-gv','--fitting_parameters_path', help='path to the directory in which the "fittingParameters.py" parameter file for the run can be found')
+parser.add_argument('-on','--get_association_rates', action ="store_true", default=False, help='whether to do on rates instead: default is offrates')
+
 
 if not len(sys.argv) > 1:
     parser.print_help()
@@ -86,8 +89,6 @@ print 'Finding CPfluor files in directories given in "%s"...'%args.CPfluor_dirs_
 fluor_dirs_red, fluor_dirs, concentrations = IMlibs.loadMapFile(args.CPfluor_dirs_to_quantify)
 fluorNamesByTileDict, timeStampDict = IMlibs.getFluorFileNamesOffrates(fluor_dirs, tileList)
 fluorNamesByTileRedDict = IMlibs.getFluorFileNames(fluor_dirs_red, tileList)
-
-
 
 # initiate multiprocessing
 if args.num_cores is None:
@@ -130,7 +131,6 @@ if np.sum(already_exist) < len(filteredCPseqFilenameDict):
 
     workerPool.close()
     workerPool.join()
-
 
 ################ Reduce signal files ################
 if args.signal_dir_reduced is not None:
@@ -250,7 +250,7 @@ if os.path.isfile(fittedBindingFilename):
 else:
     print 'Making fitted CP signal file "%s"...'%annotatedSignalFilename
     # get binding series
-    bindingSeries, allClusterSignal, times = IMlibs.loadOffRatesCurveFromCPsignal(annotatedSignalFilename, timeStampDict, numCores=numCores)
+    bindingSeries, allClusterSignal, times, tiles = IMlibs.loadOffRatesCurveFromCPsignal(annotatedSignalFilename, timeStampDict, numCores=numCores)
     bindingSeriesSplit = np.array_split(bindingSeries, numCores)
     allClusterSignalSplit = np.array_split(allClusterSignal, numCores)
     timesSplit = np.array_split(times, numCores)
@@ -266,13 +266,17 @@ else:
                                             'null_scores':null_scores,
                                             })
     # set fit parameters
-    parameters = fittingParameters.Parameters(f_abs_green_max=bindingSeries[:,0], f_abs_red=allClusterSignal, f_abs_green_nonbinders=null_scores)
+    parameters = fittingParameters.Parameters(f_abs_green_max=bindingSeries[:,0], f_abs_red=allClusterSignal, f_abs_green_nonbinders=null_scores, fittype='offrate')
 
     fitParameters = IMlibs.fitSetKoff(fitParametersFilenameParts, bindingSeriesFilenameParts, parameters.fitParameters, parameters.scale_factor)
-
+    fitParameters['tile'] = tiles
+    
     # save fittedBindingFilename
     fitParametersFilename = IMlibs.getFitParametersFilename(annotatedSignalFilename)
+    timeFilename = IMlibs.getTimesFilename(annotatedSignalFilename)
+    
     IMlibs.saveDataFrame(fitParameters, fitParametersFilename, index=False, float_format='%4.3f')
+    IMlibs.saveDataFrame(pd.DataFrame.from_dict(IMlibs.getTimeDeltaDict(timeStampDict), orient='index'), timeFilename, index=True, float_format='%4.3f')
     IMlibs.makeFittedCPsignalFile(fitParametersFilename,annotatedSignalFilename, fittedBindingFilename)
     
     # remove binding series filenames
@@ -287,10 +291,6 @@ if os.path.isfile(variantFittedFilename):
 else:
     print 'Making per variant table from %s...'%fittedBindingFilename
     table = IMlibs.loadFittedCPsignal(fittedBindingFilename)
-    variant_table = IMlibs.findVariantTable(table, numCores=numCores)
+    variant_table = IMlibs.findVariantTable(table, numCores=numCores, parameter='toff')
     IMlibs.saveDataFrame(variant_table, variantFittedFilename)
-    
-# Now reduce into variants. Save the variant number, characterization info, number
-# of times tested, only if fraction_consensus is greater than 0.67 (2/3rd),
-# and save median of normalized binding amount, median of fit parameters, (and quartiles?),
-"""
+
