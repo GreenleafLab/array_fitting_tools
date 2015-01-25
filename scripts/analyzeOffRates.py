@@ -244,7 +244,7 @@ else:
 
 ################ Fit ################
 fittedBindingFilename = IMlibs.getFittedFilename(annotatedSignalFilename)
-"""
+
 if os.path.isfile(fittedBindingFilename):
     print 'fitted CPsignal file exists "%s". Skipping...'%fittedBindingFilename
 else:
@@ -294,7 +294,3 @@ else:
     variant_table = IMlibs.findVariantTable(table, numCores=numCores, parameter='toff')
     IMlibs.saveDataFrame(variant_table, variantFittedFilename)
 
-# Now reduce into variants. Save the variant number, characterization info, number
-# of times tested, only if fraction_consensus is greater than 0.67 (2/3rd),
-# and save median of normalized binding amount, median of fit parameters, (and quartiles?),
-"""
