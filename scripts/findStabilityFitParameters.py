@@ -19,6 +19,7 @@ import CPlibs
 import IMlibs
 import fittingParameters
 from matplotlib import rc
+import matplotlib.pyplot as plt
 
 #### FUNCTIONS ####
 def fit_one(fitParametersFilenameParts, bindingSeriesFilename,initialFitParameters,scale_factor):

@@ -241,7 +241,7 @@ if os.path.isfile(annotatedSignalFilename):
 else:
     print 'Making annotated CPsignal file "%s"...'%annotatedSignalFilename
     IMlibs.matchCPsignalToLibrary(barcodeToSequenceFilename, sortedAllCPsignalFile, annotatedSignalFilename)
-"""
+
 ################ Fit ################
 fittedBindingFilename = IMlibs.getFittedFilename(annotatedSignalFilename)
 
@@ -292,4 +292,3 @@ else:
 # of times tested, only if fraction_consensus is greater than 0.67 (2/3rd),
 # and save median of normalized binding amount, median of fit parameters, (and quartiles?),
 # error in fit parameters?
-"""
