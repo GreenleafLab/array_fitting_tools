@@ -391,7 +391,7 @@ def plot_over_coordinate(per_variant, to_fill=None, x_param=None, x_param_name=N
     
     return
     
-
+#start here
 def plot_length_changes(table, variant_table, helix_context, topology, loop=None, receptor=None, offset=None):
     if loop is None:
         loop = 'goodLoop'
@@ -414,7 +414,11 @@ def plot_length_changes(table, variant_table, helix_context, topology, loop=None
         junction_sequences = np.unique(sub_table['junction_sequence'])
         total_lengths = np.array([8,9,10,11,12])
         delta_G_initial = variant_table.loc[0]['dG']
+        delta_G_ub_initial = variant_table.loc[0]['dG_ub']-variant_table.loc[0]['dG']
+        delta_G_lb_initial = variant_table.loc[0]['dG_lb']-variant_table.loc[0]['dG']   
         delta_deltaG = np.ones((len(junction_sequences), len(total_lengths)))*np.nan
+        delta_deltaGerrub = np.ones((len(junction_sequences), len(total_lengths)))*np.nan
+        delta_deltaGerrlb = np.ones((len(junction_sequences), len(total_lengths)))*np.nan 
         for i, sequence in enumerate(junction_sequences):
             for j, length in enumerate(total_lengths):
                 helix_one_length = np.floor((length - sub_table['junction_length'].iloc[0])*0.5) + offset
@@ -422,11 +426,20 @@ def plot_length_changes(table, variant_table, helix_context, topology, loop=None
                                                    np.array(sub_table['total_length']==length),
                                                    np.array(sub_table['helix_one_length']==helix_one_length)),axis=0)]['variant_number']
                 if len(variant_number)>0:
-                    delta_deltaG[i][j] = sub_table.loc[variant_number]['dG'] - delta_G_initial
+                    delta_deltaG[i][j],delta_deltaGerrub[i][j],delta_deltaGerrlb[i][j] = get_ddG_and_Errs(sub_table, variant_number, delta_G_initial,delta_G_ub_initial, delta_G_lb_initial)
+
         fig = plt.figure(figsize=(4,4))
         ax = fig.add_subplot(111)
         plotfun.plot_manylines(delta_deltaG, cmap='Paired', marker='o', labels=junction_sequences, alpha=0.5)
         ax.set_xticks(total_lengths-8)
+        values = range(len(delta_deltaG))
+        cm = plt.cm.Paired
+        cNorm  = colors.Normalize(vmin=0, vmax=values[-1])
+        scalarMap = cmx.ScalarMappable(norm=cNorm, cmap=cm)
+    
+        #put error bars on numbers
+        for i, row in enumerate(delta_deltaG):
+            ax.errorbar(total_lengths-8,row, yerr=[delta_deltaGerrub[i,:], delta_deltaGerrlb[i,:]], fmt='.', color=scalarMap.to_rgba(i),ecolor=scalarMap.to_rgba(i)) 
         ax.set_xticklabels(total_lengths.astype(str))
         ax.legend_ = None
         ax.set_xlabel('total length')
@@ -582,7 +595,7 @@ def plot_changes_helices_allseqs(table, variant_table, topology, loop=None, rece
                                                 np.array(sub_table['junction_sequence']==jsequence)),axis=0)].index
             #calculate ddG, and errorbars ddG (sqrt of sum or squares)
             if len(variant_number)>0:
-                delta_deltaG[i][j],delta_deltaGerrub[i][j],delta_deltaGerrlb[i][j] = variantFun.getddGandErrs(sub_table, variant_number, delta_G_initial,delta_G_ub_initial, delta_G_lb_initial)
+                delta_deltaG[i][j],delta_deltaGerrub[i][j],delta_deltaGerrlb[i][j] = get_ddG_and_Errs(sub_table, variant_number, delta_G_initial,delta_G_ub_initial, delta_G_lb_initial)
     if len(junctionseqs)>4:   
         fig = plt.figure(figsize=(12,6))
     else:
@@ -655,7 +668,7 @@ def plot_helixvshelix_Corr(table, variant_table, topology, loop=None, receptor=N
                                                 np.array(sub_table['junction_sequence']==jsequence)),axis=0)].index
             #calculate ddG, and errorbars ddG (sqrt of sum or squares)
             if len(variant_number)>0:
-                delta_deltaG[i][j],delta_deltaGerrub[i][j],delta_deltaGerrlb[i][j] = get_ddG_and_Errs(sub_table, variant_number, delta_G_initial,delta_G_ub_initial, delta_G_lb_initial)
+                delta_deltaG[i][j],delta_deltaGerrub[i][j],delta_deltaGerrlb[i][j] =get_ddG_and_Errs(sub_table, variant_number, delta_G_initial,delta_G_ub_initial, delta_G_lb_initial)
     #calculate spearman correlation (rank correlation)
     rho, p = st.spearmanr(delta_deltaG, axis = 1)
     fig = plt.figure(figsize=(10,10))
