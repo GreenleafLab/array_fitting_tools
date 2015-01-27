@@ -261,8 +261,12 @@ for topology in ['','B1', 'B2', 'B1_B1', 'B2_B2', 'B1_B1_B1', 'B2_B2_B2', 'M','M
     plt.savefig(os.path.join(imageDirectory, 'all_helix1_lengths.%s.topology_%s.total_length_%d.lines.pdf'%(helix_context, topology, total_length)))
     
 for topology in ['B1', 'B2','B1_B1','B2_B2','B1_B1_B1','B2_B2_B2', 'M', 'M_M', 'M_M_M']:
-    variantFun.plot_HelixvsHelixCorr(table, variant_table, topology)
+    variantFun.plot_helixvshelix_Corr(table, variant_table, topology)
     #plt.title('%s %s'%(helix_context, topology))
     plt.title('%s'%(variantFun.ConvertNomen([topology])[0]))
     #plt.tight_layout()
     plt.savefig(os.path.join(imageDirectory, 'SpearmanCorrbtwnhelices_allbutRandWC.topology_%s.pdf'%(topology)))
+
+topology = ['','B1', 'B2','B1_B1','B2_B2','B1_B1_B1','B2_B2_B2', 'M', 'M_M', 'M_M_M']
+variantFun.plot_juctionvsSeqrank_Corr(table, variant_table, topology)
+plt.savefig(os.path.join(imageDirectory, 'ClusteringofJunctiontopologyvsHelix.pdf'))

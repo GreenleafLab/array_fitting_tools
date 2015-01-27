@@ -15,6 +15,7 @@ import matplotlib.cm as cmx
 import matplotlib as mpl
 import CPlibs
 import scipy.stats as st
+import heatmapfun
 from scikits.bootstrap import bootstrap
 
 class Parameters():
@@ -499,8 +500,7 @@ def plot_length_changes_helices(table, variant_table, topology, loop=None, recep
     total_lengths = np.array([8,9,10,11,12])
     delta_G_initial = variant_table.loc[0]['dG']
     delta_G_ub_initial = variant_table.loc[0]['dG_ub']-variant_table.loc[0]['dG']
-    delta_G_lb_initial = variant_table.loc[0]['dG_lb']-variant_table.loc[0]['dG']
-    
+    delta_G_lb_initial = variant_table.loc[0]['dG_lb']-variant_table.loc[0]['dG']   
     delta_deltaG = np.ones((len(helix_context), len(total_lengths)))*np.nan
     delta_deltaGerrub = np.ones((len(helix_context), len(total_lengths)))*np.nan
     delta_deltaGerrlb = np.ones((len(helix_context), len(total_lengths)))*np.nan
@@ -539,8 +539,8 @@ def plot_length_changes_helices(table, variant_table, topology, loop=None, recep
     plt.tight_layout()
     return
     
-def ConvertNomen(topologies):
-    topos = {'':'','B1':'1x0', 'B2':'0x1', 'B1_B1':'2x0', 'B2_B2':'0x2', 'B1_B1_B1':'3x0', 'B2_B2_B2':'0x3', 'M':'1x1','M_B1':'1x2', 'B2_M':'2x1', 'M_M':'2x2',
+def convert_nomen(topologies):
+    topos = {'':'0x0','B1':'1x0', 'B2':'0x1', 'B1_B1':'2x0', 'B2_B2':'0x2', 'B1_B1_B1':'3x0', 'B2_B2_B2':'0x3', 'M':'1x1','M_B1':'1x2', 'B2_M':'2x1', 'M_M':'2x2',
                                     'B2_B2_M':'2x3', 'M_B1_B1':'3x2', 'B2_M_M':'2x3', 'M_M_B1':'3x2', 'M_M_M':'3x3'}
     return [topos[t] for t in topologies]
 def plot_changes_helices_allseqs(table, variant_table, topology, loop=None, receptor=None, offset=None):
@@ -607,14 +607,14 @@ def plot_changes_helices_allseqs(table, variant_table, topology, loop=None, rece
     plt.tight_layout()
     return
     
-def getddGandErrs(table, variant_number, delta_G_initial,delta_G_ub_initial,delta_G_lb_initial):    
+def get_ddG_and_Errs(table, variant_number, delta_G_initial,delta_G_ub_initial,delta_G_lb_initial):    
     delta_deltaG= table.loc[variant_number]['dG'] - delta_G_initial
     delta_deltaGerrub = np.sqrt(pow(table.loc[variant_number]['dG_ub']-table.loc[variant_number]['dG'],2) + pow(delta_G_ub_initial,2))
     delta_deltaGerrlb = np.sqrt(pow(table.loc[variant_number]['dG_lb']-table.loc[variant_number]['dG'],2) + pow(delta_G_lb_initial,2))
     return delta_deltaG, delta_deltaGerrub, delta_deltaGerrlb
     
     
-def plot_HelixvsHelixCorr(table, variant_table, topology, loop=None, receptor=None, offset=None):
+def plot_helixvshelix_Corr(table, variant_table, topology, loop=None, receptor=None, offset=None):
     if loop is None:
         loop = 'goodLoop'
     if receptor is None:
@@ -655,7 +655,7 @@ def plot_HelixvsHelixCorr(table, variant_table, topology, loop=None, receptor=No
                                                 np.array(sub_table['junction_sequence']==jsequence)),axis=0)].index
             #calculate ddG, and errorbars ddG (sqrt of sum or squares)
             if len(variant_number)>0:
-                delta_deltaG[i][j],delta_deltaGerrub[i][j],delta_deltaGerrlb[i][j] = getddGandErrs(sub_table, variant_number, delta_G_initial,delta_G_ub_initial, delta_G_lb_initial)
+                delta_deltaG[i][j],delta_deltaGerrub[i][j],delta_deltaGerrlb[i][j] = get_ddG_and_Errs(sub_table, variant_number, delta_G_initial,delta_G_ub_initial, delta_G_lb_initial)
     #calculate spearman correlation (rank correlation)
     rho, p = st.spearmanr(delta_deltaG, axis = 1)
     fig = plt.figure(figsize=(10,10))
@@ -668,4 +668,75 @@ def plot_HelixvsHelixCorr(table, variant_table, topology, loop=None, receptor=No
     #ax.legend_ = None
     #calculate pearson correlation (linear correlation)
     
+    return
+    
+def plot_juctionvsSeqrank_Corr(table, variant_table, topologies, loop=None, receptor=None, offset=None):
+    #generate clustered heat map of ranking of each sequence variant vs topology
+    #mastrix of ranked values vs helix
+    rankedInds = np.empty((12,0), int)
+    #junctions deleted because >2 nans
+    numtodelete = list()
+    #total number of available junctions
+    totaljunctions = list()
+    junctionskept = list()
+    for m, topology in enumerate(topologies):
+        if loop is None:
+            loop = 'goodLoop'
+        if receptor is None:
+            receptor='R1'
+        if offset is None:
+            offset = 0  # amount to change helix_one_length by from default
+        couldPlot = True
+        criteria_central = np.all((np.array(variant_table['receptor'] == receptor),
+                            np.array(variant_table['loop']==loop)),
+                            axis=0)
+        if topology == '':
+            criteria_central = np.all((criteria_central, np.array(variant_table['junction_sequence'] =='_')), axis=0)
+        else:
+            criteria_central = np.all((criteria_central, np.array(variant_table['topology']==topology)), axis=0)
+        
+        
+        sub_table = variant_table[criteria_central]
+        helix_context = np.unique(sub_table['helix_context'])
+        junctionseqs = np.unique(sub_table['junction_sequence'])
+        totaljunctions.append(len(junctionseqs))
+        #choose just one length = 10 
+        length = 10
+        delta_G_initial = variant_table.loc[0]['dG']
+        delta_G_ub_initial = variant_table.loc[0]['dG_ub']-variant_table.loc[0]['dG']
+        delta_G_lb_initial = variant_table.loc[0]['dG_lb']-variant_table.loc[0]['dG']
+        
+        delta_deltaG = np.ones((len(helix_context), len(junctionseqs)))*np.nan
+        delta_deltaGerrub = np.ones((len(helix_context), len(junctionseqs)))*np.nan
+        delta_deltaGerrlb = np.ones((len(helix_context), len(junctionseqs)))*np.nan
+        for i, sequence in enumerate(helix_context):  
+            for j, jsequence in enumerate(junctionseqs):
+                helix_one_length = np.floor((length - sub_table['junction_length'].iloc[0])*0.5) + offset
+                variant_number = sub_table[np.all((np.array(sub_table['helix_context']==sequence),
+                                                    np.array(sub_table['total_length']==length),
+                                                    np.array(sub_table['helix_one_length']==helix_one_length),
+                                                    np.array(sub_table['junction_sequence']==jsequence)),axis=0)].index
+                #calculate ddG, and errorbars ddG (sqrt of sum or squares)
+                if len(variant_number)>0:
+                    delta_deltaG[i][j],delta_deltaGerrub[i][j],delta_deltaGerrlb[i][j] = get_ddG_and_Errs(sub_table, variant_number, delta_G_initial,delta_G_ub_initial, delta_G_lb_initial)
+        indsdelete = []
+        for k, col in enumerate(delta_deltaG.T):                     
+            if np.sum(np.isnan(col))>2:
+                indsdelete.append(k)
+        numtodelete.append(len(indsdelete))
+        if len(indsdelete)>1:
+            #remove entris in ddG that have greater than 2 NaNs
+            delta_deltaG = np.delete(delta_deltaG, indsdelete, axis=1)
+        #rank ddG matrix and output the indices of the helices rank
+        rankedInds = np.append(rankedInds, delta_deltaG.argsort(0),axis = 1)
+        junctionskept.append(delta_deltaG.shape[1])
+    #generate rowlabels for dendogram
+    rowlabels = list()
+    for i, t in enumerate(topologies):
+        name = convert_nomen([t])[0]
+        rowlabels = rowlabels + [name]*(totaljunctions[i]-numtodelete[i])
+    rowlabels = np.array(rowlabels)    
+    heatmapfun.plotCoverageHeatMap(rankedInds,rowlabels=rowlabels )
+    plt.xticks(np.arange(0,len(helix_context)), helix_context, size=11, rotation=0 )
+    plt.title('Clustering of Junction Topology vs Helix Context rank')
     return
