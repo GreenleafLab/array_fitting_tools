@@ -21,6 +21,7 @@ import scipy.io as sio
 import pandas as pd
 import variantFun
 import IMlibs
+import numpy as np
 parameters = variantFun.Parameters()
 
 #set up command line argument parser
@@ -227,26 +228,29 @@ for total_length in [8,9,10,11,12]:
     num_variants = variantFun.plotVariantBoxplots(table, variant_table, helix_context, total_length, max_diff_helix_length=10)
     plt.title('%s_%d'%(helix_context, total_length-10))
 
+#need to edit this section for the correlation!
+ddGmat = np.array([])
 helix_context = 'rigid'
 for topology in ['','B1', 'B2', 'B1_B1', 'B2_B2', 'B1_B1_B1', 'B2_B2_B2', 'M','M_B1', 'B2_M', 'M_M',
                                     'B2_B2_M', 'M_B1_B1', 'B2_M_M', 'M_M_B1', 'M_M_M']:
-    couldPlot = variantFun.plot_length_changes(table, variant_table, helix_context, topology)
+    couldPlot,ddG = variantFun.plot_length_changes(table, variant_table, helix_context, topology)
+    ddGmat = np.append(ddGmat, ddG)
     if couldPlot:
-        plt.title('%s %s'%(helix_context, topology))
+        plt.title('%s'%(variantFun.convert_nomen([topology])[0]))
         plt.tight_layout()
         plt.savefig(os.path.join(imageDirectory, 'all_lengths.%s.topology_%s.lines.pdf'%(helix_context, topology)))
 
 for topology in ['','B1', 'B2','B1_B1','B2_B2','B1_B1_B1','B2_B2_B2']:
     variantFun.plot_length_changes_helices(table, variant_table, topology)
     #plt.title('%s %s'%(helix_context, topology))
-    plt.title('%s'%(variantFun.ConvertNomen([topology])[0]))
-    #plt.tight_layout()
+    plt.title('%s'%(variantFun.convert_nomen([topology])[0]))
+    #plt.tight_layout() 
     plt.savefig(os.path.join(imageDirectory, 'all_lengths.all_helices.topology_%s.lines.pdf'%(topology)))
 
 for topology in ['','B1', 'B2','B1_B1','B2_B2','B1_B1_B1','B2_B2_B2', 'M', 'M_M', 'M_M_M']:
     variantFun.plot_changes_helices_allseqs(table, variant_table, topology)
     #plt.title('%s %s'%(helix_context, topology))
-    plt.title('%s'%(variantFun.ConvertNomen([topology])[0]))
+    plt.title('%s'%(variantFun.convert_nomen([topology])[0]))
     #plt.tight_layout()
     plt.savefig(os.path.join(imageDirectory, 'allseqs.all_helices.topology_%s.lines.pdf'%(topology)))
     
@@ -261,8 +265,18 @@ for topology in ['','B1', 'B2', 'B1_B1', 'B2_B2', 'B1_B1_B1', 'B2_B2_B2', 'M','M
     plt.savefig(os.path.join(imageDirectory, 'all_helix1_lengths.%s.topology_%s.total_length_%d.lines.pdf'%(helix_context, topology, total_length)))
     
 for topology in ['B1', 'B2','B1_B1','B2_B2','B1_B1_B1','B2_B2_B2', 'M', 'M_M', 'M_M_M']:
-    variantFun.plot_HelixvsHelixCorr(table, variant_table, topology)
+    variantFun.plot_helixvshelix_Corr(table, variant_table, topology)
     #plt.title('%s %s'%(helix_context, topology))
-    plt.title('%s'%(variantFun.ConvertNomen([topology])[0]))
+    plt.title('%s'%(variantFun.convert_nomen([topology])[0]))
     #plt.tight_layout()
     plt.savefig(os.path.join(imageDirectory, 'SpearmanCorrbtwnhelices_allbutRandWC.topology_%s.pdf'%(topology)))
+
+topology = ['','B1', 'B2','B1_B1','B2_B2','B1_B1_B1','B2_B2_B2', 'M', 'M_M', 'M_M_M']
+variantFun.plot_juctionvsSeqrank_Corr(table, variant_table, topology)
+plt.savefig(os.path.join(imageDirectory, 'ClusteringofJunctiontopologyvsHelix.pdf'))
+
+topologies = ['','B1', 'B2', 'B1_B1', 'B2_B2', 'M_B1', 'B2_M', 'B2_M_M','M_M_B1','B1_B1_B1','B2_B2_B2']
+variantFun.plot_juctionvslength_Corr(table, variant_table, topologies)
+plt.savefig(os.path.join(imageDirectory, 'ClusteringofJunctiontopologyvsHelixLength.pdf'))
+
+# plot ranked variant by ddG for different topologies
