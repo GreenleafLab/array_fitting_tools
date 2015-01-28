@@ -104,4 +104,10 @@ def multiprocessParametrization(variant_table, helixLengthTotal, indx):
     else:
         vec = np.ones(6*(helixLengthTotal-1))*np.nan
     return vec
+
+def distanceBetweenVariants(variant_table, variant_set):
+    per_variants = [variant_table.loc[variant_set[0]], variant_table.loc[variant_set[1]]]
+
+
+
     

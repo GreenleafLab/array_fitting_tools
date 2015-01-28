@@ -256,7 +256,7 @@ else:
     timesSplit = np.array_split(times, numCores)
     bindingSeriesFilenameParts = IMlibs.getBindingSeriesFilenameParts(annotatedSignalFilename, numCores)
     fitParametersFilenameParts = IMlibs.getfitParametersFilenameParts(bindingSeriesFilenameParts)
-    null_scores = IMlibs.loadNullScores(signalNamesByTileDict, filterSet, index=0)
+    null_scores = IMlibs.loadNullScores(signalNamesByTileDict, filterSet)
 
     # split into parts 
     for i, bindingSeriesFilename in bindingSeriesFilenameParts.items():
@@ -266,9 +266,13 @@ else:
                                             'null_scores':null_scores,
                                             })
     # set fit parameters
-    parameters = fittingParameters.Parameters(f_abs_green_max=bindingSeries[:,0], f_abs_red=allClusterSignal, f_abs_green_nonbinders=null_scores, fittype='offrate')
+    if args.get_association_rates:
+        fittype='onrate'
+    else:
+        fittype='offrate'
+    parameters = fittingParameters.Parameters(f_abs_green_max=bindingSeries[:,0], f_abs_red=allClusterSignal, f_abs_green_nonbinders=null_scores, fittype=fittype)
 
-    fitParameters = IMlibs.fitSetKoff(fitParametersFilenameParts, bindingSeriesFilenameParts, parameters.fitParameters, parameters.scale_factor)
+    fitParameters = IMlibs.fitSetKoff(fitParametersFilenameParts, bindingSeriesFilenameParts, parameters.fitParameters, parameters.scale_factor, fittype)
     fitParameters['tile'] = tiles
     
     # save fittedBindingFilename
@@ -291,6 +295,10 @@ if os.path.isfile(variantFittedFilename):
 else:
     print 'Making per variant table from %s...'%fittedBindingFilename
     table = IMlibs.loadFittedCPsignal(fittedBindingFilename)
-    variant_table = IMlibs.findVariantTable(table, numCores=numCores, parameter='toff')
+    # set fit parameters
+    if args.get_association_rates:
+        parameter='ton'
+    else:
+        parameter='toff'
+    variant_table = IMlibs.findVariantTable(table, numCores=numCores, parameter=parameter)
     IMlibs.saveDataFrame(variant_table, variantFittedFilename)
-
