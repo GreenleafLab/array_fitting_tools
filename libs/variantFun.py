@@ -18,6 +18,30 @@ import scipy.stats as st
 import heatmapfun
 from scikits.bootstrap import bootstrap
 import scipy.cluster.hierarchy as sch
+import scipy.cluster.vq as sck
+import subprocess
+from atacseqpeak import Bedfile
+from atacseqpeak import Peaks
+#from atacseqpeak import plot_heatmap
+from atacseqpeak import plot_manylines
+from atacseqpeak import plotCDF
+from optparse import OptionParser
+#from bx.intervals.io import GenomicIntervalReader
+#from bx.bbi.bigwig_file import BigWigFile
+from multiprocessing import Pool
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.colors as colors
+import matplotlib.cm as cmx
+from matplotlib import gridspec
+import scipy.io as sio
+import scipy.stats as st
+import functools
+from scipy.ndimage import gaussian_filter
+from scipy.spatial.distance import jaccard
+from scipy.cluster.hierarchy import *
+
+import matplotlib as mpl
 
 class Parameters():
     def __init__(self):
@@ -792,12 +816,12 @@ def plot_juctionvsSeqrank_Corr(table, variant_table, topologies, loop=None, rece
         name = convert_nomen([t])[0]
         rowlabels = rowlabels + [name]*(totaljunctions[i]-numtodelete[i])
     rowlabels = np.array(rowlabels)    
-    heatmapfun.plotCoverageHeatMap(rankedInds,rowlabels=rowlabels )
+    heatmapfun.plotCoverageHeatMap(rankedInds/max(rankedInds),rowlabels=rowlabels, colorbar = False )
     plt.xticks(np.arange(0,len(helix_context)), helix_context, size=11, rotation=0 )
     plt.title('Clustering of Junction Topology vs Helix Context rank')
     return
 
-def plot_juctionvslength_Corr(table, variant_table, topologies,helix_context= None, loop=None, receptor=None, offset=None):
+def plot_juctionvslength_Corr(table, variant_table, topologies, clustertype = None, helix_context= None, loop=None, receptor=None, offset=None):
     #generate clustered heat map of ranking of each sequence variant vs topology
     #mastrix of ranked values vs helix
     total_lengths = np.array([8,9,10,11,12])
@@ -866,14 +890,23 @@ def plot_juctionvslength_Corr(table, variant_table, topologies,helix_context= No
         name = convert_nomen([t])[0]
         rowlabels = rowlabels + [name]*(totaljunctions[i]-numtodelete[i])
     rowlabels = np.array(rowlabels)    
-    plot_heatmap(ddGmat,rowlabels=rowlabels)
+    if clustertype is None:
+        clustertype = 'hierarchial'
+    plot_heatmap(ddGmat.T,rowlabels=rowlabels, clustertype=clustertype, columnlabels = total_lengths)
+    #heatmapfun.plotCoverageHeatMap(ddGmat.T,rowlabels=rowlabels )
+
     plt.title('Clustering of Junction Topology vs Length')
     return
 
-def plot_heatmap(matrix,rowlabels=None, columnlabels=None, rowIndx=None, fontSize=None, columnIndx=None, cmap=None, vmin=None, vmax=None, colorbar = None):
+def plot_heatmap(matrix,rowlabels=None, columnlabels=None, clustertype = None, rowIndx=None, fontSize=None, columnIndx=None, cmap=None, vmin=None, vmax=None, colorbar = None):
     if fontSize==None:
         fontSize='6'
     else: fontsize = str(fontSize)
+    #clean up matrix
+    if sum(np.all(np.isfinite(matrix), 0)) < matrix.shape[1]:
+        test = np.all(np.isfinite(matrix), 1) 
+        rowlabels = rowlabels[test]
+        matrix = matrix[np.all(np.isfinite(matrix), 1)]
     
     numSamples = np.size(matrix, axis=1)
     numMotifs = np.size(matrix, axis=0)
@@ -885,31 +918,60 @@ def plot_heatmap(matrix,rowlabels=None, columnlabels=None, rowIndx=None, fontSiz
     if colorbar is None:
         colorbar = True
     
+    if clustertype is None:
+        clustertype = 'hierarchial'
+    if clustertype is 'hierarchial':
+        if rowIndx is None:
+            fig = plt.figure(figsize=(11,13))
+            #fig = plt.gcf()
+            heatmapGS = gridspec.GridSpec(1,2,wspace=0.1,hspace=0.0,width_ratios=[1,2])
+            rowIndx    = sch.leaves_list(sch.linkage(matrix, method='weighted', metric=metric)).astype(int)
+            denAx = fig.add_subplot(heatmapGS[0,0])
+            den = dendrogram(linkage(matrix, metric=metric), orientation='right', color_threshold=np.inf)
+            heatmapfun.clean_axis(denAx)
+            
+            
+            heatmapAX = fig.add_subplot(heatmapGS[0,1])
+            #im = heatmapAX.imshow(matrix[rowIndx,:])
+            im = heatmapAX.imshow(matrix[rowIndx,:],extent=[0, 16, 0, 39] )
+            heatmapAX.set_xlabel('Helix Length')
+            heatmapAX.set_ylabel('Junction Type')
+        
+            #rowIndx = np.array(den['leaves'])
+        if columnIndx is None:
+            columnIndx = sch.leaves_list(sch.linkage(matrix[rowIndx,:], method='weighted', metric=metric)).astype(int)
+    if clustertype is 'kmeans':
+        if rowIndx is None:
+            clusters    = sck.kmeans2(matrix,20)[1]
+            rowIndx = np.argsort(clusters)
+        if columnIndx is None:
+            columnIndx = sck.kmeans2(matrix[rowIndx,:],20)[1]
+        if cmap is None:
+            cm = plt.get_cmap('seismic')
+        else:
+            cm = plt.get_cmap(cmap)
     
-    if rowIndx is None:
-        rowIndx    = sch.leaves_list(sch.linkage(np.transpose(matrix), method='weighted', metric=metric)).astype(int)
-    if columnIndx is None:
-        columnIndx = sch.leaves_list(sch.linkage(matrix[:,rowIndx], method='weighted', metric=metric)).astype(int)
+        matrixvals = matrix[np.isfinite(matrix)]
+        cmap_max = np.max([np.abs(np.min(matrixvals)), np.max(matrixvals)])
+        if vmin is None:
+            vmin = np.min(matrixvals)
+        if vmax is None:
+            vmax = np.max(matrixvals)
+        fig = plt.figure(figsize=(11,13))
+        ax = fig.add_subplot(111)
+        im = ax.imshow(matrix[rowIndx,:],extent=[0, 16, 0, 39] )
+        ax.set_xlabel('Helix Length')
+        ax.set_ylabel('Junction Type')
+
+
+
     #rowIndx = np.arange(len(rowlabels))
     
-    if cmap is None:
-        cm = plt.get_cmap('seismic')
-    else:
-        cm = plt.get_cmap(cmap)
-    
-    matrixvals = matrix[np.isfinite(matrix)]
-    cmap_max = np.max([np.abs(np.min(matrixvals)), np.max(matrixvals)])
-    if vmin is None:
-        vmin = np.min(matrixvals)
-    if vmax is None:
-        vmax = np.max(matrixvals)
-    fig = plt.figure(figsize=(11,13))
-    ax = fig.add_subplot(111)
-    im = ax.imshow(np.transpose(matrix)[rowIndx,:],extent=[0, 16, 0, 39] )
     plt.xticks(np.arange(0,17,4), columnlabels, size=15, rotation=90)
-    plt.yticks(np.arange(0,39,0.3333), rowlabels[rowIndx[0::len(rowIndx)/(39*3)]], size=9)
-    ax.set_xlabel('Helix Length')
-    ax.set_ylabel('Junction Type')
+    plt.yticks(np.arange(0,39,np.true_divide(39,len(rowlabels))*2), rowlabels[rowIndx[0::2]], size=9)
+    #plt.yticks(np.arange(0,39,np.divide(50,len(rowlabels))), rowlabels[rowIndx], size=6)
     cb = plt.colorbar(im)
 
     return
+    
+    

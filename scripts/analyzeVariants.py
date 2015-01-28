@@ -228,7 +228,6 @@ for total_length in [8,9,10,11,12]:
     num_variants = variantFun.plotVariantBoxplots(table, variant_table, helix_context, total_length, max_diff_helix_length=10)
     plt.title('%s_%d'%(helix_context, total_length-10))
 
-#need to edit this section for the correlation!
 ddGmat = np.array([])
 helix_context = 'rigid'
 for topology in ['','B1', 'B2', 'B1_B1', 'B2_B2', 'B1_B1_B1', 'B2_B2_B2', 'M','M_B1', 'B2_M', 'M_M',
@@ -277,6 +276,11 @@ plt.savefig(os.path.join(imageDirectory, 'ClusteringofJunctiontopologyvsHelix.pd
 
 topologies = ['','B1', 'B2', 'B1_B1', 'B2_B2', 'M_B1', 'B2_M', 'B2_M_M','M_M_B1','B1_B1_B1','B2_B2_B2']
 variantFun.plot_juctionvslength_Corr(table, variant_table, topologies)
-plt.savefig(os.path.join(imageDirectory, 'ClusteringofJunctiontopologyvsHelixLength.pdf'))
+plt.savefig(os.path.join(imageDirectory, 'HierarClusteringofJunctiontopologyvsHelixLength.pdf'))
+
+topologies = ['','B1', 'B2', 'B1_B1', 'B2_B2', 'M_B1', 'B2_M', 'B2_M_M','M_M_B1','B1_B1_B1','B2_B2_B2']
+clustertype = 'kmeans'
+variantFun.plot_juctionvslength_Corr(table, variant_table, topologies, clustertype=clustertype)
+plt.savefig(os.path.join(imageDirectory, 'KmeansClusteringofJunctiontopologyvsHelixLength.pdf'))
 
 # plot ranked variant by ddG for different topologies
