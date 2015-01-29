@@ -22,6 +22,7 @@ import pandas as pd
 import datetime
 import variantFun
 import IMlibs
+import generateVariantNumber
 parameters = variantFun.Parameters()
 
 flowpiece = 'wc'
@@ -189,14 +190,59 @@ for variant in variants:
     plt.savefig(os.path.join(figDirectory, 'histogram.toff.q_%4.2f.toff_%4.1f.variant_%s.pdf'%(variant_table['offrates'].loc[variant, 'qvalue'],
                                                                                              variant_table['offrates'].loc[variant, 'toff'],
                                                                                              title)))
+# koff contribution
+index = variant_table['offrates'].loc[:, 'qvalue'].values < 0.005
+koff_rel = variant_table['summary'].loc[0, 'koff']
+dg_rel = variant_table['summary'].loc[0, 'dG']
+delta_koff_mut = parameters.RT*np.log(np.array(variant_table['summary'].loc[index, 'koff'], dtype=float)/koff_rel)
+delta_delta_g = (variant_table['summary'].loc[index, 'dG'].values - dg_rel).astype(float)
+histogram.compare([delta_koff_mut[delta_delta_g!=0]/delta_delta_g[delta_delta_g!=0]])
+
+# plot scatterplot
+plt.figure(figsize = (5,5))
+plt.scatter( delta_delta_g,delta_koff_mut, alpha=0.05, linewidth=0 )
+plt.tick_params(direction="out")
+plt.xlim((-1, 2))
+plt.ylim((-1, 2))
+plt.xlabel('ddG')
+plt.ylabel('ddG double dagger')
+plt.plot([-1, 2], [-1, 2], 'k')
+plt.plot([-1, 2], [0, 0], 'k:')
+plt.plot([0, 0], [-1, 2], 'k:')
+plt.tight_layout()
+plt.savefig('flow_wc/ddG_versus_ddg_double_dagger.scatterplot.png')
+
+#plot histogram
+plt.figure(figsize = (5,5))
+plt.tick_params(direction="out")
+histogram.compare([delta_koff_mut[delta_delta_g!=0]-delta_delta_g[delta_delta_g!=0]], xbins=np.linspace(-2, 2, 50), bar=True)
+ax = plt.gca()
+ax.legend_ = None
+ax.set_xlabel('ddG double dagger - ddG (kcal/mol)')
+ax.set_ylabel('fraction')
+plt.tight_layout()
+plt.savefig('flow_wc/ddG_versus_ddg_double_dagger.histogram.png')
+
 # find distance between variants
 variant_set = ['','']
 seq = '_'; helix_context = ['rigid', 'wc']
 criteria_dict = {'junction_sequence': seq, 'helix_context':'rigid', 'loop':'goodLoop', 'receptor':'R1'}
 variant_set = [variantFun.findVariantNumbers(table.seqinfo, {'junction_sequence': seq, 'helix_context':helix, 'loop':'goodLoop', 'receptor':'R1'}) for helix in helix_context]
 
-for i in range(2):
-    variant_subtable = pd.concat([variant_table['seqinfo'].loc[variant_set[i]], variant_table['affinity'].loc[variant_set[i]]], axis=1)
-    variantFun.plot_over_coordinate(variant_subtable.dropna(subset=['dG'], how='all', axis=0))
+   
+
     
+allvariants, seqs = generateVariantNumber.allThreeByThreeVariants(variant_table, helix_context='wc', offset=1, shorter_helix='helix_one')
+
+i = 1; j = 0
+for variantlist, seq in itertools.izip(allvariants.loc[i,j], seqs.loc[i,j]):
+    variant_set = [variantlist, allvariants.loc[0,0][0]]
+
+    variant_subtable = pd.concat([variant_table['seqinfo'].loc[variantlist], variant_table['affinity'].loc[variantlist]], axis=1)
+    variantFun.plot_over_coordinate(variant_subtable.dropna(subset=['dG'], axis=0))
+        
+    deltaG = fitFun.distanceBetweenVariants(variant_table, variant_set)
+    fitFun.plotDeltaDeltaG(deltaG)
+    plt.title('ddG from wc to junction %s'%seq, fontsize=10)
     
+

@@ -6,6 +6,8 @@ import argparse
 import subprocess
 import numpy as np
 import pandas as pd
+import variantFun
+import matplotlib.pyplot as plt
 
 class Parameters():
     def __init__(self):
@@ -106,7 +108,42 @@ def multiprocessParametrization(variant_table, helixLengthTotal, indx):
     return vec
 
 def distanceBetweenVariants(variant_table, variant_set):
-    per_variants = [variant_table.loc[variant_set[0]], variant_table.loc[variant_set[1]]]
+    deltaG = pd.DataFrame(columns=['median', 'plus', 'minus'], index=[8, 9, 10, 11, 12], dtype=float)
+    for length in deltaG.index:
+        index = variant_table.seqinfo.total_length==length
+        variant_subtable = variant_table.loc[index]
+        vs1 = variant_subtable.affinity.loc[variant_set[0]].dropna(axis=0, how='all')
+        vs2 = variant_subtable.affinity.loc[variant_set[1]].dropna(axis=0, how='all')
+        
+        deltaG.loc[length, 'median'] = np.mean(vs2['dG']) - np.mean(vs1['dG'])
+        
+        deltaG.loc[length, 'plus']   = np.sqrt(np.power(np.sqrt(np.sum(np.power(vs1['dG_ub'] - vs1['dG'], 2))), 2) +
+                                               np.power(np.sqrt(np.sum(np.power(vs2['dG_ub'] - vs2['dG'], 2))), 2) )
+        
+        deltaG.loc[length, 'minus']   = np.sqrt(np.power(np.sqrt(np.sum(np.power(vs1['dG'] - vs1['dG_lb'], 2))), 2) +
+                                                np.power(np.sqrt(np.sum(np.power(vs2['dG'] - vs2['dG_lb'], 2))), 2) )    
+    return deltaG
+
+def parseJunction(variant_table, variant_set):
+    
+    return
+
+def plotDeltaDeltaG(deltaG):
+    xvalues = np.array(deltaG.index, dtype=int)
+    yvalues = deltaG['median'].values
+    yerr = [deltaG.minus.values, deltaG.plus.values]
+    fig = plt.figure(figsize=(4,4))
+    ax = fig.add_subplot(111)
+    ax.set_xlim((7.3, 12.7))
+    ax.set_ylim((-3, 3))
+    ax.set_xlabel('length')
+    ax.set_ylabel('ddG (kcal/mol)')
+    ax.plot([7, 13], [0, 0], 'k:')
+    ax.errorbar(xvalues, yvalues, yerr = yerr, fmt='o-', color='r', ecolor='k')
+    ax.tick_params(direction='out', top='off', right='off')
+    plt.tight_layout()
+    return
+
 
 
 
