@@ -8,13 +8,16 @@ import numpy as np
 import pandas as pd
 import variantFun
 import matplotlib.pyplot as plt
+import itertools
+from statsmodels.stats.weightstats import DescrStatsW
 
 class Parameters():
     def __init__(self):
         self.chip_receptor_length = [11, 12]
         self.basePairDict = {'A':'U', 'U':'A', 'G':'C', 'C':'G'}
-        self.nonCanonicalBasePairDict = {'U':'G', 'A':'', 'G':'U', 'C':''}
+        self.nonCanonicalBasePairDict = {'U':'G', 'A':np.nan, 'G':'U', 'C':np.nan}
         self.indexDict = {'i':'x', 'j':'y'}
+        self.max_measurable_dG = -6
 
 def parseSecondaryStructure(seq, helix_length):
     parameters = Parameters()
@@ -22,8 +25,8 @@ def parseSecondaryStructure(seq, helix_length):
     dibases = pd.DataFrame(index=np.arange(helix_length-1), columns=columns)
 
     # initial data storage
-
-    [seq_parsed, dot_bracket, energy] = subprocess.check_output("echo %s | RNAfold --noPS"%seq, shell=True).split()
+    vec = subprocess.check_output("echo %s | RNAfold --noPS"%seq, shell=True).split()
+    [seq_parsed, dot_bracket] = vec[:2]
     dot_bracket = dot_bracket[parameters.chip_receptor_length[0]:-parameters.chip_receptor_length[1]]
     seq_parsed = seq_parsed[parameters.chip_receptor_length[0]:-parameters.chip_receptor_length[1]]
     
@@ -67,45 +70,102 @@ def parseSecondaryStructure(seq, helix_length):
     except: success = False
     return dibases, success
 
-def interpretDibase(dibase):
+def interpretDibase(dibase, success=None):
+    if success is None: success = True 
     parameters = Parameters()
     params = ['bp_break', 'nc', 'insertions']
     index  = ['i', 'j', 'k', 'z']
-    table = pd.DataFrame(data=np.zeros((len(index), len(params))), index=index, columns=params)
-    for idx in ['i', 'j']:
-        if parameters.basePairDict[dibase[idx]] != dibase[parameters.indexDict[idx]]:
-            table.loc[idx, 'bp_break'] = 1
-        if parameters.nonCanonicalBasePairDict[dibase[idx]] == dibase[parameters.indexDict[idx]]:
-            table.loc[idx, 'nc'] = 1
-    for idx in ['k', 'z']:
-        if dibase[idx] != '':
-            table.loc[idx, 'insertions'] = len(dibase[idx])
+    if success: # i.e. if secondary structure parsing was successful
+        table = pd.DataFrame(data=np.zeros((len(index), len(params))), index=index, columns=params)
+        for idx in ['i', 'j']:
+            if parameters.basePairDict[dibase[idx]] != dibase[parameters.indexDict[idx]]:
+                table.loc[idx, 'bp_break'] = 1
+            if parameters.nonCanonicalBasePairDict[dibase[idx]] == dibase[parameters.indexDict[idx]]:
+                table.loc[idx, 'nc'] = 1
+        for idx in ['k', 'z']:
+            if dibase[idx] != '':
+                table.loc[idx, 'insertions'] = len(dibase[idx])
+    else: # return NaNs
+        table = pd.DataFrame( index=index, columns=params)
     return table
 
 
-def convertDibasesToParams(dibases):
+def interpretDibases(dibases, success=None):
+    if success is None: success = True
     indexParam = np.arange(len(dibases))
     pieces = {}
     for i in indexParam:
-        pieces[i] = interpretDibase(dibases.loc[i])
+        pieces[i] = interpretDibase(dibases.loc[i], success)
     table = pd.concat(pieces, axis=0)
-    vec = np.hstack([np.hstack([table.loc[idx, 'i'].values[:2],
-                                     table.loc[idx, 'j'].values[:2],
-                                     table.loc[idx, 'k'].values[-1],
-                                     table.loc[idx, 'z'].values[-1]])
-                     for idx in indexParam])
-    return vec, table
-        
-def multiprocessParametrization(variant_table, helixLengthTotal, indx):
-    seq = variant_table.loc[indx, 'sequence']
-    dibases, success = parseSecondaryStructure(seq, helixLengthTotal)
+    return table
+
+def convertParamsToMatrix(table, indexParam):
+    vec = {}
+    vec_length = len(indexParam) + 1
+    keys = ['bp_break', 'nc', 'insertions_k', 'insertions_z']
+    for key in keys: vec[key] = pd.Series(index=np.arange(vec_length))
+    headers = np.hstack([['%s_%d'%(key, i) for i in range(vec_length)] for key in keys])
     
-    # Make table
-    if success:
-        vec, table = convertDibasesToParams(dibases)
-    else:
-        vec = np.ones(6*(helixLengthTotal-1))*np.nan
+    vec = pd.Series(index=headers)
+    
+    # first entry for bp break or nc is the 'i' entry, the rest are 'j'
+    for key in ['bp_break', 'nc']:
+        loc = 0
+        vec.loc['%s_%d'%(key, loc)] = table.loc[indexParam[0], 'i'].loc[key]
+        
+        # set the rest of them to be the 'j' points, so they are offest by one in indexParam
+        for idx, loc in itertools.izip(indexParam, range(1, vec_length)):
+            vec.loc['%s_%d'%(key, loc)] = table.loc[idx, 'j'].loc[key]
+    
+    for key in ['insertions_k', 'insertions_z']:
+        side = key[-1]
+        
+        # set the insertions location as the indexParamx, meaning an bp breaking at 0 is immediately to the left of an insertion at 0
+        for idx, loc in itertools.izip(indexParam, range(0, vec_length-1)):
+            vec.loc['%s_%d'%(key, loc)] = table.loc[idx, side].loc['insertions']
+
     return vec
+
+def convertFitParamsToMatrix(fitParams, indexParam):
+    # initiate
+    vec = {}
+    vec_length = len(indexParam) + 1
+    keys = ['bp_break_1', 'nc_1',
+            'insertions_k_1','insertions_k_2', 'insertions_k_3',
+            'insertions_z_1', 'insertions_z_2', 'insertions_z_3']
+    # starting with no interaction terms
+    for key in keys:
+        vec[key] = pd.DataFrame(index=np.arange(vec_length), columns=[name for name in fitParams], dtype=float)
+        locs = np.array([], dtype=int)
+        indexes = np.array([], dtype=str)
+        for name in fitParams.index:
+            # if this isn't an interaction term
+            if not name.find(':')>-1:
+                loc_ind = -2    # laste character is category, second to last is location
+                name_noloc = ''.join([name[:loc_ind], name[loc_ind+1:]])
+                if key == name_noloc:
+                    loc = int(name[loc_ind])
+                    locs = np.append(locs, loc)
+                    indexes = np.append(indexes, name)
+        # save to vec
+        vec[key].loc[locs] = fitParams.loc[indexes].values
+   
+    return pd.concat(vec, axis=0)
+
+def get_num_params(helixLengthTotal):
+    seq = 'CTAGGATATGGAAGATCCTGGGGAACTGGGATCTTCCTAAGTCCTAG'
+    dibases, success = parseSecondaryStructure(seq, helixLengthTotal)
+    vec, table = convertDibasesToParams(dibases)
+    return len(vec)
+    
+        
+def multiprocessParametrization(variant_table, helixLengthTotal, indx, indx_wt):
+    dibases_wt, success = parseSecondaryStructure(variant_table.loc[indx_wt, 'sequence'], helixLengthTotal)
+    dibases, success = parseSecondaryStructure(variant_table.loc[indx, 'sequence'], helixLengthTotal)
+
+    # Make table
+    table = interpretDibases(dibases, success)
+    return convertParamsToMatrix(table, np.arange(helixLengthTotal-1))
 
 def distanceBetweenVariants(variant_table, variant_set):
     deltaG = pd.DataFrame(columns=['median', 'plus', 'minus'], index=[8, 9, 10, 11, 12], dtype=float)
@@ -124,9 +184,37 @@ def distanceBetweenVariants(variant_table, variant_set):
                                                 np.power(np.sqrt(np.sum(np.power(vs2['dG'] - vs2['dG_lb'], 2))), 2) )    
     return deltaG
 
-def parseJunction(variant_table, variant_set):
-    
-    return
+def correlationBetweenVariants(variant_table, variants1, variants2):
+    parameters = Parameters()
+    deltaG = pd.DataFrame(columns=[1, 2, 'weights'], index=[8, 9, 10, 11, 12], dtype=float)
+    for length in deltaG.index:
+        index = variant_table.seqinfo.total_length==length
+        variant_subtable = variant_table.loc[index]
+        try:
+            vs1 = variant_subtable.affinity.loc[variants1].dropna(axis=0, how='all')
+            vs2 = variant_subtable.affinity.loc[variants2].dropna(axis=0, how='all')
+        except KeyError:
+            vs1 = pd.DataFrame(columns=[name for name in variant_subtable.affinity])
+            vs2 = pd.DataFrame(columns=[name for name in variant_subtable.affinity])
+        # assuming vs1 and vs2 are only one variant each
+        if not vs1.empty:
+            vs1 = vs1.iloc[0]
+            deltaG.loc[length, 1] = np.min([vs1['dG'], parameters.max_measurable_dG])
+        if not vs2.empty:
+            vs2 = vs2.iloc[0]
+            deltaG.loc[length, 2] = np.min([vs2['dG'], parameters.max_measurable_dG])
+        if not (vs1.empty or vs2.empty):
+            deltaG.loc[length, 'weights'] = 1./np.sqrt(np.power(vs1['dG_ub'] - vs1['dG'], 2) +
+                                                   np.power(vs2['dG_ub'] - vs2['dG'], 2) +
+                                                   np.power(vs1['dG'] - vs1['dG_lb'], 2) +
+                                                   np.power(vs2['dG'] - vs2['dG_lb'], 2))
+    deltaG.dropna(axis=0, how='any', inplace=True)
+    toreturn = np.nan
+    if len(deltaG) >= 3: # must be able to compare at least three lengths
+        dx = DescrStatsW(deltaG.iloc[:,:2].values, weights=deltaG.loc[:,'weights'].values)    
+        toreturn = dx.corrcoef[0,1]
+
+    return toreturn
 
 def plotDeltaDeltaG(deltaG):
     xvalues = np.array(deltaG.index, dtype=int)
