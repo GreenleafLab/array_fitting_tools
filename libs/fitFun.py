@@ -9,6 +9,7 @@ import pandas as pd
 import variantFun
 import matplotlib.pyplot as plt
 import itertools
+import collections
 from statsmodels.stats.weightstats import DescrStatsW
 
 class Parameters():
@@ -18,56 +19,90 @@ class Parameters():
         self.nonCanonicalBasePairDict = {'U':'G', 'A':np.nan, 'G':'U', 'C':np.nan}
         self.indexDict = {'i':'x', 'j':'y'}
         self.max_measurable_dG = -6
+        self.helix_length = 12
 
-def parseSecondaryStructure(seq, helix_length):
+def addBaseToDibase(dibases, insertion_point, key, base, max_insertion_point):
+    success = True
+    if insertion_point <= max_insertion_point and insertion_point >= 0:
+        dibases.loc[insertion_point, key] += base
+    else:
+        success = False
+    return dibases, success
+
+def parseSecondaryStructure(seq):
     parameters = Parameters()
     columns=['i', 'j', 'k', 'x', 'y', 'z']
-    dibases = pd.DataFrame(index=np.arange(helix_length-1), columns=columns)
+    dibases = pd.DataFrame(index=np.arange(parameters.helix_length-1), columns=columns)
 
     # initial data storage
     vec = subprocess.check_output("echo %s | RNAfold --noPS"%seq, shell=True).split()
     [seq_parsed, dot_bracket] = vec[:2]
     dot_bracket = dot_bracket[parameters.chip_receptor_length[0]:-parameters.chip_receptor_length[1]]
     seq_parsed = seq_parsed[parameters.chip_receptor_length[0]:-parameters.chip_receptor_length[1]]
-    
+
     loopLoc = dot_bracket.find('(....)')
     loopStart = loopLoc + 1; loopEnd = loopLoc + 5
     
     side1, side2 = dot_bracket[:loopStart], dot_bracket[loopEnd:][::-1]
     side1_seq, side2_seq = seq_parsed[:loopStart], seq_parsed[loopEnd:][::-1]
+    
+    # find helix length
+    estimated_helix_length = min(len(side1), len(side2))
+    offset = 2  # difference between 'loc' of dibase and estimated helix length
+    max_insertion_point = estimated_helix_length - offset
     success = True
     i = 0
     j = 0
     numBasePairs = 0
+
     dibases.loc[:,:] = ''
     try:
-        while numBasePairs < helix_length-1:
+        while numBasePairs < estimated_helix_length-1:
             if side1[i] == '(' and side2[j] == '.':
-                dibases.loc[numBasePairs-1, 'z'] += side2_seq[j]
+                insertion_point = max_insertion_point-(numBasePairs-1)
+                key = 'z'
+                base = side2_seq[j]
+                dibases, success = addBaseToDibase(dibases, insertion_point, key, base, max_insertion_point)
+                if not success: break
                 j+=1
+    
             if side1[i] == '.' and side2[j] == ')':
-                dibases.loc[numBasePairs-1, 'k'] += side1_seq[i]
+                insertion_point = max_insertion_point-(numBasePairs-1)
+                key = 'k'
+                base = side1_seq[i]
+                dibases, success = addBaseToDibase(dibases, insertion_point, key, base, max_insertion_point)
+                if not success: break
                 i+=1
             if (side1[i] == '(' and side2[j] == ')') or (side1[i] == '.' and side2[j] == '.'):
-                dibases.loc[numBasePairs, 'i'] = side1_seq[i]
-                dibases.loc[numBasePairs, 'x'] = side2_seq[j]
+                insertion_point = max_insertion_point - numBasePairs
+                dibases, success = addBaseToDibase(dibases, insertion_point, 'i', side1_seq[i], max_insertion_point)
+                if not success: break
+                dibases, success = addBaseToDibase(dibases, insertion_point, 'x', side2_seq[j], max_insertion_point)
+                if not success: break
                 i+=1
                 j+=1
                 numBasePairs+=1
             dibases
-        i=1; j=1
-        numBasePairs = 0
-        while numBasePairs < helix_length-1:
-            if side1[i] == '(' and side2[j] == '.': j+=1
-            if side1[i] == '.' and side2[j] == ')': i+=1
-            if (side1[i] == '(' and side2[j] == ')') or (side1[i] == '.' and side2[j] == '.'):
-                dibases.loc[numBasePairs, 'j'] = side1_seq[i]
-                dibases.loc[numBasePairs, 'y'] = side2_seq[j]
-                i+=1
-                j+=1
-                numBasePairs+=1
+        if success: # if the first part was successful, also parse the other location in each dibase
+            i=1; j=1
+            numBasePairs = 0
+            while numBasePairs < estimated_helix_length-1 :
+                if side1[i] == '(' and side2[j] == '.': j+=1
+                if side1[i] == '.' and side2[j] == ')': i+=1
+                if (side1[i] == '(' and side2[j] == ')') or (side1[i] == '.' and side2[j] == '.'):
+                    insertion_point = max_insertion_point - numBasePairs
+                    dibases, success = addBaseToDibase(dibases, insertion_point, 'j', side1_seq[i], max_insertion_point)
+                    if not success: break
+                    dibases, success = addBaseToDibase(dibases, insertion_point, 'y', side2_seq[j], max_insertion_point)
+                    if not success: break
+                    i+=1
+                    j+=1
+                    numBasePairs+=1
+    except IndexError: success = False
 
-    except: success = False
+    # everything that's blank is Nan
+    dibases.loc[(dibases == '').all(axis=1)] = np.nan
+    
     return dibases, success
 
 def interpretDibase(dibase, success=None):
@@ -90,16 +125,22 @@ def interpretDibase(dibase, success=None):
     return table
 
 
-def interpretDibases(dibases, success=None):
+def interpretDibases(dibases, dibases_wt, success=None):
     if success is None: success = True
+    # don't use rows of dibases that are all nans
+    #dibases.dropna(axis=0, how='all', inplace=True)
     indexParam = np.arange(len(dibases))
     pieces = {}
     for i in indexParam:
-        pieces[i] = interpretDibase(dibases.loc[i], success)
+        if dibases.loc[i].dropna().empty:
+            pieces[i] = interpretDibase(dibases.loc[i], False)
+        else:
+            pieces[i] = interpretDibase(dibases.loc[i], success)
     table = pd.concat(pieces, axis=0)
     return table
 
-def convertParamsToMatrix(table, indexParam):
+def convertParamsToMatrix(table):
+    indexParam = table.index.levels[0]
     vec = {}
     vec_length = len(indexParam) + 1
     keys = ['bp_break', 'nc', 'insertions_k', 'insertions_z']
@@ -111,11 +152,11 @@ def convertParamsToMatrix(table, indexParam):
     # first entry for bp break or nc is the 'i' entry, the rest are 'j'
     for key in ['bp_break', 'nc']:
         loc = 0
-        vec.loc['%s_%d'%(key, loc)] = table.loc[indexParam[0], 'i'].loc[key]
+        vec.loc['%s_%d'%(key, loc)] = table.loc[indexParam[0], 'j'].loc[key]
         
         # set the rest of them to be the 'j' points, so they are offest by one in indexParam
         for idx, loc in itertools.izip(indexParam, range(1, vec_length)):
-            vec.loc['%s_%d'%(key, loc)] = table.loc[idx, 'j'].loc[key]
+            vec.loc['%s_%d'%(key, loc)] = table.loc[idx, 'i'].loc[key]
     
     for key in ['insertions_k', 'insertions_z']:
         side = key[-1]
@@ -159,13 +200,15 @@ def get_num_params(helixLengthTotal):
     return len(vec)
     
         
-def multiprocessParametrization(variant_table, helixLengthTotal, indx, indx_wt):
-    dibases_wt, success = parseSecondaryStructure(variant_table.loc[indx_wt, 'sequence'], helixLengthTotal)
-    dibases, success = parseSecondaryStructure(variant_table.loc[indx, 'sequence'], helixLengthTotal)
-
-    # Make table
-    table = interpretDibases(dibases, success)
-    return convertParamsToMatrix(table, np.arange(helixLengthTotal-1))
+def multiprocessParametrization(variant_table, dibases_wt, indx):
+    try:
+        dibases, success = parseSecondaryStructure(variant_table.loc[indx, 'sequence'])
+        table = interpretDibases(dibases, dibases_wt, success)
+        toreturn = convertParamsToMatrix(table)
+    except:
+        print '%d not successful. Skipping'%indx
+        toreturn = interpretDibases(dibases_wt, dibases_wt, False)
+    return toreturn
 
 def distanceBetweenVariants(variant_table, variant_set):
     deltaG = pd.DataFrame(columns=['median', 'plus', 'minus'], index=[8, 9, 10, 11, 12], dtype=float)

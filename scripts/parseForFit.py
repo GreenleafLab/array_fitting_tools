@@ -94,13 +94,15 @@ plt.tight_layout()
 plt.savefig(os.path.join(saveDirectory, 'histogram.sigma.below_cutoff.flowpiece_%s.length_%dbp.pdf'%(flowpiece,helixLengthTotal) ))
 
 # Predict secondary structure, parse into dibases, save parameters for each dibase
+wt_index = 1
+dibases_wt, success = fitFun.parseSecondaryStructure(variant_table.loc[wt_index, 'sequence'])
 variant_subtable = variant_table.loc[subset_index]
 numCores = 20
 workerPool = multiprocessing.Pool(processes=numCores) #create a multiprocessing pool that uses at most the specified number of cores
-table = workerPool.map(functools.partial(fitFun.multiprocessParametrization, variant_table, helixLengthTotal), variant_subtable.index)
+#table = [fitFun.multiprocessParametrization(variant_table, dibases_wt, indx) for indx in variant_subtable.index[200:1000]]
+tableList = workerPool.map(functools.partial(fitFun.multiprocessParametrization, variant_table, dibases_wt), variant_subtable.index)
 workerPool.close(); workerPool.join()
-
-table = pd.DataFrame.from_records(table, index=variant_subtable.index).dropna(axis=(0,1), how='all')
+table = pd.DataFrame.from_records(tableList, index=variant_subtable.index).dropna(axis=(0,1), how='all')
 
 # get a sense of how many variants there are per parameter
 num_params = table.shape[1]
@@ -118,14 +120,14 @@ min_num_variants_to_fit = 200
 bad_params = table.sum(axis=0) < min_num_variants_to_fit
 
 # find variants that have no variation in the bad parameters 
-good_variants = (table.loc[:,bad_params] == 0).all(axis=1) 
+good_variants = table.loc[:,bad_params].sum(axis=1) == 0
 
 # remove bad params and keep good variants
 tableFinal = table.loc[good_variants, np.logical_not(bad_params)]
-tableFinal.loc[:, 'dG'] = variant_subtable.loc[tableFinal.index, 'dG']
+tableFinal.loc[:, 'dG'] = variant_table.loc[tableFinal.index, 'dG']
 index = variant_subtable.loc[tableFinal.index].sort('topology').index
-
 tableFinal.loc[index].to_csv(os.path.join(saveDirectory, 'param.flowpiece_%s.%dbp.mat'%(flowpiece, helixLengthTotal)), sep='\t', index=True)
+
 # also remove variants that have a bluge of length 3 at position 7k
 #tableFinal = tableFinal.loc[tableFinal.loc[:,'insertions_k_7'] <= 2]
 # Save test set and training set
@@ -308,4 +310,7 @@ keys_old = np.intersect1d(paramDict.keys(), [name for name in tableOld])
 keys_diff = np.setdiff(paramDict.keys(), [name for name in tableOld])
 keys_new = [paramDict[key] for key in keys_old] + ['dG']
 tableFinal.loc[tableOld.index, keys_new].to_csv(os.path.join(saveDirectory, 'param.flowpiece_%s.%dbp.fed.mat'%(flowpiece, helixLengthTotal)), sep='\t', index=True)
- 
+
+
+filename = 'linear_model/2015-02-11/param.flowpiece_rigid.10bp.mat'
+tableOld = pd.read_table(filename, index_col=0)
