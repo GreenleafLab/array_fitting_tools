@@ -251,7 +251,7 @@ def makeCategoricalHeaders():
                 keyDict[old_key] = np.append(keyDict[old_key], new_key)
     return keyDict
 
-def getInteractionTerms(tableFinal):
+def getInteractionTerms(table):
     
     return
 
