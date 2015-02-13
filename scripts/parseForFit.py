@@ -126,9 +126,8 @@ good_variants = table.loc[:,bad_params].sum(axis=1) == 0
 
 # remove bad params and keep good variants
 tableFinal = fitFun.flattenMatrix(table.loc[good_variants, np.logical_not(bad_params)])
-
-
 tableFinal.loc[:, 'ddG'] = variant_table.loc[tableFinal.index, 'dG'] - variant_table.loc[indx_wt, 'dG']
+tableFinal = tableFinal.dropna(how='any', axis=0)
 index = variant_subtable.loc[tableFinal.index].sort('topology').index
 tableFinal.loc[index].to_csv(os.path.join(saveDirectory, 'param.flowpiece_%s.%dbp.mat'%(flowpiece, helixLengthTotal)), sep='\t', index=True)
 

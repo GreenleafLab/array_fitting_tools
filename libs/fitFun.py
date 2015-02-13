@@ -30,6 +30,16 @@ class Parameters():
                      'bp_break':1,
                      'nc':1}
 
+def getNumCategories(table):
+    locations = [name for name in table]
+    d = collections.defaultdict(list)
+    for param, cat, loc in locations:
+        d[param].append(cat)
+    for param in d.keys():
+        d[param] = len(np.unique(d[param]))
+    return pd.Series(d)
+    
+
 def getWildtypeDibases(variant_table, indx_wt):
     parameters = Parameters()
     seq = variant_table.loc[indx_wt, 'sequence']
@@ -221,23 +231,28 @@ def makeCategorical(vec):
     for key in all_keys:
         newvec[key] = {}
         for i in np.arange(numParamsDict[key]):
-            newvec[key][i] = pd.Series(index = vec[key].index)
+            # if categorical, set things equal to category (i+1) to one:
+            if numParamsDict[key] == 1: # i.e. not category
+                cat = 0
+            else:
+                cat = i+1
+            newvec[key][cat] = pd.Series(index = vec[key].index)
             index = vec[key].dropna().index
             # set remainder to zero
-            newvec[key][i].loc[index] = 0
+            newvec[key][cat].loc[index] = 0
             
-            # if categorical, set things equal to category (i+1) to one:
+            # set those not equal to zero
             index = vec[key].loc[(vec[key] == i+1).values].index
-            newvec[key][i].loc[index] = 1
+            newvec[key][cat].loc[index] = 1
         newvec[key] = pd.concat(newvec[key])
 
     return pd.concat(newvec)
 
-def flattenedHeader(locator):
+def flattenedHeader(locator, numCategories):
     parameters = Parameters()
     param, cat, loc = locator
     # check if categorical
-    if parameters.numParamsDict[param] == 1:
+    if numCategories[param] == 1:
         header = '%s_%d'%(param, loc)
     else:
         header = '%s%d_%d'%(param, cat, loc)
@@ -245,68 +260,30 @@ def flattenedHeader(locator):
 
 def flattenMatrix(table):
     locations = [name for name in table]
-    headers = ['%s%d_%d'%(param, cat, loc) for param, cat, loc in locations]
     newtable = pd.DataFrame(index=table.index)
+    numCats = getNumCategories(table)
     for locator in locations:
-        newtable[flattenedHeader(locator)] = table[locator]
+        newtable[flattenedHeader(locator, numCats)] = table[locator]
     return newtable
-    
 
-def makeCategoricalHeaders():
+def getInteractionTerms(categorical_vec):
     parameters = Parameters()
-    keyDict = {}
-    numParamsDict = {'insertions_k':3, 'insertions_z':3, 'seq_change_i':2, 'seq_change_x':2}
-    keys_to_change = ['insertions_k', 'insertions_z', 'seq_change_i', 'seq_change_x']
-    keys_no_change = np.hstack(([[''.join(s) for s in itertools.product([key+'_'], np.arange(parameters.helix_length).astype(str))]
-                                for key in ['bp_break', 'nc']] + [['loop']]))
-    for key in keys_no_change:
-        keyDict[key] = np.array(key)
-    for key in keys_to_change:
-        
-        for loc in np.arange(parameters.helix_length):
-            old_key = '%s_%d'%(key, loc)
-            keyDict[old_key] = np.array([], dtype=str)
-            for i in np.arange(numParamsDict[key])+1:
-                new_key = '%s%d_%d'%(key, i, loc)
-                keyDict[old_key] = np.append(keyDict[old_key], new_key)
-    return keyDict
-
-def getInteractionTerms(table):
-    
-    return
-
-def convertFitParamsToMatrix(fitParams, indexParam):
-    # initiate
-    vec = {}
-    vec_length = len(indexParam) + 1
-    keys = ['bp_break_1', 'nc_1',
-            'insertions_k_1','insertions_k_2', 'insertions_k_3',
-            'insertions_z_1', 'insertions_z_2', 'insertions_z_3']
-    # starting with no interaction terms
-    for key in keys:
-        vec[key] = pd.DataFrame(index=np.arange(vec_length), columns=[name for name in fitParams], dtype=float)
-        locs = np.array([], dtype=int)
-        indexes = np.array([], dtype=str)
-        for name in fitParams.index:
-            # if this isn't an interaction term
-            if not name.find(':')>-1:
-                loc_ind = -2    # laste character is category, second to last is location
-                name_noloc = ''.join([name[:loc_ind], name[loc_ind+1:]])
-                if key == name_noloc:
-                    loc = int(name[loc_ind])
-                    locs = np.append(locs, loc)
-                    indexes = np.append(indexes, name)
-        # save to vec
-        vec[key].loc[locs] = fitParams.loc[indexes].values
-   
-    return pd.concat(vec, axis=0)
-
-def get_num_params(helixLengthTotal):
-    seq = 'CTAGGATATGGAAGATCCTGGGGAACTGGGATCTTCCTAAGTCCTAG'
-    dibases, success = parseSecondaryStructure(seq, helixLengthTotal)
-    vec, table = convertDibasesToParams(dibases)
-    return len(vec)
-    
+    compare = {'bp_bp':    [('bp_break',0), ('bp_break', 0)],
+               'bp_ins_k1':[('bp_break',0), ('insertions_k', 1)], # 1 insertion
+               'bp_ins_k2':[('bp_break',0), ('insertions_k', 2)], # 2 insertions
+               'bp_ins_z1':[('bp_break', 0),('insertions_z', 1)],
+               'bp_ins_z1':[('bp_break', 0),('insertions_z', 2)],
+                }
+    new_vec = {}
+    offsets = [1] # max distance over which to record interactions
+    for key, values in compare.items():
+        new_vec[key] = {}
+        for offset in offsets:
+            new_vec[key][offset] = pd.Series(index=np.arange(parameters.helix_length))
+            new_vec[key][offset].iloc[offset:] = (categorical_vec[values[1]].iloc[offset:]*
+                                             categorical_vec[values[0]].iloc[:-offset].values)
+        new_vec[key] = pd.concat(new_vec[key])
+    return pd.concat([categorical_vec, pd.concat(new_vec)])
         
 def multiprocessParametrization(variant_table, dibases_wt, indx):
     try:
@@ -314,11 +291,13 @@ def multiprocessParametrization(variant_table, dibases_wt, indx):
         table = interpretDibases(dibases, dibases_wt, success)
         vec = convertParamsToMatrix(table, loop_seq)
         categorical_vec = makeCategorical(vec)
+        interaction_vec = getInteractionTerms(categorical_vec)
     except:
         print '%d not successful. Skipping'%indx
         vec = interpretDibases(dibases_wt, dibases_wt, False)
         categorical_vec = makeCategorical(vec)
-    return categorical_vec
+        interaction_vec = getInteractionTerms(categorical_vec)
+    return interaction_vec
 
 def distanceBetweenVariants(variant_table, variant_set):
     deltaG = pd.DataFrame(columns=['median', 'plus', 'minus'], index=[8, 9, 10, 11, 12], dtype=float)
