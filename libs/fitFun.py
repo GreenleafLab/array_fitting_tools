@@ -22,6 +22,13 @@ class Parameters():
         self.max_measurable_dG = -6
         self.helix_length = 12
         self.goodLoop = 'GGAA'
+        self.numParamsDict = {'insertions_k':3,
+                     'insertions_z':3,
+                     'seq_change_i':2,
+                     'seq_change_x':2,
+                     'loop':1,
+                     'bp_break':1,
+                     'nc':1}
 
 def getWildtypeDibases(variant_table, indx_wt):
     parameters = Parameters()
@@ -174,18 +181,15 @@ def convertParamsToMatrix(table, loopSeq):
     vec_length = len(indexParam) + 1
     keys = ['bp_break', 'nc', 'insertions_k', 'insertions_z', 'seq_change_i', 'seq_change_x']
     for key in keys: vec[key] = pd.Series(index=np.arange(vec_length))
-    headers = np.hstack([['%s_%d'%(key, i) for i in range(vec_length)] for key in keys])
-    headers = np.append(headers, 'loop')
-    vec = pd.Series(index=headers)
     
     # first entry for bp break or nc is the 'i' entry, the rest are 'j'
     for key in ['bp_break', 'nc']:
         loc = 0
-        vec.loc['%s_%d'%(key, loc)] = table.loc[indexParam[0], 'j'].loc[key]
+        vec[key].loc[loc] = table.loc[indexParam[loc], 'j'].loc[key]
         
         # set the rest of them to be the 'j' points, so they are offest by one in indexParam
         for idx, loc in itertools.izip(indexParam, range(1, vec_length)):
-            vec.loc['%s_%d'%(key, loc)] = table.loc[idx, 'i'].loc[key]
+            vec[key].loc[loc] = table.loc[idx, 'i'].loc[key]
     
     # insertions 
     for key in ['insertions_k', 'insertions_z']:
@@ -193,44 +197,60 @@ def convertParamsToMatrix(table, loopSeq):
         old_key = key.strip('kz_')
         # set the insertions location as the indexParamx, meaning an bp breaking at 0 is immediately to the left of an insertion at 0
         for idx, loc in itertools.izip(indexParam, range(0, vec_length-1)):
-            vec.loc['%s_%d'%(key, loc)] = table.loc[idx, side].loc['insertions']
+            vec[key].loc[loc] = table.loc[idx, side].loc['insertions']
     
     # sequence changes not in insertions
     whichind = {'i':['j', 'i'], 'x':['y', 'x']}
     for key in ['seq_change_i', 'seq_change_x']:
         side = key[-1]
         old_key = key.strip('ix_')
-        vec.loc['%s_%d'%(key, loc)] = table.loc[indexParam[0], whichind[side][0]].loc[old_key]
+        loc = 0
+        vec[key].loc[loc] = table.loc[loc, whichind[side][0]].loc[old_key]
         # set the rest of them to be the 'j' points, so they are offest by one in indexParam
         for idx, loc in itertools.izip(indexParam, range(1, vec_length)):
-            vec.loc['%s_%d'%(key, loc)] = table.loc[idx, whichind[side][1]].loc[old_key]
+            vec[key].loc[loc] = table.loc[idx, whichind[side][1]].loc[old_key]
         
-    vec['loop'] = interpretLoop(loopSeq)
-    return vec
+    vec['loop'] = pd.Series(interpretLoop(loopSeq))
+    return pd.concat(vec)
 
 def makeCategorical(vec):
     parameters = Parameters()
-    numParamsDict = {'insertions_k':3, 'insertions_z':3, 'seq_change_i':2, 'seq_change_x':2}
-    keys_to_change = ['insertions_k', 'insertions_z', 'seq_change_i', 'seq_change_x']
-    keys_no_change = np.hstack(([[''.join(s) for s in itertools.product([key+'_'], np.arange(parameters.helix_length).astype(str))]
-                                for key in ['bp_break', 'nc']] + [['loop']]))
+    numParamsDict = parameters.numParamsDict
+    all_keys = numParamsDict.keys()    
+    newvec = {}
+    for key in all_keys:
+        newvec[key] = {}
+        for i in np.arange(numParamsDict[key]):
+            newvec[key][i] = pd.Series(index = vec[key].index)
+            index = vec[key].dropna().index
+            # set remainder to zero
+            newvec[key][i].loc[index] = 0
+            
+            # if categorical, set things equal to category (i+1) to one:
+            index = vec[key].loc[(vec[key] == i+1).values].index
+            newvec[key][i].loc[index] = 1
+        newvec[key] = pd.concat(newvec[key])
+
+    return pd.concat(newvec)
+
+def flattenedHeader(locator):
+    parameters = Parameters()
+    param, cat, loc = locator
+    # check if categorical
+    if parameters.numParamsDict[param] == 1:
+        header = '%s_%d'%(param, loc)
+    else:
+        header = '%s%d_%d'%(param, cat, loc)
+    return header
+
+def flattenMatrix(table):
+    locations = [name for name in table]
+    headers = ['%s%d_%d'%(param, cat, loc) for param, cat, loc in locations]
+    newtable = pd.DataFrame(index=table.index)
+    for locator in locations:
+        newtable[flattenedHeader(locator)] = table[locator]
+    return newtable
     
-    newvec = vec.loc[keys_no_change]
-    for key in keys_to_change:
-        for loc in np.arange(parameters.helix_length):
-            old_key = '%s_%d'%(key, loc)
-            for i in np.arange(numParamsDict[key])+1:
-                new_key = '%s%d_%d'%(key, i, loc)
-                # i is now the number corresponding either tho number of insertions or
-                # transitions/transversions
-                if vec[old_key] == i:
-                    newvec[new_key] = 1.
-                else:
-                    if np.isnan(vec[old_key]):
-                        newvec[new_key] = np.nan
-                    else:
-                        newvec[new_key] = 0.
-    return newvec
 
 def makeCategoricalHeaders():
     parameters = Parameters()

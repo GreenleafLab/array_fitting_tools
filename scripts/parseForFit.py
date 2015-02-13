@@ -125,7 +125,7 @@ bad_params = table.sum(axis=0) < min_num_variants_to_fit
 good_variants = table.loc[:,bad_params].sum(axis=1) == 0
 
 # remove bad params and keep good variants
-tableFinal = table.loc[good_variants, np.logical_not(bad_params)]
+tableFinal = fitFun.flattenMatrix(table.loc[good_variants, np.logical_not(bad_params)])
 
 
 tableFinal.loc[:, 'ddG'] = variant_table.loc[tableFinal.index, 'dG'] - variant_table.loc[indx_wt, 'dG']
