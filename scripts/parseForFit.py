@@ -94,8 +94,8 @@ plt.tight_layout()
 plt.savefig(os.path.join(saveDirectory, 'histogram.sigma.below_cutoff.flowpiece_%s.length_%dbp.pdf'%(flowpiece,helixLengthTotal) ))
 
 # Predict secondary structure, parse into dibases, save parameters for each dibase
-wt_index = 1
-dibases_wt, success = fitFun.parseSecondaryStructure(variant_table.loc[wt_index, 'sequence'])
+indx_wt = 1 # WC
+dibases_wt = fitFun.getWildtypeDibases(variant_table, indx_wt)
 variant_subtable = variant_table.loc[subset_index]
 numCores = 20
 workerPool = multiprocessing.Pool(processes=numCores) #create a multiprocessing pool that uses at most the specified number of cores
@@ -105,18 +105,20 @@ workerPool.close(); workerPool.join()
 table = pd.DataFrame.from_records(tableList, index=variant_subtable.index).dropna(axis=(0,1), how='all')
 
 # get a sense of how many variants there are per parameter
+min_num_variants_to_fit = 200
 num_params = table.shape[1]
-min_num_variants_to_fit = 100
-plt.bar(np.arange(num_params), table.sum(axis=0) )
+num_tests = float(table.shape[0])
+plt.figure(figsize=(7, 4))
+plt.bar(np.arange(num_params), table.sum(axis=0)/num_tests )
 plt.xticks(np.arange(num_params)+0.5, [name for name in table], rotation=90)
 plt.tick_params(direction='out', top='off', right='off')
-plt.plot([0, num_params+1], [min_num_variants_to_fit,min_num_variants_to_fit], 'k:')
-plt.ylim((0, 500))
+plt.plot([0, num_params+1], [min_num_variants_to_fit/num_tests, min_num_variants_to_fit/num_tests], 'k:')
+plt.ylim((0, 0.5))
 plt.tight_layout()
 plt.savefig(os.path.join(saveDirectory, 'number_variants_for_each_param.flowpiece_%s.length_%dbp.pdf'%(flowpiece,helixLengthTotal)))
 
 # find parameters with few variants
-min_num_variants_to_fit = 200
+min_num_variants_to_fit = 10
 bad_params = table.sum(axis=0) < min_num_variants_to_fit
 
 # find variants that have no variation in the bad parameters 
@@ -124,7 +126,7 @@ good_variants = table.loc[:,bad_params].sum(axis=1) == 0
 
 # remove bad params and keep good variants
 tableFinal = table.loc[good_variants, np.logical_not(bad_params)]
-tableFinal.loc[:, 'dG'] = variant_table.loc[tableFinal.index, 'dG']
+tableFinal.loc[:, 'ddG'] = variant_table.loc[tableFinal.index, 'dG'] - variant_table.loc[indx_wt, 'dG']
 index = variant_subtable.loc[tableFinal.index].sort('topology').index
 tableFinal.loc[index].to_csv(os.path.join(saveDirectory, 'param.flowpiece_%s.%dbp.mat'%(flowpiece, helixLengthTotal)), sep='\t', index=True)
 
@@ -314,3 +316,25 @@ tableFinal.loc[tableOld.index, keys_new].to_csv(os.path.join(saveDirectory, 'par
 
 filename = 'linear_model/2015-02-11/param.flowpiece_rigid.10bp.mat'
 tableOld = pd.read_table(filename, index_col=0)
+
+# trouble shooting
+tableOld = tableFinal.copy()
+keyDict = fitFun.makeCategoricalHeaders()
+cols = np.hstack([keyDict[name] for name in tableOld if not name == 'ddG'])
+
+tableFinal = table.loc[tableOld.index, cols]
+tableFinal.dropna(axis=0, how='any', inplace=True)
+tableFinal.loc[:, 'ddG'] = variant_table.loc[tableFinal.index, 'dG'] - variant_table.loc[indx_wt, 'dG']
+index = variant_subtable.loc[tableFinal.index].sort('topology').index
+tableFinal.loc[index].to_csv(os.path.join(saveDirectory, 'param.flowpiece_%s.%dbp.mat'%(flowpiece, helixLengthTotal)), sep='\t', index=True)
+
+# some of these only have one variant!
+min_num_variants_to_fit = 10
+table = table.loc[tableOld.index, cols]
+bad_params = table.sum(axis=0) < min_num_variants_to_fit
+
+# find variants that have no variation in the bad parameters 
+good_variants = table.loc[:,bad_params].sum(axis=1) == 0
+
+# remove bad params and keep good variants
+tableFinal = table.loc[good_variants, np.logical_not(bad_params)]
