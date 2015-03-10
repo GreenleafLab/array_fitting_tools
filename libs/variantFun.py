@@ -15,8 +15,9 @@ import matplotlib.cm as cmx
 import matplotlib as mpl
 import CPlibs
 import scipy.stats as st
-import heatmapfun
+#import heatmapfun
 from scikits.bootstrap import bootstrap
+from statsmodels.stats.weightstats import DescrStatsW
 import IMlibs
 import scipy.cluster.hierarchy as sch
 
@@ -185,7 +186,8 @@ def plotOffrateCurve(series, times):
     plt.ticklabel_format(style='sci', axis='x', scilimits=(0,0))
     return
 
-def plotOffRateVariantError(subtable, times):
+def plotOffRateVariantError(subtable, times, errorbar=None):
+    if errorbar is None: errorbar=True
     subtable.dropna(subset=['toff'], how='all', axis=0, inplace=True)
     subtable = subtable.loc[subtable['qvalue'].values < 0.05]
     cols = ['toff', 'fmin', 'fmax', 'fmin_var', 'fmax_var']
@@ -198,8 +200,9 @@ def plotOffRateVariantError(subtable, times):
         time = times.loc[series['tile']]
         numTimePoints = len(time)
         fracbound = (series.loc[[i for i in range(numTimePoints)]] - series['fmin'])/series['fmax']
-        yerr = np.sqrt((np.power((series['fmax_var'])/series['fmax']*fracbound, 2) + np.power(series['fmin']/series['fmax']*(series['fmax_var']/series['fmax']+series['fmin_var']/series['fmin']), 2)).values.astype(float))
-        ax.errorbar(time, fracbound,yerr, fmt='-.', color='k', ecolor='k', alpha = 0.1, capsize=0)
+        if errorbar:
+            yerr = np.sqrt((np.power((series['fmax_var'])/series['fmax']*fracbound, 2) + np.power(series['fmin']/series['fmax']*(series['fmax_var']/series['fmax']+series['fmin_var']/series['fmin']), 2)).values.astype(float))
+            ax.errorbar(time, fracbound,yerr, fmt='-.', color='k', ecolor='k', alpha = 0.1, capsize=0)
     
     ax.plot(times.loc[9], offRateCurve(times.loc[9], subtable.median(axis=0)['toff']), 'r')
     ax.set_ylim((-0.1, 1.1))
@@ -220,7 +223,9 @@ def offRateFracBoundError(series, numTimePoints):
     else: yerr = np.nan
     return fracbound, yerr
     
-def plotOffRateVariant(subtable, times):
+def plotOffRateVariant(subtable, times, errorbar=None, plotAllTraces=None):
+    if errorbar is None: errorbar=True
+    if plotAllTraces is None: plotAllTraces=True
     subtable.dropna(subset=['toff'], how='all', axis=0, inplace=True)
     subtable = IMlibs.filterFitParameters(subtable)
     fig = plt.figure(figsize=(5,4))
@@ -232,7 +237,14 @@ def plotOffRateVariant(subtable, times):
         time = times.loc[series['tile']]
         numTimePoints = len(time)
         fracbound[i], yerr[i] = offRateFracBoundError(series, numTimePoints)
-        ax.errorbar(time, fracbound[i],yerr[i], fmt='-', marker='.', color='k', ecolor='k', alpha = 0.1, capsize=0)
+        if plotAllTraces:
+            if errorbar:
+                ax.errorbar(time, fracbound[i],yerr[i], fmt='-', marker='.', color='k', ecolor='k', alpha = 0.1, capsize=0)
+            else:
+                ax.plot(time, fracbound[i], '.-', color='k', alpha=0.1)
+    if not plotAllTraces:
+        dxs = [DescrStatsW(fracbound[:, i], weights = 1/yerr[:,i]) for i in range(times.shape[1])]
+        
     ax.set_ylim((-0.1, 1.1))
     ax.set_xlim((0, np.max(times.loc[9])))
     ax.set_xlabel('time (s)'); ax.set_ylabel('fraction bound')
@@ -253,7 +265,9 @@ def plotOffRateVariant(subtable, times):
     ax.tick_params( direction='out', top='off', right='off')
     return ax, timeBinCenters
 
-def plotBindingCurveVariant(subtable, concentrations):
+def plotBindingCurveVariant(subtable, concentrations,errorbar=None, plotAllTraces=None):
+    if errorbar is None: errorbar=True
+    if plotAllTraces is None: plotAllTraces=True
     parameter = 'dG'
     subtable.dropna(subset=[parameter], how='all', axis=0, inplace=True)
     subtable = IMlibs.filterFitParameters(subtable)
@@ -265,12 +279,24 @@ def plotBindingCurveVariant(subtable, concentrations):
         series = subtable.loc[idx]
         numPoints = len(concentrations)
         fracbound[i], yerr[i] = offRateFracBoundError(series, numPoints)
-        ax.errorbar(concentrations, fracbound[i],yerr[i], fmt='-', marker='.', color='k', ecolor='k', alpha = 0.1, capsize=0)
+    if plotAllTraces:
+        for i in range(len(subtable)):
+            if errorbar:
+                ax.errorbar(concentrations, fracbound[i],yerr[i], fmt='-', marker='.', color='k', ecolor='k', alpha = 0.1, capsize=0)
+            else:
+                ax.plot(concentrations, fracbound[i], '.-k', alpha=0.1)
+        ax.plot(concentrations, np.median(fracbound, axis=0), 'ro', alpha = 0.5)
+    else:
+        weights = subtable.loc[:, 'fraction_consensus'].values/100*subtable.loc[:, 'clusters_per_barcode'].values
+        #dx = DescrStatsW(fracbound, weights = weights/np.mean(weights))
+        dx = DescrStatsW(fracbound) # not using any weights
+        ax.errorbar(concentrations, np.median(fracbound, axis=0),
+                    yerr=dx.mean - dx.zconfint_mean()[0], fmt='o',color='r', ecolor='k', alpha=0.5)
     ax.set_ylim((-0.1, 1.1))
     ax.set_xlim((5e-1, 5e3))
     ax.set_xlabel('concentration (nM)'); ax.set_ylabel('fraction bound')
     ax.set_xscale('log')
-    ax.plot(concentrations, np.median(fracbound, axis=0), 'ro', alpha = 0.5)
+    #ax.plot(concentrations, np.median(fracbound, axis=0), 'ro', alpha = 0.5)
     concentrationsAll = np.logspace(-1, 4, 50)
     ax.plot(concentrationsAll, bindingCurve(concentrationsAll, subtable.median(axis=0)[parameter]), 'r')
     ax.tick_params( direction='out', top='off', right='off')
@@ -322,8 +348,13 @@ def getInfo(per_variant_series):
 
 def findVariantNumbers(table, criteria_dict):
     for name, value in criteria_dict.items():
-        print 'selecting criteria: %s = %s'%(name, value)
-        table = table[table[name]==value]
+        if name == 'offset':
+            print 'selecting criteria: offset <= %d'%value
+            table = table[np.abs(table.helix_two_length - table.helix_one_length) <= value]
+        else:
+            print 'selecting criteria: %s = %s'%(name, value)
+            table = table[table[name]==value]
+
     return np.unique(table['variant_number']).astype(int)
 
 def plotVariantBoxplots(table, variant_table, helix_context, total_length, loop=None, receptor=None, max_diff_helix_length=None, helix_one_length=None):
@@ -472,6 +503,25 @@ def plot_errorbars_2D(series, param1, param2):
     yerr = [[series[param2] - series[param2+'_lb']], [series[param2+'_ub'] - series[param2]]]
     ax.errorbar(series[param1], series[param2], yerr=yerr, xerr=xerr,
                 fmt=fmt, color=color, ecolor='k')
+    return
+
+def plot_expected_spread(variant_table, subset_index=None, xbins=None):
+    if subset_index is None:
+        subset_index = variant_table.index
+    if xbins is None: xbins = np.linspace(-1, 10, 100)
+    # plot average error
+    fig = plt.figure(figsize=(4,4))
+    ax = fig.add_subplot(111)
+    histogram.compare([variant_table.loc[subset_index, 'dG_ub'].values -
+                       variant_table.loc[subset_index, 'dG_lb'].values],
+        xbins = xbins, bar=True, normalize=False)
+    ax.set_xlabel('Confidence interval width (kcal/mol)')
+    ax.set_ylabel('Number of variants')
+    ax.set_xlim((0, 7))
+    ax.tick_params( direction='out', top='off', right='off')
+    ax.legend_ = None
+    plt.tight_layout()
+
     return
 
 def plot_parameter_vs_length(series, p1, p2):

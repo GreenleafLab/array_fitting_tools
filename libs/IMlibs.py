@@ -635,7 +635,7 @@ def findVariantTable(table, parameter=None, numCores=None, variants=None):
 def filterFitParameters(sub_table):
     not_nan_binding_points = [0,1] # if first two binding points are NaN, filter
     nan_filter = np.all(np.isfinite(sub_table[not_nan_binding_points]), 1)
-    barcode_filter = np.array(sub_table['fraction_consensus'] > 50)
+    barcode_filter = np.array(sub_table['fraction_consensus'] >= 67)
     fit_filter = np.array(sub_table['rsq'] > 0)
     
     # use barcode_filter, nan_filter to reduce sub_table

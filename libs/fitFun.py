@@ -8,6 +8,8 @@ import numpy as np
 import pandas as pd
 import variantFun
 import matplotlib.pyplot as plt
+import matplotlib.colors as colors
+import matplotlib.cm as cmx
 import itertools
 import collections
 from statsmodels.stats.weightstats import DescrStatsW
@@ -21,17 +23,37 @@ class Parameters():
         self.transitionDict   = {'A':'G', 'G':'A', 'C':'U', 'U':'C'}
         self.max_measurable_dG = -6
         self.helix_length = 12
+        self.min_helix_length = 8
         self.goodLoop = 'GGAA'
         self.numParamsDict = {'insertions_k':3,
-                     'insertions_z':3,
-                     'seq_change_i':2,
-                     'seq_change_x':2,
-                     'loop':1,
-                     'bp_break':1,
-                     'nc':1}
+                                'insertions_z':3,
+                                'seq_change_i':2,
+                                'seq_change_x':2,
+                                'seq_insert_k':3,
+                                'seq_insert_z':3,
+                                'loop':1,
+                                'bp_break':1,
+                                'nc':1,
+                                'loop':1,
+                                'intercept':1,
+                                'length':5}
+        
+    def fractionPur(self, seq):
+        d = collections.defaultdict(int)
+        for c in ['A', 'G', 'T', 'C']:
+            d[c] = 0.0
+        for c in seq:
+            d[c] += 1./len(seq)
+        fracPur = d['A'] + d['G']
+        if fracPur >= 0.33 and fracPur <= 0.67:
+            return 2
+        if fracPur < 0.33:
+            return 1
+        if fracPur > 0.67:
+            return 3
 
-def getNumCategories(table):
-    locations = [name for name in table]
+
+def getNumCategories(locations):
     d = collections.defaultdict(list)
     for param, cat, loc in locations:
         d[param].append(cat)
@@ -127,7 +149,7 @@ def parseSecondaryStructure(seq):
                     i+=1
                     j+=1
                     numBasePairs+=1
-    except IndexError: success = False
+    except: success = False
 
     # everything that's blank is Nan
     dibases.loc[(dibases == '').all(axis=1)] = np.nan
@@ -137,18 +159,25 @@ def parseSecondaryStructure(seq):
 def interpretDibase(dibase, compare_to=None, success=None):
     if success is None: success = True 
     parameters = Parameters()
-    params = ['bp_break', 'nc', 'insertions', 'seq_change']
+    params = ['bp_break', 'nc', 'insertions', 'seq_change', 'seq_insert']
     index  = ['i', 'j', 'k', 'z', 'x', 'y']
     if success: # i.e. if secondary structure parsing was successful
-        table = pd.DataFrame(data=np.zeros((len(index), len(params))), index=index, columns=params)
+        #table = pd.DataFrame(data=np.zeros((len(index), len(params))), index=index, columns=params)
+        table = pd.DataFrame(index=index, columns=params)
         for idx in ['i', 'j']:
             if parameters.basePairDict[dibase[idx]] != dibase[parameters.indexDict[idx]]:
                 table.loc[idx, 'bp_break'] = 1
+            else: table.loc[idx, 'bp_break'] = 0
             if parameters.nonCanonicalBasePairDict[dibase[idx]] == dibase[parameters.indexDict[idx]]:
                 table.loc[idx, 'nc'] = 1
+            else: table.loc[idx, 'nc'] = 0
         for idx in ['k', 'z']:
             if dibase[idx] != '':
                 table.loc[idx, 'insertions'] = len(dibase[idx])
+                table.loc[idx, 'seq_insert'] = parameters.fractionPur(dibase[idx])
+            else:
+                table.loc[idx, 'insertions'] = 0
+                table.loc[idx, 'seq_insert'] = 0
         if compare_to is not None:
             # compare sequences
             for idx in ['i', 'j', 'x', 'y']:
@@ -179,35 +208,37 @@ def interpretDibases(dibases, dibases_wt, success=None):
 
 def interpretLoop(loop_seq):
     parameters = Parameters()
-    if loop_seq == parameters.goodLoop:
+    if loop_seq != parameters.goodLoop:
         return 1
     else:
         return 0
 
 
-def convertParamsToMatrix(table, loopSeq):
-    indexParam = table.index.levels[0]
+def convertParamsToMatrix(diparams, loopSeq):
+    parameters = Parameters()
+    indexParam = diparams.index.levels[0]
     vec = {}
     vec_length = len(indexParam) + 1
-    keys = ['bp_break', 'nc', 'insertions_k', 'insertions_z', 'seq_change_i', 'seq_change_x']
+    keys = ['bp_break', 'nc', 'insertions_k', 'insertions_z',
+            'seq_change_i', 'seq_change_x', 'seq_insert_k', 'seq_insert_z']
     for key in keys: vec[key] = pd.Series(index=np.arange(vec_length))
     
     # first entry for bp break or nc is the 'i' entry, the rest are 'j'
     for key in ['bp_break', 'nc']:
         loc = 0
-        vec[key].loc[loc] = table.loc[indexParam[loc], 'j'].loc[key]
+        vec[key].loc[loc] = diparams.loc[indexParam[loc], 'j'].loc[key]
         
         # set the rest of them to be the 'j' points, so they are offest by one in indexParam
         for idx, loc in itertools.izip(indexParam, range(1, vec_length)):
-            vec[key].loc[loc] = table.loc[idx, 'i'].loc[key]
+            vec[key].loc[loc] = diparams.loc[idx, 'i'].loc[key]
     
     # insertions 
-    for key in ['insertions_k', 'insertions_z']:
+    for key in ['insertions_k', 'insertions_z', 'seq_insert_k', 'seq_insert_z']:
         side = key[-1]
         old_key = key.strip('kz_')
         # set the insertions location as the indexParamx, meaning an bp breaking at 0 is immediately to the left of an insertion at 0
         for idx, loc in itertools.izip(indexParam, range(0, vec_length-1)):
-            vec[key].loc[loc] = table.loc[idx, side].loc['insertions']
+            vec[key].loc[loc] = diparams.loc[idx, side].loc[old_key]
     
     # sequence changes not in insertions
     whichind = {'i':['j', 'i'], 'x':['y', 'x']}
@@ -215,18 +246,21 @@ def convertParamsToMatrix(table, loopSeq):
         side = key[-1]
         old_key = key.strip('ix_')
         loc = 0
-        vec[key].loc[loc] = table.loc[loc, whichind[side][0]].loc[old_key]
+        vec[key].loc[loc] = diparams.loc[loc, whichind[side][0]].loc[old_key]
         # set the rest of them to be the 'j' points, so they are offest by one in indexParam
         for idx, loc in itertools.izip(indexParam, range(1, vec_length)):
-            vec[key].loc[loc] = table.loc[idx, whichind[side][1]].loc[old_key]
-        
+            vec[key].loc[loc] = diparams.loc[idx, whichind[side][1]].loc[old_key]
+    key = 'bp_break'
+    estimated_length = len(vec[key].dropna()) 
     vec['loop'] = pd.Series(interpretLoop(loopSeq))
+    vec['length'] = pd.Series(estimated_length) - parameters.min_helix_length + 1
+        
     return pd.concat(vec)
 
 def makeCategorical(vec):
     parameters = Parameters()
     numParamsDict = parameters.numParamsDict
-    all_keys = numParamsDict.keys()    
+    all_keys = vec.index.levels[0].tolist()
     newvec = {}
     for key in all_keys:
         newvec[key] = {}
@@ -255,8 +289,22 @@ def flattenedHeader(locator, numCategories):
     if numCategories[param] == 1:
         header = '%s_%d'%(param, loc)
     else:
-        header = '%s%d_%d'%(param, cat, loc)
+        header = '%s_%d_%d'%(param, cat, loc)
     return header
+
+def unFlattenHeader(header):
+    parameters = Parameters()
+    param = header.strip('1234567890_')
+    try:
+        loc = int(header.split('_')[-1])
+        if parameters.numParamsDict[param] == 1:
+            cat = 0
+        else:
+            cat = bp_ins_k1
+            cat = int(header.split('_')[-2].lstrip('abcdefghijklmnopqrstuvwxyz'))
+    except:
+        loc = 0; cat = 0
+    return (param, cat, loc)
 
 def flattenMatrix(table):
     locations = [name for name in table]
@@ -266,30 +314,32 @@ def flattenMatrix(table):
         newtable[flattenedHeader(locator, numCats)] = table[locator]
     return newtable
 
-def getInteractionTerms(categorical_vec):
+def getInteractionTerms(categorical_vec, max_offset=None):
+    if max_offset is None: max_offset = 1
     parameters = Parameters()
     compare = {'bp_bp':    [('bp_break',0), ('bp_break', 0)],
                'bp_ins_k1':[('bp_break',0), ('insertions_k', 1)], # 1 insertion
                'bp_ins_k2':[('bp_break',0), ('insertions_k', 2)], # 2 insertions
                'bp_ins_z1':[('bp_break', 0),('insertions_z', 1)],
-               'bp_ins_z1':[('bp_break', 0),('insertions_z', 2)],
+               'bp_ins_z2':[('bp_break', 0),('insertions_z', 2)],
                 }
     new_vec = {}
-    offsets = [1] # max distance over which to record interactions
+    offsets = [0, 1] # max distance over which to record interactions
     for key, values in compare.items():
         new_vec[key] = {}
         for offset in offsets:
             new_vec[key][offset] = pd.Series(index=np.arange(parameters.helix_length))
-            new_vec[key][offset].iloc[offset:] = (categorical_vec[values[1]].iloc[offset:]*
-                                             categorical_vec[values[0]].iloc[:-offset].values)
+            new_vec[key][offset].iloc[offset:] = (categorical_vec[values[1]].iloc[:parameters.helix_length-offset]*
+                                             categorical_vec[values[0]].iloc[offset:].values)
         new_vec[key] = pd.concat(new_vec[key])
     return pd.concat([categorical_vec, pd.concat(new_vec)])
         
 def multiprocessParametrization(variant_table, dibases_wt, indx):
     try:
         dibases, loop_seq, success = parseSecondaryStructure(variant_table.loc[indx, 'sequence'])
-        table = interpretDibases(dibases, dibases_wt, success)
-        vec = convertParamsToMatrix(table, loop_seq)
+        diparams = interpretDibases(dibases, dibases_wt, success)
+        vec = convertParamsToMatrix(diparams, loop_seq)
+        length = np.logical_not(np.isnan(vec['bp_break'])).sum()
         categorical_vec = makeCategorical(vec)
         interaction_vec = getInteractionTerms(categorical_vec)
     except:
@@ -298,6 +348,155 @@ def multiprocessParametrization(variant_table, dibases_wt, indx):
         categorical_vec = makeCategorical(vec)
         interaction_vec = getInteractionTerms(categorical_vec)
     return interaction_vec
+
+def loadFitParams(fitFile, exVec):
+    a = np.loadtxt(fitFile, skiprows=2, dtype=str)
+    a[0,0] = 'intercept'
+    a[:,1] = [0  if est=='.' else est for est in a[:,1]]
+    numparams = a.shape[1]-1
+    cols = ['estimate', 'stderr', 'tvalue', 'p']
+    fit_vec = pd.DataFrame(a[:,1:], index=a[:,0], columns = cols[:numparams], dtype=float)
+    flatToNotDict = {}
+    numCats = getNumCategories(exVec.index.tolist())
+    for locations in exVec.index.tolist():
+        key = flattenedHeader(locations, numCats)
+        flatToNotDict[key] = locations
+    # get intercept which is missing and any others?
+    for key in np.setdiff1d(fit_vec.index.tolist(), flatToNotDict.keys()):
+        flatToNotDict[key] = (key, 0, 0)
+    
+    fit_mat = pd.DataFrame(np.nan*np.ones((len(exVec), len(cols))), index=exVec.index, columns=cols)
+    for parameter in fit_vec.index.tolist():
+        locator = flatToNotDict[parameter]
+        if locator in fit_mat.index:
+            fit_mat.loc[locator] = fit_vec.loc[parameter]
+        else:
+            param, cat, loc = locator
+            df = pd.DataFrame(fit_vec.loc[parameter].values, index=fit_vec.loc[parameter].index, columns=[loc]).transpose()
+            pd.concat([fit_mat, pd.concat({param: pd.concat({cat:df})})])   
+    return fit_mat
+
+def getFitInfo(param, cat):
+    
+    markerDict = {  'insertions_k': { 1: 'v', 2: 'D', 3:'8'},
+                'insertions_z': { 1: 'v', 2: 'D', 3:'8'},
+                'bp_break': {0:'o'},
+                'nc': {0: 's'},
+                'seq_change_x': {1:'v', 2:'^'},
+                'seq_change_i': {1:'v', 2:'^'},
+                'loop': {0: '_'},
+                'bp_bp': {1: 's'},
+                'bp_ins_k1': {0: 'v', 1: '^'},    
+                'bp_ins_k2': {0: '<', 1: '>'},
+                'bp_ins_z1': {0:'v', 1: '^'},    
+                'bp_ins_z2': {0: '<', 1: '>'},
+                'seq_insert_k': { 1: 'v', 2: 'D', 3:'8'},
+                'seq_insert_z': { 1: 'v', 2: 'D', 3:'8'},
+              }
+    sideDict = {'insertions_k': 'top',
+                'insertions_z': 'bottom',
+                'bp_break': 'both',
+                'nc': 'both',
+                'seq_change_x': 'top',
+                'seq_change_i': 'bottom',
+                'loop': 'top',
+                'bp_bp': 'both',
+                'bp_ins_k1': 'top',
+                'bp_ins_k2': 'top',
+                'bp_ins_z1': 'bottom',
+                'bp_ins_z2': 'bottom',
+                'seq_insert_k': 'top',
+                'seq_insert_z': 'bottom',
+                    }
+    offsetDict = {'insertions_k': 0.5,
+                  'insertions_z': 0.5,
+                  'seq_insert_k':0.5,
+                  'seq_insert_z':0.5,
+                  'bp_bp': 0.5,
+                  'bp_ins_k1':0.25,
+                  'bp_ins_k2':0.25,
+                  'bp_ins_z1':0.25,
+                  'bp_ins_z2':0.25,
+                  'loop':-0.5
+                  }
+    for params in np.setdiff1d(markerDict.keys(), offsetDict.keys()):
+        offsetDict[params] = 0
+    
+    return   (markerDict[param][cat],  sideDict[param], offsetDict[param])
+
+def plotFit(fitParams, paramsToPlot=None):
+    if paramsToPlot is None:
+        # plot all
+        fitParams.index.levels[0].tolist()
+    parameters = Parameters()
+    helix_length = parameters.helix_length
+    numCats = getNumCategories(fitParams.transpose())
+    
+    cNorm  = colors.Normalize(vmin=0, vmax=np.sum(numCats[paramsToPlot])-1)
+    scalarMap = cmx.ScalarMappable(norm=cNorm, cmap='coolwarm')
+    plt.figure(figsize=(10,5))
+    ax = plt.gca()
+    count = 0
+    for i, param in enumerate(paramsToPlot):
+    
+        cats = np.unique(fitParams.loc[param].index.labels[0].tolist())
+        for cat in cats:
+            
+            (marker,  side, offset) = getFitInfo(param, cat)
+            color = scalarMap.to_rgba(count); count+=1
+            yvalues = fitParams.loc[param].loc[cat].estimate.values
+            yerr    = fitParams.loc[param].loc[cat].stderr.values
+            
+            if side == 'top':
+                xvalues = helix_length - (fitParams.loc[param].loc[cat].index + offset)
+            if side == 'bottom':
+                xvalues = helix_length + 1 + (fitParams.loc[param].loc[cat].index - offset)[::-1]
+                yvalues = yvalues[::-1]
+                yerr = yerr[::-1]
+            if side == 'both':
+                xvalues = np.hstack([helix_length - (fitParams.loc[param].loc[cat].index + offset), helix_length, helix_length + 1 + (fitParams.loc[param].loc[cat].index - offset)[::-1]])
+                yvalues = np.hstack([yvalues, np.nan, yvalues[::-1]])
+                yerr = np.hstack([yerr, np.nan,  yerr[::-1]])
+
+            ax.errorbar(xvalues, yvalues,yerr, fmt=marker+'-', label='%s %d'%(param, cat), color=color, ecolor='k')
+    
+    ax.fill_between([helix_length, helix_length+1], -3, 3,  color='0.25', alpha=0.1)
+    ax.plot([0, helix_length*2], [0,0], 'k:')
+    
+    plt.xticks(np.arange(2,helix_length*2), np.hstack([helix_length  - np.arange(2,helix_length + 1), np.arange(helix_length)])) 
+    ax.set_xlim((2, helix_length*2-1))
+    ax.set_ylim((-3, 3))
+    
+    ax.set_xlabel('bp from loop')
+    ax.set_ylabel('dG (kcal/mol)')
+    ax.tick_params(direction='out', top='off', right='off')
+    plt.tight_layout()
+    
+    handles,labels = ax.get_legend_handles_labels()
+    ax.legend(handles, labels, loc='upper right')
+    box = ax.get_position()
+    ax.set_position([box.x0, box.y0, box.width * 0.8, box.height])
+    ax.legend(loc='center left', bbox_to_anchor=(1, 0.5))
+    plt.subplots_adjust(left=0.1, right=0.6)
+    return
+
+def plotInteractions(fitParams, key):
+    newmat = pd.DataFrame(0, index = np.arange(parameters.helix_length), columns = np.arange(parameters.helix_length))
+    for offset in np.unique(fitParams.loc[key].index.labels[0]):
+        for loc in fitParams.loc[key, offset].index:
+            newmat.loc[loc, loc+offset] = fitParams.loc[key, offset, loc].estimate
+            #newmat.loc[loc+offset, loc] = fitParams.loc[key, offset, loc].estimate
+    
+    fig = plt.figure(figsize = (5,4))
+    ax = fig.add_subplot(111)
+    plt.xticks(np.arange(parameters.helix_length))
+    plt.yticks(np.arange(parameters.helix_length))
+    plt.tick_params(direction='out', top='off', right='off')
+    norm = colors.Normalize(vmin=-1, vmax=1)
+    im = ax.imshow(newmat, interpolation='nearest', cmap='RdBu', norm=norm)
+    plt.colorbar(im)
+    
+    return
 
 def distanceBetweenVariants(variant_table, variant_set):
     deltaG = pd.DataFrame(columns=['median', 'plus', 'minus'], index=[8, 9, 10, 11, 12], dtype=float)

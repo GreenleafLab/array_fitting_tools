@@ -38,19 +38,21 @@ def allThreeByThreeSeqs(junctionMotif, cutOffNumber=None):
     return ['%s_%s'%(seq[0], seq[1]) for seq in junction.sequences]
         
 
-def allThreeByThreeVariants(variant_table, helix_context=None, offset=None, shorter_helix = None):
+def allThreeByThreeVariants(variant_table, helix_context=None, offset=None, shorter_helix = None, maxjunction_length = None):
     junctionMotifMat = np.array([[('',), ('B2',), ('B2', 'B2'), ('B2', 'B2', 'B2')],
                                  [('B1',),  ('M',), ('B2', 'M') , ('B2', 'B2', 'M')],
                                  [('B1', 'B1'), ('M',  'B1'), ('M', 'M'), ('B2', 'M',  'M' )],
                                  [('B1', 'B1', 'B1'), ('M',  'B1', 'B1'), ('M',  'M', 'B1'), ('M','M','M')]])
     
+    if maxjunction_length is None: maxjunction_length = 4
     allvariants = {}; seqs = {}
-    for i in range(4):
+    
+    for i in range(maxjunction_length):
         allvariants[i] = {}
         seqs[i] = {}
     if helix_context is None: helix_context = 'wc'
     if offset is None: offset = 1
-    for i, j in itertools.product(range(4), range(4)):
+    for i, j in itertools.product(range(maxjunction_length), range(maxjunction_length)):
         allvariants[i][j] = [variantFun.findVariantNumbers(variant_table.seqinfo,
                                                   {'junction_sequence': seq,
                                                    'helix_context': helix_context,
