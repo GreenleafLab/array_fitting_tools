@@ -79,6 +79,25 @@ def perVariantInfo(table, variants=None):
                 newtable.iloc[i]['dG_lb'], newtable.iloc[i]['dG_ub'] = bootstrap.ci(sub_table_filtered['dG'], np.median)
             except IndexError: print variant
     return newtable
+def perVariantInfo_olderrs(table,variant_table, variants=None):
+    if variants is None:
+        variants = np.arange(0, np.max(table['variant_number']))
+    columns = [name for name in table][:12] + ['numTests', 'numRejects', 'dG', 'fmax', 'fmin', 'qvalue', 'dG_lb', 'dG_ub']
+    newtable = pd.DataFrame(columns=columns, index=np.arange(len(variants)))
+    for i, variant in enumerate(variants):
+        if i%1000==0: print 'computing iteration %d'%i
+        sub_table = table[table['variant_number']==variant]
+        if len(sub_table) > 0:
+            sub_table_filtered = filterFitParameters(sub_table)[['dG', 'fmax', 'fmin', 'qvalue']]
+            sub_table_filtered = sub_table.copy()[['dG', 'fmax', 'fmin', 'qvalue']]
+            newtable.iloc[i]['numTests'] = len(sub_table_filtered)
+            newtable.iloc[i]['numRejects'] = len(sub_table) - len(sub_table_filtered)
+            newtable.iloc[i]['dG':'qvalue'] = np.median(sub_table_filtered, 0)
+            newtable.iloc[i][:'total_length'] = sub_table.iloc[0][:'total_length']
+            try:
+                newtable.iloc[i]['dG_lb'], newtable.iloc[i]['dG_ub'] = bootstrap.ci(sub_table_filtered['dG'], np.median)
+            except IndexError: print variant
+    return newtable
         
 
 def filterFitParameters(sub_table):
@@ -234,7 +253,7 @@ def plotVariantBoxplots(table, variant_table, helix_context, total_length, loop=
         
     fig = plt.figure(figsize=(6,5))
     ax = fig.add_subplot(111)
-    plotBoxplot(delta_deltaG, junction_topologies)
+    plotBoxplot(delta_deltaG, convert_nomen(junction_topologies))
     ax.set_ylabel('delta delta G')
     ax.set_ylim((-1, 5))
     plt.subplots_adjust(bottom=0.2)
@@ -336,6 +355,17 @@ def plot_dG_errorbars_vs_coordinate(series, xvalue):
                     fmt=fmt, color=color, ecolor='k')
     return
 
+def plot_dG_errorbars_vs_coordinate_onecolor(series, xvalue,color, marker):
+    ax = plt.gca()
+    fmt, wiggle, color_not = getMarker(series)
+    #ax.plot(xvalue+wiggle, series['dG'], fmt, color=color)
+    if np.isnan(series['dG_lb']) or np.isnan(series['dG_ub']):
+        ax.plot(xvalue, series['dG'], fmt, color=color)
+    else:
+        ax.errorbar(xvalue, series['dG'], yerr=[[series['dG'] - series['dG_lb']], [series['dG_ub'] - series['dG']]],
+                    fmt=marker, color=color, ecolor='k', linestyle='dashed', lw = 1.0)
+    return 
+
 def plot_parameter_vs_length(series, p1, p2):
     ax = plt.gca()
     fmt, wiggle, color = getMarker(series)
@@ -433,7 +463,7 @@ def plot_over_coordinate(per_variant, to_fill=None, x_param=None, x_param_name=N
     ax.xaxis.set_ticks_position('bottom')
     ax.yaxis.set_ticks_position('left')
     ax.tick_params(direction='out')
-    
+  
     # plot bar graph
     xvalues = np.arange(len(per_variant))
     fig = plt.figure(figsize=(fig_width,3))
@@ -621,7 +651,7 @@ def plot_length_changes_helices(table, variant_table, topology, loop=None, recep
     
 def convert_nomen(topologies):
     topos = {'':'0x0','B1':'1x0', 'B2':'0x1', 'B1_B1':'2x0', 'B2_B2':'0x2', 'B1_B1_B1':'3x0', 'B2_B2_B2':'0x3', 'M':'1x1','M_B1':'1x2', 'B2_M':'2x1', 'M_M':'2x2',
-                                    'B2_B2_M':'2x3', 'M_B1_B1':'3x2', 'B2_M_M':'1x3', 'M_M_B1':'3x1', 'M_M_M':'3x3'}
+                                    'B2_B2_M':'2x3', 'M_B1_B1':'3x2', 'B2_M_M':'1x3', 'M_M_B1':'3x1', 'M_M_M':'3x3', 'D_D':'DD'}
     return [topos[t] for t in topologies]
 def plot_changes_helices_allseqs(table, variant_table, topology, loop=None, receptor=None, offset=None):
     if loop is None:
@@ -974,4 +1004,71 @@ def plot_heatmap(matrix,rowlabels=None, columnlabels=None, clustertype = None, r
 
     return
     
+def plot_over_coordinate_many(per_variant, color, fighandle, markerstyle,legend_entry, to_fill=None, x_param=None, x_param_name=None, sort_index=None):
+    # plot variant delta G's over a coordinate given, or total length (default)
+    if sort_index is None:
+        per_variant.sort(['total_length', 'helix_two_length', 'dG'], inplace=True)
+    else: per_variant = per_variant.iloc[sort_index]
+    if to_fill is None: to_fill = False    # by default, don't plot 'landscape ' background
+    if x_param is None: x_param = per_variant['total_length'].astype(int)
+    if x_param_name is None: x_param_name = 'total_length'
+    x_param_unique = np.unique(x_param)
+    x_param = np.array(x_param) # force to be array for proper indexing later
+    fig = fighandle
+    ax = fig.add_subplot(111)
     
+    # plot gray boundaries
+    if to_fill:
+        ax.fill_between(x_param_unique, [np.mean(per_variant[per_variant['total_length']==length]['dG_lb']) for length in x_param_unique],
+                        [np.mean(per_variant[per_variant['total_length']==length]['dG_ub']) for length in x_param_unique],
+                        facecolor='0.5', alpha=0.05, linewidth=0)
+
+    ax.plot(x_param, per_variant['dG'], markerstyle, color=color, label = legend_entry)
+    # plot points with errorbars
+    for i in range(len(per_variant)):
+        series = per_variant.iloc[i]
+        plot_dG_errorbars_vs_coordinate_onecolor(series, x_param[i], color, marker = markerstyle)
+        
+    
+    # plot ticks and labels
+    if len(x_param_unique) < 10:
+        ax.set_xticks(x_param_unique)
+    ax.legend_ = None
+    ax.set_xlabel(x_param_name)
+    ax.set_ylabel('dG (kcal/mol)')
+    ax.set_ylim((-12, -5))
+    ax.set_xlim((0, 1))
+    #plt.subplots_adjust(bottom=0.15, left=0.2)
+    plt.tight_layout()
+    ax.grid(linestyle=':', alpha=0.5)
+    ax.xaxis.set_ticks_position('bottom')
+    ax.yaxis.set_ticks_position('left')
+    ax.tick_params(direction='out')
+  
+    
+    return
+
+def plot_comparison_rankedprofiles(table, variant_table, topologies, helix_context, helix_one_lengths, total_length, colors, legend_entries, markers):
+    fig = plt.figure(figsize=(10, 4))
+
+    for i, topology in enumerate(topologies):
+        helix_one_length = helix_one_lengths[i]
+        if topology == '':
+            variants =findVariantNumbers(table, {'junction_sequence':'_', 'loop':'goodLoop', 'receptor':'R1', 'total_length':total_length, 'helix_one_length':helix_one_length})
+        else:    
+            variants = findVariantNumbers(table, {'topology':topology, 'helix_context':helix_context, 'loop':'goodLoop', 'receptor':'R1', 'total_length':total_length, 'helix_one_length':helix_one_length})
+        per_variant = pd.DataFrame(columns = variant_table.columns)
+        per_variant = per_variant.append(variant_table[variant_table.variant_number.isin(list(variants))], ignore_index=True)
+        #per_variant = variantFun.perVariantInfo(table, variants=variants)
+        print per_variant
+        marker = markers[i]
+        legend_entry = legend_entries[i]
+        
+        if topology == '':
+            indx = per_variant.sort('dG').index.values
+            plot_over_coordinate_many(per_variant, x_param=np.linspace(0,1,len(indx)), x_param_name='variant', sort_index = indx, color = colors[i], fighandle = fig, markerstyle = marker, legend_entry = legend_entry)
+        else:
+            indx = np.array([int(np.where(per_variant['junction_sequence']==seq)[0]) if len(np.where(per_variant['junction_sequence']==seq)[0]) > 0 else np.nan for seq in per_variant.sort('dG').loc[:, 'junction_sequence']])
+            indx = indx[np.isfinite(indx)].astype(int)
+            plot_over_coordinate_many(per_variant, x_param=np.linspace(0,1,len(indx)), x_param_name='variant', sort_index = indx, color = colors[i], fighandle = fig, markerstyle = marker,legend_entry = legend_entry)
+    return

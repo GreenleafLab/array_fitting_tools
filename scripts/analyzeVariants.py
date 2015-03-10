@@ -22,6 +22,9 @@ import pandas as pd
 import variantFun
 import IMlibs
 import numpy as np
+import matplotlib.cm as cmx
+import matplotlib.colors as colors
+
 parameters = variantFun.Parameters()
 
 #set up command line argument parser
@@ -229,7 +232,7 @@ for total_length in [8,9,10,11,12]:
     plt.title('%s_%d'%(helix_context, total_length-10))
 
 ddGmat = np.array([])
-helix_context = 'rigid'
+helix_context = 'wc'
 for topology in ['','B1', 'B2', 'B1_B1', 'B2_B2', 'B1_B1_B1', 'B2_B2_B2', 'M','M_B1', 'B2_M', 'M_M',
                                     'B2_B2_M', 'M_B1_B1', 'B2_M_M', 'M_M_B1', 'M_M_M']:
     couldPlot,ddG = variantFun.plot_length_changes(table, variant_table, helix_context, topology)
@@ -284,3 +287,162 @@ variantFun.plot_juctionvslength_Corr(table, variant_table, topologies, clusterty
 plt.savefig(os.path.join(imageDirectory, 'KmeansClusteringofJunctiontopologyvsHelixLength.pdf'))
 
 # plot ranked variant by ddG for different topologies
+topologies = ['B2']
+
+#topologies = ['B1', 'B2', 'B1_B1', 'B2_B2', 'M_B1', 'B2_M', 'B2_M_M','M_M_B1','B1_B1_B1','B2_B2_B2']
+#topologies = ['B1_B1', 'B2_B2', 'M_B1', 'B2_M', 'B2_M_M','M_M_B1','B1_B1_B1','B2_B2_B2','B2_B2_M', 'M_B1_B1',]
+
+topologies = ['B1_B1', 'B2_B2', 'M_B1', 'B2_M','B2_B2_M', 'M_B1_B1' ,'B1_B1_B1','B2_B2_B2']
+topologies = ['M_B2_B2', 'B1_B1_M' ]
+topologies = ['B1_B1']
+
+length = 10
+helix_one_length = 5
+for topology in topologies:
+    variants = variantFun.findVariantNumbers(table, {'topology':topology, 'helix_context':'rigid', 'loop':'goodLoop', 'receptor':'R1', 'total_length':length, 'helix_one_length':helix_one_length})
+    per_variant = variantFun.perVariantInfo(table, variants=variants)
+    #per_variant =  variantFun.perVariantInfo(table, variantFun.findVariantNumbers(table, {'topology':topology, 'helix_context':'rigid', 'loop':'goodLoop', 'receptor':'R1', 'total_length':length+1, 'helix_one_length':helix_one_length}))
+    indx = np.array([int(np.where(per_variant['junction_sequence']==seq)[0]) if len(np.where(per_variant['junction_sequence']==seq)[0]) > 0 else np.nan for seq in per_variant.sort('dG').loc[:, 'junction_sequence']])
+    indx = indx[np.isfinite(indx)].astype(int)
+    variantFun.plot_over_coordinate(per_variant, x_param=np.arange(len(indx)), x_param_name='variant', sort_index = indx)
+    plt.savefig(os.path.join(imageDirectory,'junction_%s.length_%d.helix_one_length_%d.ordered_by_length_11bp.num_variants.pdf'%(topology, length, helix_one_length)))
+    plt.close()
+    plt.savefig(os.path.join(imageDirectory,'junction_%s.length_%d.helix_one_length_%d.ordered_by_length_11bp.dGs.pdf'%(topology, length, helix_one_length)))
+
+topologies = ['B1_B1', 'B2_B2', 'M_B1', 'B2_M','B2_B2_M', 'M_B1_B1' ,'B1_B1_B1','B2_B2_B2']
+length = 11
+helix_one_length = 4
+for topology in topologies:
+    variants = variantFun.findVariantNumbers(table, {'topology':topology, 'helix_context':'rigid', 'loop':'goodLoop', 'receptor':'R1', 'total_length':length, 'helix_one_length':helix_one_length})
+    per_variant = variantFun.perVariantInfo(table, variants=variants)
+    #per_variant =  variantFun.perVariantInfo(table, variantFun.findVariantNumbers(table, {'topology':topology, 'helix_context':'rigid', 'loop':'goodLoop', 'receptor':'R1', 'total_length':length+1, 'helix_one_length':helix_one_length}))
+    indx = np.array([int(np.where(per_variant['junction_sequence']==seq)[0]) if len(np.where(per_variant['junction_sequence']==seq)[0]) > 0 else np.nan for seq in per_variant.sort('dG').loc[:, 'junction_sequence']])
+    indx = indx[np.isfinite(indx)].astype(int)
+    variantFun.plot_over_coordinate(per_variant, x_param=np.arange(len(indx)), x_param_name='variant', sort_index = indx)
+    plt.savefig(os.path.join(imageDirectory,'junction_%s.length_%d.helix_one_length_%d.ordered_by_length_11bp.num_variants.pdf'%(topology, length, helix_one_length)))
+    plt.close()
+    plt.savefig(os.path.join(imageDirectory,'junction_%s.length_%d.helix_one_length_%d.ordered_by_length_11bp.dGs.pdf'%(topology, length, helix_one_length)))
+
+
+#compare 3x1 and 2x0 correctly and plot on top of each other with different colors. 
+topologies = ['','B1_B1','M_B1_B1', 'B2_B2','B2_B2_M' ]
+topologies = ['','B1_B1','M_B1_B1' ]
+total_length = 10
+helix_one_lengths = [5,5,5]
+colors = ['k', 'r', 'g']
+helix_context = 'wc'
+legend_entries = ['WC', '2x0','3x1']
+markers = ['o', 'o', 'o']
+
+variantFun.plot_comparison_rankedprofiles(table, variant_table, topologies, helix_context, helix_one_lengths, total_length, colors, legend_entries, markers)
+plt.legend(loc=2,prop={'size':8}, numpoints = 1)
+plt.title('Comparing 3x1 vs 2x0 junction ')
+plt.savefig(os.path.join(imageDirectory,'Compare2x0vs3x1vs0x0_helixcontext_%s_total_length_%d.pdf'%(helix_context, total_length)))
+
+
+#Now compare both sides together
+topologies = ['','B1_B1','M_B1_B1', 'B2_B2','B2_B2_M' ]
+total_length = 10
+helix_one_lengths = [5,5,5,5,5]
+colors = ['k', 'r', 'g','r', 'g']
+helix_context = 'wc'
+legend_entries = ['WC', '2x0','3x1','0x2','1x3']
+markers = ['o', 'o', 'o', '>', '>']
+
+variantFun.plot_comparison_rankedprofiles(table, variant_table, topologies, helix_context, helix_one_lengths, total_length, colors, legend_entries, markers)
+plt.legend(loc=2,prop={'size':8}, numpoints = 1)
+plt.title('Comparing 3x1 vs 2x0 junction/1x3 vs 0x2 ')
+plt.savefig(os.path.join(imageDirectory,'Compare2x0vs3x1vs0x0vs0x2vs1x3_helixcontext_%s_total_length_%d.pdf'%(helix_context, total_length)))
+
+
+#compare mismatches plot on top of each other with different colors. 
+topologies = ['','M_M_M', 'M_M', 'M',]
+helix_context = 'wc'
+length = 10
+helix_one_lengths = [5,4,4,4]
+colors = ['y', 'r', 'g', 'b']
+legend_entries = ['WC helix',  '3 mismatches','2 mismatches','1 mismatch',]
+markers = ['o', 'o', 'o', 'o']
+
+variantFun.plot_comparison_rankedprofiles(table, variant_table, topologies, helix_context, helix_one_lengths, total_length, colors, legend_entries, markers)
+plt.legend(loc=2,prop={'size':8}, numpoints = 1)
+plt.title('Comparing Mismatches ')
+plt.savefig(os.path.join(imageDirectory,'CompareMismatches_helix_one_length_%d_context_%s.pdf'%(helix_one_length, helix_context)))
+
+#sensitivity to a changes in topology
+topologies = ['','B1', 'B1_B1','M_B1_B1','B1_B1_B1']
+total_length = 10
+helix_context = 'wc'
+helix_one_lengths = [5,5,5,5,5]
+colors = ['k', 'r', 'g', 'b','y']
+legend_entries = ['WC', '1x0','2x0', '3x1','3x0']
+markers = ['o', 'o','o', 'o', 'o']
+
+variantFun.plot_comparison_rankedprofiles(table, variant_table, topologies, helix_context, helix_one_lengths, total_length, colors, legend_entries, markers)
+plt.title('Sensitivity to changes in topology')
+plt.legend(loc=2,prop={'size':6}, numpoints = 1)
+plt.savefig(os.path.join(imageDirectory,'Compare0x0vs1x0vs2x0vs3x0_helixcontext_%s_total_length_%d.pdf'%(helix_context, total_length)))
+
+#sensitivity to a changes in topology-shorter length
+topologies = ['','B1', 'B1_B1','M_B1_B1','B1_B1_B1']
+total_length = 8
+helix_context = 'wc'
+helix_one_lengths = [5,5,5,5,5]
+colors = ['k', 'r', 'g', 'b','y']
+legend_entries = ['WC', '1x0','2x0', '3x1','3x0']
+markers = ['o--', 'o--','o--', 'o--', 'o--']
+
+variantFun.plot_comparison_rankedprofiles(table, variant_table, topologies, helix_context, helix_one_lengths, total_length, colors, legend_entries, markers)
+plt.title('Sensitivity to changes in topology')
+plt.legend(loc=2,prop={'size':6}, numpoints = 1)
+plt.savefig(os.path.join(imageDirectory,'Compare0x0vs1x0vs2x0vs3x0_helixcontext_%s_total_length_%d.pdf'%(helix_context, total_length)))
+
+
+#sensitivity to a change in helix length
+topologies = ['','B1', 'B1_B1','B1_B1_B1','B1', 'B1_B1','B1_B1_B1']
+total_length = 10
+helix_context = 'wc'
+helix_one_lengths = [5,5,5,5,4,4,4]
+colors = ['k', 'r', 'r', 'r', 'g', 'g', 'g','g']
+legend_entries = ['WC', '1x0,h1 = 5','2x0,h1 = 5' , '3x0,h1 = 5','1x0,h1 = 4','2x0,h1 = 4', '3x0,h1 = 4']
+markers = ['o', '^', '<', '>','^', '<', '>']
+
+variantFun.plot_comparison_rankedprofiles(table, variant_table, topologies, helix_context, helix_one_lengths, total_length, colors, legend_entries, markers)
+plt.title('Sensitivity to changes in topology')
+plt.legend(loc=2,prop={'size':6}, numpoints = 1)
+plt.savefig(os.path.join(imageDirectory,'Compare0x0vs1x0vs2x0vs3x0_diffsides_helixcontext_%s_total_length_%d.pdf'%(helix_context, total_length)))
+
+#compare sensitivity between sides
+topologies = ['','B1', 'B1_B1','M_B1_B1','B1_B1_B1','B1', 'B1_B1','M_B1_B1', 'B1_B1_B1']
+
+total_length = 8
+helix_context = 'wc'
+helix_one_lengths = [5,5,5,5,5,3,3,3,3]
+colors = ['k', 'r', 'r', 'r','r', 'g', 'g', 'g','g']
+legend_entries = ['WC', '1x0,h1 = 5','2x0,h1 = 5','3x1,h1 = 5' , '3x0,h1 = 5','1x0,h1 = 3','2x0,h1 = 3','3x1,h1 = 3', '3x0,h1 = 3']
+markers = ['o', '^', 'v','<', '>','^', 'v', '<', '>']
+
+variantFun.plot_comparison_rankedprofiles(table, variant_table, topologies, helix_context, helix_one_lengths, total_length, colors, legend_entries, markers)
+plt.title('Sensitivity to changes in topology')
+plt.legend(loc=2,prop={'size':6}, numpoints = 1)
+plt.savefig(os.path.join(imageDirectory,'Compare0x0vs1x0vs2x0vs3x0_diffsides_helixcontext_%s_total_length_%d.pdf'%(helix_context, total_length)))
+
+
+
+topology = ['']
+total_length = [8,9,10,11,12]
+helix_contexts = np.unique(variant_table['helix_context'])
+cNorm  = colors.Normalize(vmin =0, vmax=len(helix_contexts))
+scalarMap = cmx.ScalarMappable(norm=cNorm, cmap='Paired')
+colors_ = scalarMap.to_rgba(len(helix_contexts))
+
+per_variant = pd.DataFrame(columns = variant_table.columns)
+variants = variantFun.findVariantNumbers(table, {'junction_sequence':'_', 'loop':'goodLoop', 'receptor':'R1', 'total_length':total_length})
+per_variant = per_variant.append(variant_table[variant_table.variant_number.isin(list(variants))], ignore_index=True)
+legend_entries = ['WC helix']
+
+
+variantFun.plot_comparison_rankedprofiles(table, variant_table, topology, helix_context, helix_one_lengths, total_length, colors_, legend_entries, markers)
+plt.title('Sensitivity to changes in Helix Sequence')
+plt.legend(loc=2,prop={'size':6}, numpoints = 1)
+plt.savefig(os.path.join(imageDirectory,'Compare0x0vs1x0vs2x0vs3x0_diffsides_helixcontext_%s_total_length_%d.pdf'%(helix_context, total_length)))
