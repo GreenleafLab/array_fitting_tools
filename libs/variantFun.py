@@ -214,7 +214,7 @@ def plotOffRateVariantError(subtable, times, errorbar=None):
 def offRateFracBoundError(series, numTimePoints):
     cols = ['fmin', 'fmax', 'fmin_var', 'fmax_var']
     series[cols] = series[cols].astype(float)
-    fracbound = (series.loc[[i for i in range(numTimePoints)]] - series['fmin'])/series['fmax']
+    fracbound = (series.loc[[str(i) for i in range(numTimePoints)]] - series['fmin'])/series['fmax']
     if series['fmin'] != 0 and series['fmax'] != 0:
         yerr = np.sqrt((np.power((series['fmax_var'])/series['fmax']*fracbound, 2) +
                         np.power(series['fmin']/series['fmax']*(series['fmax_var']/series['fmax']+series['fmin_var']/series['fmin']), 2)).values.astype(float))
@@ -227,7 +227,7 @@ def plotOffRateVariant(subtable, times, errorbar=None, plotAllTraces=None):
     if errorbar is None: errorbar=True
     if plotAllTraces is None: plotAllTraces=True
     subtable.dropna(subset=['toff'], how='all', axis=0, inplace=True)
-    subtable = IMlibs.filterFitParameters(subtable)
+    #subtable = IMlibs.filterFitParameters(subtable)
     fig = plt.figure(figsize=(5,4))
     ax = fig.add_subplot(111)
     fracbound = np.zeros((subtable.shape[0], times.shape[1]))
@@ -270,7 +270,7 @@ def plotBindingCurveVariant(subtable, concentrations,errorbar=None, plotAllTrace
     if plotAllTraces is None: plotAllTraces=True
     parameter = 'dG'
     subtable.dropna(subset=[parameter], how='all', axis=0, inplace=True)
-    subtable = IMlibs.filterFitParameters(subtable)
+    #subtable = IMlibs.filterFitParameters(subtable)
     fig = plt.figure(figsize=(5,4))
     ax = fig.add_subplot(111)
     fracbound = np.zeros((subtable.shape[0], len(concentrations)))
@@ -287,7 +287,7 @@ def plotBindingCurveVariant(subtable, concentrations,errorbar=None, plotAllTrace
                 ax.plot(concentrations, fracbound[i], '.-k', alpha=0.1)
         ax.plot(concentrations, np.median(fracbound, axis=0), 'ro', alpha = 0.5)
     else:
-        weights = subtable.loc[:, 'fraction_consensus'].values/100*subtable.loc[:, 'clusters_per_barcode'].values
+        #weights = subtable.loc[:, 'fraction_consensus'].values/100*subtable.loc[:, 'clusters_per_barcode'].values
         #dx = DescrStatsW(fracbound, weights = weights/np.mean(weights))
         dx = DescrStatsW(fracbound) # not using any weights
         ax.errorbar(concentrations, np.median(fracbound, axis=0),
@@ -558,7 +558,7 @@ def plot_scatterplot_errorbars(table1, table2=None, yvalues=None, yerrs=None, pa
         print 'Error: Need to define either a table or vactor of y values'
         return
     # intialize figure
-
+    plt.figure()
     ax = plt.gca()
     #ax.plot([-12, -6], [-12, -6], '--', c='0.25')
     #ax.set_xlim((-12,-6))
