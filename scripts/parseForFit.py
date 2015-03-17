@@ -28,7 +28,7 @@ import fitFun
 parameters = variantFun.Parameters()
 
 
-flowpiece = 'wc'
+flowpiece = 'rigid'
 name = 'binding_curves'
 fittedBindingFilename = '%s_%s/reduced_signals/barcode_mapping/AAYFY_ALL_filtered_tecto_sorted.annotated.CPfitted'%(name, flowpiece) 
 #table = IMlibs.loadFittedCPsignal(fittedBindingFilename, index_by_cluster=True)
@@ -44,7 +44,7 @@ cutoff = pd.Series()
 #cutoff['dG_error'] = 0.5 # kcal/mol
 #cutoff['qvalue']  = 0.05
 cutoff['numTests'] = 2
-cutoff['total_length'] = 11
+cutoff['total_length'] = 10
 cutoff['receptor'] = 'R1'
 cutoff['loop'] = 'goodLoop'
 
@@ -100,12 +100,15 @@ variant_subtable = variant_table.loc[subset_index]
 numCores = 20
 subset_parse = np.arange(len(variant_subtable.index))
 #subset_parse = np.arange(50)
-workerPool = multiprocessing.Pool(processes=numCores) #create a multiprocessing pool that uses at most the specified number of cores
-#table = [fitFun.multiprocessParametrization(variant_table, dibases_wt, indx) for indx in variant_subtable.index[200:1000]]
-tableList = workerPool.map(functools.partial(fitFun.multiprocessParametrization, variant_table, dibases_wt), variant_subtable.index[subset_parse])
-workerPool.close(); workerPool.join()
-table = pd.DataFrame.from_records(tableList, index=variant_subtable.index[subset_parse]).dropna(axis=(0,1), how='all')
-
+if args.tableFile is None:
+    workerPool = multiprocessing.Pool(processes=numCores) #create a multiprocessing pool that uses at most the specified number of cores
+    #table = [fitFun.multiprocessParametrization(variant_table, dibases_wt, indx) for indx in variant_subtable.index[200:1000]]
+    tableList = workerPool.map(functools.partial(fitFun.multiprocessParametrization, variant_table, dibases_wt), variant_subtable.index[subset_parse])
+    workerPool.close(); workerPool.join()
+    table = pd.DataFrame.from_records(tableList, index=variant_subtable.index[subset_parse]).dropna(axis=(0,1), how='all')
+    table.to_csv(os.path.join('linear_model', 'param.flowpiece_%s.length_%d.original.mat'%(flowpiece, helixLengthTotal)))
+else:
+    table = pd.read_table(args.tableFile, header=[0,1])
 # get a sense of how many variants there are per parameter
 min_num_variants_to_fit = 10
 num_params = table.shape[1]
@@ -178,6 +181,11 @@ which_model = 'lasso'
 exVec = table.loc[good_variants, np.logical_not(bad_params)].iloc[0]
 fitParams = fitFun.loadFitParams(fitfile+'.'+which_model, exVec)
 params = fitParams.index.levels[0].tolist()
+
+# load predicted values
+test_pred = pd.read_table(fitfile+'.'+which_model+'.test.mat', header=0, names=['predicted_ddG'], index_col=0)
+param_est.flowpiece_rigid.length_10.weighted_yes.lasso.test.mat
+
 paramsToPlot = ['bp_break', 'nc', 
                 'seq_change_x', 'seq_change_i', 'loop']
                 
@@ -209,3 +217,9 @@ key = 'bp_ins_z2'
 fitFun.plotInteractions(fitParams, key)
 plt.savefig(os.path.join(saveDirectory,'parameters_heatmap.flowpiece_%s.length_%dbp.weighted_%s.model_%s.%s.pdf'%(flowpiece, helixLengthTotal, weighted, which_model, key)))
 
+# plot only mismatches
+junction_topology = 'B2'
+variants = variantFun.findVariantNumbers(variant_table, {'helix_context':flowpiece, 'loop':'goodLoop',
+                                                         'receptor':'R1', 'topology':junction_topology, 'total_length':10})
+predicted = test_pred.loc[variants].dropna()
+variantFun.plot_scatterplot_errorbars(variant_table.loc[predicted.index], yvalues=predicted.values, parameter='dG', )
