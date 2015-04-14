@@ -340,18 +340,21 @@ def fitSetKds(fitParametersFilenameParts, bindingSeriesFilenameParts, initialFit
     fitParameters = joinTogetherFitParts(fitParametersFilenameParts)
     return fitParameters
 
-def fitSetKoff(fitParametersFilenameParts, bindingSeriesFilenameParts, initialFitParameters, scale_factor):
+def fitSetKoff(fitParametersFilenameParts, bindingSeriesFilenameParts, initialFitParameters, scale_factor, fittype=None):
+    if fittype is None: fittype = 'offrate'
+    if fittype == 'offrate': parameter = 'toff'
+    if fittype == 'onrate': parameter = 'ton'
     workerPool = multiprocessing.Pool(processes=len(bindingSeriesFilenameParts)) #create a multiprocessing pool that uses at most the specified number of cores
     for i, bindingSeriesFilename in bindingSeriesFilenameParts.items():
         result = workerPool.apply_async(findKoff, args=(bindingSeriesFilename, fitParametersFilenameParts[i],
                                                      initialFitParameters['fmax']['lowerbound'], initialFitParameters['fmax']['upperbound'], initialFitParameters['fmax']['initial'],
-                                                     initialFitParameters['toff']['lowerbound'], initialFitParameters['toff']['upperbound'], initialFitParameters['toff']['initial'],
+                                                     initialFitParameters[parameter]['lowerbound'], initialFitParameters[parameter]['upperbound'], initialFitParameters[parameter]['initial'],
                                                      initialFitParameters['fmin']['lowerbound'], initialFitParameters['fmin']['upperbound'], initialFitParameters['fmin']['initial'],
-                                                     scale_factor,)
+                                                     scale_factor, fittype)
                                )
     workerPool.close()
     workerPool.join()
-    fitParameters = joinTogetherFitParts(fitParametersFilenameParts, parameter='toff')
+    fitParameters = joinTogetherFitParts(fitParametersFilenameParts, parameter=parameter)
     return fitParameters
 
 def findKds(bindingSeriesFilename, outputFilename, fmax_min, fmax_max, fmax_initial, kd_min, kd_max, kd_initial, fmin_min, fmin_max, fmin_initial, scale_factor):
@@ -368,14 +371,14 @@ def findKds(bindingSeriesFilename, outputFilename, fmax_min, fmax_max, fmax_init
     except Exception,e:
         return(matlabFunctionCallString,'Python excpetion generated in findKds: ' + e.message + e.stack)
     
-def findKoff(bindingSeriesFilename, outputFilename, fmax_min, fmax_max, fmax_initial, kd_min, kd_max, kd_initial, fmin_min, fmin_max, fmin_initial, scale_factor):
-    matlabFunctionCallString = "fitOffRateCurve('%s', [%4.2f, %4.2f, %4.2f], [%4.2f, %4.2f, %4.2f], '%s', [%4.2f, %4.2f, %4.2f], %4.2f );"%(bindingSeriesFilename,
+def findKoff(bindingSeriesFilename, outputFilename, fmax_min, fmax_max, fmax_initial, kd_min, kd_max, kd_initial, fmin_min, fmin_max, fmin_initial, scale_factor, fittype):
+    matlabFunctionCallString = "fitOffRateCurve('%s', [%4.2f, %4.2f, %4.2f], [%4.2f, %4.2f, %4.2f], '%s', [%4.2f, %4.2f, %4.2f], %4.2f, '%s' );"%(bindingSeriesFilename,
                                                                                                                 
                                                                                                                 fmax_min, kd_min, fmin_min,
                                                                                                                 fmax_max, kd_max, fmin_max,
                                                                                                                 outputFilename,
                                                                                                                 fmax_initial, kd_initial, fmin_initial,
-                                                                                                                scale_factor)
+                                                                                                                scale_factor, fittype)
     try:
         logString = spawnMatlabJob(matlabFunctionCallString)
         return (matlabFunctionCallString, logString)
@@ -563,11 +566,15 @@ def loadOffRatesCurveFromCPsignal(filename, timeStampDict, numCores=None):
         xvalues[tiles==tile] = timeDelta
     return binding_series, np.array(table['all_cluster_signal']), xvalues, tiles  
 
-def loadFittedCPsignal(filename):
+def loadFittedCPsignal(filename, index_by_cluster=None):
+    if index_by_cluster is None: index_by_cluster = False
     f = open(filename); header = np.array(f.readline().split()); f.close()
     index_start = np.where(header=='variant_number')[0][0]
     index_end = len(header)
-    table =  pd.read_table(filename, usecols=tuple(range(index_start,index_end)))
+    if index_by_cluster:
+        table =  pd.read_table(filename, usecols=tuple([0]+range(index_start,index_end)), index_col=0)
+    else:
+        table =  pd.read_table(filename, usecols=tuple(range(index_start,index_end)))
     binding_series, all_cluster_image = loadBindingCurveFromCPsignal(filename)
     for col in range(binding_series.shape[1]):
         table[col] = binding_series[:, col]
@@ -628,7 +635,7 @@ def findVariantTable(table, parameter=None, numCores=None, variants=None):
 def filterFitParameters(sub_table):
     not_nan_binding_points = [0,1] # if first two binding points are NaN, filter
     nan_filter = np.all(np.isfinite(sub_table[not_nan_binding_points]), 1)
-    barcode_filter = np.array(sub_table['fraction_consensus'] > 50)
+    barcode_filter = np.array(sub_table['fraction_consensus'] >= 67)
     fit_filter = np.array(sub_table['rsq'] > 0)
     
     # use barcode_filter, nan_filter to reduce sub_table

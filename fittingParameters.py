@@ -30,7 +30,7 @@ class Parameters():
         self.frac_bound_lowerbound = 0.999
         self.fdr_cutoff = 0.05
         
-        self.fitParameters = pd.DataFrame(columns=['fmax', 'dG', 'fmin', 'toff'],
+        self.fitParameters = pd.DataFrame(columns=['fmax', 'dG', 'fmin', 'toff', 'ton'],
                                           index=['lowerbound', 'initial', 'upperbound'])
         if concentrations is not None:
             self.concentrations = concentrations
@@ -72,7 +72,23 @@ class Parameters():
                 self.fitParameters[currParam]['lowerbound']= 0
                 self.fitParameters[currParam]['initial']= np.nan # this will be defined per cluster
                 self.fitParameters[currParam]['upperbound'] = self.find_fmax_lowerbound(f_abs_green_nonbinders, self.fdr_cutoff) # this is futher reducedor relaxed if the first point in the binding curve was fit
+            
+            if fittype == 'onrate':
+                currParam = 'ton'
+                self.fitParameters[currParam]['lowerbound'] = 1E-1
+                self.fitParameters[currParam]['initial']= 1E4 
+                self.fitParameters[currParam]['upperbound'] = 1E6
                 
+                currParam = 'fmin'  
+                self.fitParameters[currParam]['lowerbound'] = 0
+                self.fitParameters[currParam]['initial'] = np.nan # this will be defined per cluster
+                self.fitParameters[currParam]['upperbound'] = self.find_fmax_lowerbound(f_abs_green_nonbinders, self.fdr_cutoff) # this is futher reducedor relaxed if the first point in the binding curve was fit
+                
+                currParam = 'fmax'
+                self.fitParameters[currParam]['lowerbound']= 0
+                self.fitParameters[currParam]['initial']= np.nan # this will be defined per cluster
+                self.fitParameters[currParam]['upperbound'] = self.find_fmax_lowerbound(f_abs_green_nonbinders, self.fdr_cutoff) # this is futher reducedor relaxed if the first point in the binding curve was fit
+                            
                 
                 
             # estimate conversion of f_abs_red to f_abs_green

@@ -28,5 +28,13 @@ classdef CurveFitFun
          function q = findFDR(score, null_scores)
              q = sum(abs(null_scores) > abs(score))/length(null_scores);
          end
+         
+         % function to find on rate curve
+         function fracbound = findOnRate(x, time)
+             fmax = x(1);
+             ton  = x(2);
+             fmin = x(3);
+             fracbound = fmin + fmax*(1 - exp(-time/ton));
+         end
      end
 end

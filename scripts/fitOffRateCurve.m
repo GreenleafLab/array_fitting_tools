@@ -1,6 +1,6 @@
 % use this function to return the fit parameters in a new file
 
-function fitOffRateCurve(bindingCurveFilename, min_constraints, max_constraints, outputFitFilename, initial_points, scale_factor)
+function fitOffRateCurve(bindingCurveFilename, min_constraints, max_constraints, outputFitFilename, initial_points, scale_factor, fittype)
     %%
     % load binding curves
     load(bindingCurveFilename);
@@ -33,9 +33,13 @@ function fitOffRateCurve(bindingCurveFilename, min_constraints, max_constraints,
     for i=1:numtottest;
         frac_bound = binding_curves(i,:);
         time = times(i, :);
-        qvalue(i) = CurveFitFun.findFDR(binding_curves(i, 1), null_scores);
         indx = find(~isnan(frac_bound));
-        f = @CurveFitFun.findOffRate;
+        if strcmp(fittype, 'onrate');
+            f = @CurveFitFun.findOnRate;
+            initial_points(fmin_pos) = nanmin(frac_bound);
+        else
+            f = @CurveFitFun.findOffRate;
+        end
         
         % fine tune initial parameters
         max_constraints(fmin_pos) = max(min(frac_bound)*2, min_fmin_upperbound);    % upper bound of fmin is either twice the minimum frac bund, or the pre-defined minimum of upperbound of fmin
@@ -46,6 +50,12 @@ function fitOffRateCurve(bindingCurveFilename, min_constraints, max_constraints,
             fprintf('Skipping iteration %d of %d\n', i, numtottest)
             continue
         else
+            % get qvalue
+            if strcmp(fittype, 'onrate');
+                qvalue(i) = CurveFitFun.findFDR(binding_curves(i, end), null_scores);
+            else
+                qvalue(i) = CurveFitFun.findFDR(binding_curves(i, 1), null_scores);
+            end
             % fit
             [x,fval,residual,exitflag,~, ~, jacobian] = lsqcurvefit(f, initial_points, time(indx), frac_bound(indx), min_constraints, max_constraints, options);
             

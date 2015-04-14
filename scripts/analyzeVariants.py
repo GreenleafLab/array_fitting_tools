@@ -326,7 +326,9 @@ for topology in topologies:
 
 #compare 3x1 and 2x0 correctly and plot on top of each other with different colors. 
 topologies = ['','B1_B1','M_B1_B1', 'B2_B2','B2_B2_M' ]
+
 topologies = ['','B1_B1','M_B1_B1' ]
+
 total_length = 10
 helix_one_lengths = [5,5,5]
 colors = ['k', 'r', 'g']
@@ -336,8 +338,8 @@ markers = ['o', 'o', 'o']
 
 variantFun.plot_comparison_rankedprofiles(table, variant_table, topologies, helix_context, helix_one_lengths, total_length, colors, legend_entries, markers)
 plt.legend(loc=2,prop={'size':8}, numpoints = 1)
-plt.title('Comparing 3x1 vs 2x0 junction ')
-plt.savefig(os.path.join(imageDirectory,'Compare2x0vs3x1vs0x0_helixcontext_%s_total_length_%d.pdf'%(helix_context, total_length)))
+#plt.title('Comparing 3x1 vs 2x0 junction ')
+plt.savefig(os.path.join(imageDirectory,'Compare0x0vs2x0vs3x1_helixcontext_%s_total_length_%d.pdf'%(helix_context, total_length)))
 
 
 #Now compare both sides together
@@ -351,7 +353,7 @@ markers = ['o', 'o', 'o', '>', '>']
 
 variantFun.plot_comparison_rankedprofiles(table, variant_table, topologies, helix_context, helix_one_lengths, total_length, colors, legend_entries, markers)
 plt.legend(loc=2,prop={'size':8}, numpoints = 1)
-plt.title('Comparing 3x1 vs 2x0 junction/1x3 vs 0x2 ')
+#plt.title('Comparing 3x1 vs 2x0 junction/1x3 vs 0x2 ')
 plt.savefig(os.path.join(imageDirectory,'Compare2x0vs3x1vs0x0vs0x2vs1x3_helixcontext_%s_total_length_%d.pdf'%(helix_context, total_length)))
 
 
@@ -382,6 +384,22 @@ variantFun.plot_comparison_rankedprofiles(table, variant_table, topologies, heli
 plt.title('Sensitivity to changes in topology')
 plt.legend(loc=2,prop={'size':6}, numpoints = 1)
 plt.savefig(os.path.join(imageDirectory,'Compare0x0vs1x0vs2x0vs3x0_helixcontext_%s_total_length_%d.pdf'%(helix_context, total_length)))
+
+#length 9
+topologies = ['','B1', 'B1_B1','M_B1_B1','B1_B1_B1']
+total_length = 9
+helix_context = 'wc'
+helix_one_lengths = [5,5,5,5,5]
+colors = ['k', 'r', 'g', 'b','y']
+legend_entries = ['WC', '1x0','2x0', '3x1','3x0']
+markers = ['o', 'o','o', 'o', 'o']
+
+variantFun.plot_comparison_rankedprofiles(table, variant_table, topologies, helix_context, helix_one_lengths, total_length, colors, legend_entries, markers)
+plt.title('Sensitivity to changes in topology')
+plt.legend(loc=2,prop={'size':6}, numpoints = 1)
+plt.savefig(os.path.join(imageDirectory,'Compare0x0vs1x0vs2x0vs3x0_helixcontext_%s_total_length_%d.pdf'%(helix_context, total_length)))
+
+
 
 #sensitivity to a changes in topology-shorter length
 topologies = ['','B1', 'B1_B1','M_B1_B1','B1_B1_B1']
@@ -446,3 +464,113 @@ variantFun.plot_comparison_rankedprofiles(table, variant_table, topology, helix_
 plt.title('Sensitivity to changes in Helix Sequence')
 plt.legend(loc=2,prop={'size':6}, numpoints = 1)
 plt.savefig(os.path.join(imageDirectory,'Compare0x0vs1x0vs2x0vs3x0_diffsides_helixcontext_%s_total_length_%d.pdf'%(helix_context, total_length)))
+
+
+
+
+#length 9
+topologies = ['','B1', 'B1_B1','M_B1_B1','B1_B1_B1']
+total_length = 9
+helix_context = 'wc'
+helix_one_lengths = [5,5,5,5,5]
+colors = ['k', 'r', 'g', 'b','y']
+legend_entries = ['WC', '1x0','2x0', '3x1','3x0']
+markers = ['o', 'o','o', 'o', 'o']
+
+variantFun.rankedtopos_forgrid(table, variant_table, topologies, helix_context, helix_one_lengths, total_length, colors, legend_entries, markers)
+#plt.legend(loc=2,prop={'size':6}, numpoints = 1)
+plt.savefig(os.path.join(imageDirectory,'Grid0x0vs1x0vs2x0vs3x0_helixcontext_%s_total_length_%d.pdf'%(helix_context, total_length)))
+
+#length 10
+topologies = ['','B1', 'B1_B1','M_B1_B1','B1_B1_B1']
+total_length = 10
+helix_context = 'wc'
+helix_one_lengths = [5,5,5,5,5]
+colors = ['k', 'r', 'g', 'b','y']
+legend_entries = ['WC', '1x0','2x0', '3x1','3x0']
+markers = ['o', 'o','o', 'o', 'o']
+
+variantFun.rankedtopos_forgrid(table, variant_table, topologies, helix_context, helix_one_lengths, total_length, colors, legend_entries, markers)
+#plt.legend(loc=2,prop={'size':6}, numpoints = 1)
+plt.savefig(os.path.join(imageDirectory,'Grid0x0vs1x0vs2x0vs3x0_helixcontext_%s_total_length_%d.pdf'%(helix_context, total_length)))
+
+#length 8
+topologies = ['','B1', 'B1_B1','B1_B1_B1']
+total_length = 8
+helix_context = 'wc'
+helix_one_lengths = [5,5,5,5,5]
+colors = ['k', 'r', 'g', 'b','y']
+legend_entries = ['WC', '1x0','2x0', '3x1','3x0']
+markers = ['o', 'o','o', 'o', 'o']
+
+variantFun.rankedtopos_forgrid(table, variant_table, topologies, helix_context, helix_one_lengths, total_length, colors, legend_entries, markers)
+#plt.legend(loc=2,prop={'size':6}, numpoints = 1)
+plt.savefig(os.path.join(imageDirectory,'Grid0x0vs1x0vs2x0vs3x0_helixcontext_%s_total_length_%d.pdf'%(helix_context, total_length)))
+
+#length 9
+topologies = ['','B2', 'B2_B2','B2_B2_M','B2_B2_B2']
+total_length = 9
+helix_context = 'wc'
+helix_one_lengths = [5,5,5,5,5]
+colors = ['k', 'r', 'g', 'b','y']
+legend_entries = ['WC', '1x0','2x0', '3x1','3x0']
+markers = ['o', 'o','o', 'o', 'o']
+
+variantFun.rankedtopos_forgrid(table, variant_table, topologies, helix_context, helix_one_lengths, total_length, colors, legend_entries, markers)
+#plt.legend(loc=2,prop={'size':6}, numpoints = 1)
+plt.savefig(os.path.join(imageDirectory,'Grid0x0vs0x1vs0x2vs0x3_helixcontext_%s_total_length_%d.pdf'%(helix_context, total_length)))
+
+#length 10
+topologies = ['','B2', 'B2_B2','B2_B2_M','B2_B2_B2']
+total_length = 10
+helix_context = 'wc'
+helix_one_lengths = [5,5,5,5,5]
+colors = ['k', 'r', 'g', 'b','y']
+legend_entries = ['WC', '1x0','2x0', '3x1','3x0']
+markers = ['o', 'o','o', 'o', 'o']
+
+variantFun.rankedtopos_forgrid(table, variant_table, topologies, helix_context, helix_one_lengths, total_length, colors, legend_entries, markers)
+#plt.legend(loc=2,prop={'size':6}, numpoints = 1)
+plt.savefig(os.path.join(imageDirectory,'Grid0x0vs0x1vs0x2vs0x3_helixcontext_%s_total_length_%d.pdf'%(helix_context, total_length)))
+
+#length 8
+topologies = ['','B2', 'B2_B2','B2_B2_B2']
+total_length = 8
+helix_context = 'wc'
+helix_one_lengths = [5,5,5,5,5]
+colors = ['k', 'r', 'g', 'b','y']
+legend_entries = ['WC', '1x0','2x0', '3x1','3x0']
+markers = ['o', 'o','o', 'o', 'o']
+
+variantFun.rankedtopos_forgrid(table, variant_table, topologies, helix_context, helix_one_lengths, total_length, colors, legend_entries, markers)
+#plt.legend(loc=2,prop={'size':6}, numpoints = 1)
+plt.savefig(os.path.join(imageDirectory,'Grid0x0vs0x1vs0x2vs0x3_helixcontext_%s_total_length_%d.pdf'%(helix_context, total_length)))
+
+#compare 3x1 and 2x0 correctly and plot on top of each other with different colors. 
+topologies = ['','B1_B1','M_B1_B1','B1_B1','B1_B1_B1' ]
+total_length = 8
+helix_one_lengths = [5,5,5,5]
+colors = ['k', 'r', 'g', 'y']
+helix_context = 'wc'
+legend_entries = ['WC', '2x0','3x1','3x0']
+markers = ['o', 'o', 'o','o']
+
+variantFun.plot_comparison_rankedprofiles(table, variant_table, topologies, helix_context, helix_one_lengths, total_length, colors, legend_entries, markers)
+plt.legend(loc=2,prop={'size':8}, numpoints = 1)
+plt.title('Comparing 3x1 vs 2x0 junction ')
+plt.savefig(os.path.join(imageDirectory,'Compare2x0vs3x1vs0x0_helixcontext_%s_total_length_%d.pdf'%(helix_context, total_length)))
+
+
+#Now compare both sides together
+topologies = ['','B1_B1','M_B1_B1', 'B2_B2','B2_B2_M' ]
+total_length = 8
+helix_one_lengths = [5,5,5,5,5]
+colors = ['k', 'r', 'g','r', 'g']
+helix_context = 'wc'
+legend_entries = ['WC', '2x0','3x1','0x2','1x3']
+markers = ['o', 'o', 'o', '>', '>']
+
+variantFun.plot_comparison_rankedprofiles(table, variant_table, topologies, helix_context, helix_one_lengths, total_length, colors, legend_entries, markers)
+plt.legend(loc=2,prop={'size':8}, numpoints = 1)
+plt.title('Comparing 3x1 vs 2x0 junction/1x3 vs 0x2 ')
+plt.savefig(os.path.join(imageDirectory,'Compare2x0vs3x1vs0x0vs0x2vs1x3_helixcontext_%s_total_length_%d.pdf'%(helix_context, total_length)))
