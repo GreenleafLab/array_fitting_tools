@@ -131,6 +131,14 @@ if np.sum(already_exist) < len(filteredCPseqFilenameDict):
     workerPool.close()
     workerPool.join()
 
+# check to make sure they are all made
+if np.all([os.path.exists(filename) for tile, filename in signalNamesByTileDict.items()]):
+    print 'All signal files successfully generated'
+else:
+    print 'not all signal files successfully generated'
+    sys.exit()
+    
+    
 
 ################ Reduce signal files ################
 if args.signal_dir_reduced is not None:
@@ -284,10 +292,12 @@ if os.path.isfile(variantFittedFilename):
     print 'per variant fitted CPsignal file exists "%s". Skipping...'%variantFittedFilename
 else:
     print 'Making per variant table from %s...'%fittedBindingFilename
-    table = IMlibs.loadFittedCPsignal(fittedBindingFilename)
+    table = IMlibs.loadFittedCPsignal(fittedBindingFilename, index_by_cluster=True)
+    table = IMlibs.findBarcodeFilter(table)
+    table.to_csv(os.path.splitext(fittedBindingFilename)[0] + '.abbrev.CPfitted', sep='\t', index=True)
+
     variant_table = IMlibs.findVariantTable(table, numCores=numCores)
     IMlibs.saveDataFrame(variant_table, variantFittedFilename, float_format='%4.3f')
-    
 # Now reduce into variants. Save the variant number, characterization info, number
 # of times tested, only if fraction_consensus is greater than 0.67 (2/3rd),
 # and save median of normalized binding amount, median of fit parameters, (and quartiles?),
