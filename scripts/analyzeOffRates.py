@@ -294,11 +294,15 @@ if os.path.isfile(variantFittedFilename):
     print 'per variant fitted CPsignal file exists "%s". Skipping...'%variantFittedFilename
 else:
     print 'Making per variant table from %s...'%fittedBindingFilename
-    table = IMlibs.loadFittedCPsignal(fittedBindingFilename)
+    #table = IMlibs.loadFittedCPsignal(fittedBindingFilename)
     # set fit parameters
     if args.get_association_rates:
         parameter='ton'
     else:
         parameter='toff'
+    table = IMlibs.loadFittedCPsignal(fittedBindingFilename, index_by_cluster=True)
+    table = IMlibs.findBarcodeFilter(table)
+    table.to_csv(os.path.splitext(fittedBindingFilename)[0] + '.abbrev.CPfitted', sep='\t', index=True)
+
     variant_table = IMlibs.findVariantTable(table, numCores=numCores, parameter=parameter)
     IMlibs.saveDataFrame(variant_table, variantFittedFilename)
