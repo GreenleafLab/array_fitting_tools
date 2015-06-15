@@ -1,6 +1,8 @@
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import matplotlib as mpl
+import matplotlib.cm as cmx
 import seaborn as sns
 from scikits.bootstrap import bootstrap
 import os
@@ -8,15 +10,19 @@ import variantFun
 import hjh.tecto_assemble
 from  hjh.junction import Junction
 import itertools
+import statsmodels.api as sm
 
 class Parameters():
-    def __init__(self):
+    def __init__(self, concentrations=None):
         # save the units of concentration given in the binding series
         self.RT = 0.582  # kcal/mol at 20 degrees celsius
         self.min_deltaG = -12
         self.max_deltaG = -3
         self.concentration_units = 1E-9
-        self.concentrations = np.array([2000./np.power(3, i) for i in range(8)])[::-1]
+        if concentrations is None:
+            self.concentrations = np.array([2000./np.power(3, i) for i in range(8)])[::-1]
+        else:
+            self.concentrations = concentrations
         self.lims = {'qvalue':(2e-4, 1e0),
                     'dG':(-12, -4),
                     'koff':(1e-5, 1E-2),
@@ -24,9 +30,13 @@ class Parameters():
                     'kobs':(1e-5, 1e-2)}
 
 class AffinityData():
-    def __init__(self, sub_table_affinity, sub_variant_table_affinity, sub_table_offrates=None, sub_variant_table_offrates=None,times=None): 
+    def __init__(self, sub_table_affinity, sub_variant_table_affinity, sub_table_offrates=None, sub_variant_table_offrates=None,times=None, concentrations=None): 
         # affinity params general
-        self.concentrations = 2000./np.power(3, np.arange(8))[::-1]
+        if concentrations is None:
+            self.concentrations = 2000./np.power(3, np.arange(8))[::-1]
+        else:
+            self.concentrations = concentrations
+        self.numPoints = numPoints = len(self.concentrations)
         self.more_concentrations = np.logspace(-2, 4, 50)        
         self.RT = 0.582  # kcal/mol at 20 degrees celsius
         
@@ -34,14 +44,13 @@ class AffinityData():
         index = (~np.isnan(sub_table_affinity.loc[:, ['0', '1']]).all(axis=1)&
                  sub_table_affinity.loc[:, 'barcode_good'])
         
-        self.binding_curves = sub_table_affinity.loc[index, np.arange(8).astype(str)]
+        self.binding_curves = sub_table_affinity.loc[index, np.arange(numPoints).astype(str)]
         self.normalized_binding_curves = self.binding_curves.copy()
-        for i in np.arange(8).astype(str):
+        for i in np.arange(numPoints).astype(str):
             self.normalized_binding_curves.loc[:, i] = (sub_table_affinity.loc[index, i] - sub_table_affinity.loc[index, 'fmin'])/ sub_table_affinity.loc[index, 'fmax']
         
         self.clusters = sub_table_affinity.index
         self.fit_clusters = index
-        
 
         self.affinity_params = sub_variant_table_affinity.loc['dG':]
         self.affinity_params.loc['eminus'] = sub_variant_table_affinity.loc['dG'] - sub_variant_table_affinity.loc['dG_lb']
@@ -83,10 +92,11 @@ class AffinityData():
                 self.onrate_params.loc[e] = self.findOnRateError(self.offrate_params.loc[e], self.affinity_params.loc[e])
     
     def findNormalizedError(self):
-        ybounds = pd.DataFrame(index=np.arange(8).astype(str), columns=['fnorm_lb', 'fnorm_ub'])
-        for i in range(8):
+        
+        ybounds = pd.DataFrame(index=np.arange(self.numPoints).astype(str), columns=['fnorm_lb', 'fnorm_ub'])
+        for i in range(self.numPoints):
             ybounds.loc[str(i)] = bootstrap.ci(self.normalized_binding_curves.loc[:, str(i)], statfunction=np.median)
-        yerr = pd.DataFrame(index=np.arange(8).astype(str), columns=['eminus', 'eplus'])
+        yerr = pd.DataFrame(index=np.arange(self.numPoints).astype(str), columns=['eminus', 'eplus'])
         yerr.loc[:, 'eminus'] = self.normalized_binding_curves.median(axis=0) - ybounds.loc[:, 'fnorm_lb']
         yerr.loc[:, 'eplus'] = ybounds.loc[:, 'fnorm_ub'] - self.normalized_binding_curves.median(axis=0) 
         
@@ -408,17 +418,18 @@ class AffinityData():
         return fmax*np.exp(-(times/toff).astype(float)) + fmin
 
 
-def loadTectoData(table, variant_table, variant, table_offrates=None, variant_table_offrates=None, times=None):
+def loadTectoData(table, variant_table, variant, table_offrates=None, variant_table_offrates=None, times=None, concentrations=None):
     
     if variant_table_offrates is not None and  table_offrates is not None and times is not None:
         affinityData = AffinityData(table.loc[table.loc[:, 'variant_number']==variant],
                                 variant_table.loc[variant],
                                 table_offrates.loc[table_offrates.loc[:, 'variant_number']==variant],
                                 variant_table_offrates.loc[variant],
-                                times)
+                                times,
+                                concentrations=concentrations)
     else:
         affinityData = AffinityData(table.loc[table.loc[:, 'variant_number']==variant],
-                                    variant_table.loc[variant])
+                                    variant_table.loc[variant], concentrations=concentrations)
     return affinityData
 
 def getSecondaryStructure(variant_table):
@@ -808,3 +819,261 @@ def makePerSeqLengthDiagram(table, variant_table, variants, figDirectory=None, c
     if figDirectory is not None:
         plt.savefig(os.path.join(figDirectory, 'junction.%s.by_length.pdf'%variant_table.loc[variants[0], 'junction_sequence']))
     return
+
+def filterVariants(subtable):
+    numClustersFilter = (subtable.numTests >= 5)
+
+    
+    index = numClustersFilter
+    
+    return subtable.loc[index]
+
+def plotSequenceJoe(variant_table):
+    subtable = variant_table.loc[variant_table.loc[:, 'sublibrary'] == 'sequences']
+    index = (subtable.length == 10)&(subtable.numTests >= 5)&(subtable.dG_ub - subtable.dG_lb < 1)
+    subtable = subtable.loc[index]
+    subtable.sort('dG', inplace=True)
+    plt.figure();
+    plt.scatter(np.arange(len(subtable)), subtable.dG, facecolors='none', edgecolors='k')
+    
+    predicted = pd.read_table('/home/sarah/JunctionLibrary/seq_params/exhustive_helices.results', sep=' ', header=None, usecols=[0, 4], names=['seq', 'ddG'])
+    predicted.index = [s.replace('U', 'T') for s in predicted.seq]
+    
+    x = subtable.dG
+    y = predicted.loc[subtable.sequence, 'ddG']
+    y.index = x.index
+    
+    
+    fig = plt.figure(figsize=(4,4))
+    ax = fig.add_subplot(111)
+    ax.scatter(x, y, alpha=0.5, marker='.', s=20, c='k')
+    
+    # fit with OLS
+    X = sm.add_constant(x)
+    model = sm.OLS(y, X)
+    results = model.fit()
+    
+    xlim_max = np.array([-12, -4])
+    #ax.plot(xlim_max,  results.params.dG*xlim_max + results.params.const, 'r:')
+    
+    
+    # robust least squares
+    model = sm.RLM(y, X )
+    results = model.fit()
+
+    xlim_max = np.array([-12, -4])
+    ax.plot(xlim_max,  results.params.dG*xlim_max + results.params.const, 'r:', label='best fit')
+       
+    # line of slope 1
+    origin = np.array([-10.621, 0]) - np.array([2]*2)
+    ax.plot([origin[0], origin[0]+5], [origin[1], origin[1]+5], '--', color=sns.xkcd_rgb['turquoise'], label='slope 1')
+    
+    ax.set_xlim(-12, -9.5)
+    ax.set_ylim(-1.5, 2)
+    ax.set_xlabel('dG observed (kcal/mol)')
+    ax.set_ylabel('ddG predicted (kcal/mol)')
+    plt.legend(loc='upper left')
+    plt.tight_layout()
+    
+    # also plot histograms of error
+    plt.figure(figsize=(3.5, 3.5))
+    plt.hist(results.resid.values, bins=np.arange(-1.5, 1.5, .1), alpha=0.5, color='grey')
+    plt.xlabel('residual ddG (kcal/mol)')
+    plt.tight_layout()
+
+    plt.figure(figsize=(3.5, 3.5))
+    plt.hist((subtable.dG_ub - subtable.dG_lb).values, bins=np.arange(0, 3, 0.1), alpha=0.5, color='grey')  
+    plt.xlabel('95% confidence (kcal/mol)')
+    plt.tight_layout()
+
+def plotVarianceDataset(table):
+    bins = np.linspace(0, 2, 50)
+    fig = plt.figure(figsize=(4.5,3.75))
+    index = table.loc[:, 'barcode_good']&(table.loc[:, 'qvalue']<=0.05)
+    index2 = table.loc[:, 'barcode_good']&(table.loc[:, 'qvalue']>0.05)
+    plt.hist(table.loc[index, 'dG_var'].dropna().astype(float), normed=False, bins=bins, color=sns.xkcd_rgb['vermillion'], alpha=0.5, label='q<=0.05')
+    plt.hist(table.loc[index2, 'dG_var'].dropna().astype(float), normed=False, bins=bins, color=sns.xkcd_rgb['light grey'], alpha=0.5, label='q>0.05')
+    plt.xlabel('variance in fit dG, per cluster (kcal/mol)')
+    plt.ylabel('number of clusters')
+    plt.legend()
+    plt.tight_layout()
+    return
+
+def plotConfIntervals(variant_table, min_num_tests=None):
+    if min_num_tests is None: min_num_tests = 5
+    
+    variant_table.loc[:, 'conf_int_median'] = variant_table.loc[:, 'dG_ub'] - variant_table.loc[:, 'dG_lb']
+    variant_table.loc[~np.isfinite(variant_table.loc[:, 'conf_int_median']), 'conf_int_median'] = np.nan
+
+    fig = plt.figure(figsize=(4.5,3.75))
+    bins = np.linspace(0, 4, 50)
+    index = (variant_table.loc[:, 'numTests'] >= min_num_tests)&(variant_table.loc[:, 'qvalue'] < 0.05)
+    plt.hist(variant_table.loc[index, 'conf_int_median'].dropna().astype(float).values,
+             normed=False, bins=bins, color=sns.xkcd_rgb['vermillion'], alpha=0.5, label='q>=0.5')
+    index = (variant_table.loc[:, 'numTests'] >= min_num_tests)&(variant_table.loc[:, 'qvalue'] > 0.05)
+    plt.hist(variant_table.loc[index, 'conf_int_median'].dropna().astype(float).values,
+             normed=False, bins=bins, color=sns.xkcd_rgb['light grey'], alpha=0.5, label='q>0.05')
+    plt.xlabel('width of 95% confidence interval \nin the median fit dG (kcal/mol)')
+    plt.ylabel('number of variants')
+    plt.legend()
+    plt.tight_layout()
+    pass
+
+def histogramSublibrary(variant_table, sublibrary):
+    subtable = variant_table.loc[variant_table.sublibrary == sublibrary]
+    min_num_tests = 5
+    
+    fig = plt.figure(figsize=(4.5,3.75))
+    bins = np.arange(-12, -5, 0.2)
+    index = (subtable.loc[:, 'numTests'] >= min_num_tests)&(subtable.loc[:, 'qvalue'] > 0.05)
+    plt.hist(subtable.loc[index, 'dG'].dropna().astype(float).values,
+             normed=False, bins=bins, color=sns.xkcd_rgb['light grey'], alpha=0.5, label='q>0.05')
+    
+    index = (subtable.loc[:, 'numTests'] >= min_num_tests)&(subtable.loc[:, 'qvalue'] < 0.05)
+    plt.hist(subtable.loc[index, 'dG'].dropna().astype(float).values,
+             normed=False, bins=bins, color=sns.xkcd_rgb['vermillion'], alpha=0.5, label='q>=0.5')
+    plt.xlabel('dG (kcal/mol)')
+    plt.ylabel('number of variants')
+    plt.legend(loc='upper right')
+    plt.tight_layout()
+
+def plotTertiaryContacts(variant_table, length=None):
+    if length is None: length = 10
+    subtable = variant_table.loc[variant_table.sublibrary == 'tertiary_contacts']
+    subtable.loc[:, 'did_bind'] = subtable.qvalue < 0.05
+    min_num_tests = 5
+    bins = np.arange(-12, -5, 0.2)
+    
+    grouped = subtable.groupby('receptor')
+    receptors = grouped.first().index
+    order = ((grouped['did_bind'].sum() < grouped['did_bind'].count())&
+        (grouped['did_bind'].sum() > 0))
+
+    index = ((subtable.numTests >= min_num_tests) &
+        (subtable.length == length) &
+        (subtable.loop == "GGAA") &
+        (pd.Series(np.in1d(subtable.receptor, receptors[order]), index=subtable.index)))
+    
+
+    g = sns.FacetGrid(subtable.loc[index], col="receptor", hue="did_bind",
+                      col_wrap=3,
+                      size=2,
+                      margin_titles=True,
+                      hue_kws={"color":[sns.xkcd_rgb['light grey'], sns.xkcd_rgb['vermillion']]})
+    g.map(plt.hist, "dG", bins=bins, alpha=0.5, histtype='stepfilled')
+    g.set_axis_labels("dG (kcal/mol)", "count");
+    g.fig.subplots_adjust(wspace=.02, hspace=.2, left=0.15);
+    
+def plotAbsFluorescence(a, index, concentrations=None):
+    
+    if concentrations is None:
+        concentrations = ['%4.2fnM'%d for d in 2000*np.power(3., np.arange(0, -8, -1))][::-1]
+    numconcentrations = len(concentrations)
+    cNorm = mpl.colors.Normalize(vmin=0, vmax=numconcentrations-1)
+    scalarMap = cmx.ScalarMappable(norm=cNorm, cmap=sns.cubehelix_palette(start=.5, rot=-.75, as_cmap=True, reverse=False))
+    with sns.axes_style('white'):
+        fig = plt.figure(figsize=(4,4))
+        ax = fig.add_subplot(111)
+        for i in range(numconcentrations):
+            counts, xbins, patches = ax.hist(a.loc[index, i].dropna().values, bins=np.arange(0, 2000, 10), histtype='stepfilled', alpha=0.1,
+                     color = scalarMap.to_rgba(i))
+            if (counts == 0).sum() > 0:
+                index2 = np.arange(0, np.ravel(np.where(counts == 0))[0])
+            else:
+                index2 = np.arange(len(counts))
+            ax.plot(((xbins[:-1] + xbins[1:])*0.5)[index2], counts[index2], color=scalarMap.to_rgba(i), label=concentrations[i])
+        ax.set_yscale('log')
+        ax.set_ylim(1, 10**5)
+        plt.legend()
+        ax.set_ylabel('number of clusters')
+        ax.set_xlabel('absolute fluorescence')
+        plt.tight_layout()
+    pass
+
+def plotDeltaAbsFluorescence(a, filterName, concentrations=None):
+    
+    a = a.copy()
+    a.loc[:, 'null'] = ''
+    a.loc[[str(s).find(filterName) == -1 for s in a.loc[:, 'filter']], 'null'] = 'yes'
+    a.loc[[str(s).find(filterName) > -1 for s in a.loc[:, 'filter']], 'null'] = 'no'
+    
+
+    if concentrations is None:
+        concentrations = ['%4.2fnM'%d for d in 2000*np.power(3., np.arange(0, -8, -1))][::-1]
+    numconcentrations = len(concentrations)
+    cNorm = mpl.colors.Normalize(vmin=0, vmax=numconcentrations-1)
+    scalarMap = cmx.ScalarMappable(norm=cNorm, cmap=sns.cubehelix_palette(start=.5, rot=-.75, as_cmap=True, reverse=False))
+    with sns.axes_style('white'):
+        fig = plt.figure(figsize=(5,8))
+        bins = np.arange(0, 4000, 10)
+        for i in range(numconcentrations):
+            ax = fig.add_subplot(8, 1, i+1)
+            for cat in ['yes', 'no']:
+                if cat == 'no': color = scalarMap.to_rgba(i)
+                else: color = '0.5'
+                index = a.null == cat
+                counts, xbins, patches = ax.hist(a.loc[index, i].dropna().values, bins=bins, histtype='stepfilled', alpha=0.1,
+                         color = color)
+                if (counts == 0).sum() > 0:
+                    index2 = np.arange(0, np.ravel(np.where(counts == 0))[0])
+                else:
+                    index2 = np.arange(len(counts))
+                ax.plot(((xbins[:-1] + xbins[1:])*0.5)[index2], counts[index2], color=color, label=concentrations[i])
+            ax.set_yscale('log')
+            ax.set_ylim(1, 10**5)
+            ax.set_yticks(np.power(10, range(0, 5)))
+            #ax.set_ylabel('number of clusters')
+            if i == numconcentrations-1:
+                ax.set_xlabel('absolute fluorescence')
+            else:
+                ax.set_xticklabels([])
+        plt.subplots_adjust(hspace=0.02, bottom=0.1, top=0.95, left=0.15)
+    pass
+
+def plotThreeWayJunctions(variant_table):
+    subtable = variant_table.loc[variant_table.sublibrary == 'three_way_junctions']
+
+    subtable.loc[:, 'did_bind'] = subtable.qvalue < 0.05
+    min_num_tests = 5
+    bins = np.arange(-12, -5, 0.2)
+    
+    seqs = np.unique(subtable.junction_seq)
+    for seq in np.array_split(seqs, 2):
+    
+        index = (subtable.numTests >= min_num_tests)&np.in1d(subtable.junction_seq, seq)
+        g = sns.FacetGrid(subtable.loc[index], col="loop", row="junction_seq", hue="did_bind",
+                          size=2,
+                          margin_titles=True,
+                          aspect=1.5,
+                          hue_kws={"color":[sns.xkcd_rgb['light grey'], sns.xkcd_rgb['vermillion']]})
+        g.map(plt.hist, "dG", bins=bins, alpha=0.5, histtype='stepfilled')
+        g.set_axis_labels("dG (kcal/mol)", "count");
+        g.fig.subplots_adjust(wspace=.1, hspace=.05, left=0.15);
+        
+def plotScatterplot(variant_tables):
+    index = pd.concat([(variant_table.numTests >= 5)&
+        (variant_table.dG_ub - variant_table.dG_lb <= 1)
+        &(variant_table.qvalue < 0.05)
+        for variant_table in variant_tables], axis=1).all(axis=1)
+    x = variant_tables[0].loc[index, 'dG']
+    y = variant_tables[1].loc[index, 'dG']
+
+    fig = plt.figure(figsize=(4,4))
+    ax = fig.add_subplot(111, aspect='equal')
+    ax.scatter(x, y, marker='.', c='k', alpha=0.1)
+
+    X = sm.add_constant(x)
+    xlim_max = np.array([-12, -4])
+    
+    # robust least squares
+    model = sm.RLM(y, X )
+    results = model.fit()
+    ax.plot(xlim_max,  results.params.dG*xlim_max + results.params.const, 'r:', label='best fit')
+    
+    # plot line of slope one
+    # line of slope 1
+    origin = np.array([-12, -12-(x-y).mean()])
+    ax.plot([origin[0], origin[0]+5], [origin[1], origin[1]+5], '--', color=sns.xkcd_rgb['turquoise'], label='slope 1')
+    
+
+    pass
