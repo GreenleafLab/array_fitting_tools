@@ -18,6 +18,7 @@ from scikits.bootstrap import bootstrap
 import functools
 import datetime
 import CPlibs
+import scipy.stats as st
 
 def spawnMatlabJob(matlabFunctionCallString):
     # from CPlibs
@@ -129,7 +130,7 @@ def getFluorFileNames(directories, tileNames):
         filenameDict[tile] = ['']*len(directories)
         for i, directory in enumerate(directories):
             try:
-                filename = subprocess.check_output('find %s -name "*CPfluor" | grep tile%s'%(directory, tile), shell=True).strip()
+                filename = subprocess.check_output('find %s -maxdepth 2 -name "*CPfluor" -type f | grep tile%s'%(directory, tile), shell=True).strip()
             except: filename = ''
             filenameDict[tile][i] = filename
     return filenameDict
@@ -418,11 +419,18 @@ def makeFittedCPsignalFile(fitParametersFilename,annotatedSignalFilename, fitted
     os.system("paste %s %s > %s"%(annotatedSignalFilename, fitParametersFilename, fittedBindingFilename))
     return
 
-def loadLibraryCharacterization(filename):
-    cols = ['sequence', 'topology', 'loop', 'receptor', 'helix_context',
-            'junction_sequence', 'helix_sequence', 'helix_one_length',
-            'helix_two_length', 'junction_length', 'total_length']
-    mydata = pd.read_table(filename, header=0, names=cols, index_col=False)
+def loadLibraryCharacterization(filename, version=None):
+    if version is None:
+        version = 'v2'
+    
+    if version == 'v1':  # i.e. from september
+        cols = ['sequence', 'topology', 'loop', 'receptor', 'helix_context',
+                'junction_sequence', 'helix_sequence', 'helix_one_length',
+                'helix_two_length', 'junction_length', 'total_length']
+        mydata = pd.read_table(filename, header=0, names=cols, index_col=False)
+    
+    elif version == 'v2':
+        mydata = pd.read_table(filename)
     return mydata
 
 def loadCompressedBarcodeFile(filename):
@@ -569,7 +577,7 @@ def loadOffRatesCurveFromCPsignal(filename, timeStampDict, numCores=None):
 def loadFittedCPsignal(filename, index_by_cluster=None):
     if index_by_cluster is None: index_by_cluster = False
     f = open(filename); header = np.array(f.readline().split()); f.close()
-    index_start = np.where(header=='variant_number')[0][0]
+    index_start = np.where(header=='barcode')[0][0]
     index_end = len(header)
     if index_by_cluster:
         table =  pd.read_table(filename, usecols=tuple([0]+range(index_start,index_end)), index_col=0)
@@ -610,37 +618,60 @@ def plotVariant(sub_table, concentrations):
     plt.tight_layout()
     return
 
+def findBarcodeFilter(table):
+    cols = ['barcode', 'clusters_per_barcode', 'fraction_consensus']
+    table_test = pd.DataFrame(index = table.index, columns = cols + ['max_confidence', 'outside_max', 'barcode_length', 'barcode_good'] )
+    table_test.loc[:, cols] = table.loc[:, cols]
+    
+    index = table_test.loc[:, 'clusters_per_barcode'].dropna().index
+    table_test.loc[:, 'max_confidence'] = pd.Series(st.binom.interval(0.95, table_test.loc[index, 'clusters_per_barcode'].astype(int).values, 0.5)[1],
+                  index = index)
+    table_test.loc[:, 'outside_max'] = False
+    table_test.loc[:, 'outside_max'] = table_test.loc[index, 'clusters_per_barcode']*table_test.loc[index, 'fraction_consensus']/100 > table_test.loc[index, 'max_confidence']
+    
+    index = table_test.loc[:, 'barcode'].dropna().index
+    table_test.loc[:, 'barcode_length'] = 0
+    table_test.loc[index, 'barcode_length'] = [len(seq) for seq in table_test.loc[index, 'barcode'].astype(str).values]
+    
+    table.loc[:, 'barcode_good'] = table_test.loc[:, 'outside_max']&(table_test.loc[:, 'barcode_length'] > 12)
 
-def findVariantTable(table, parameter=None, numCores=None, variants=None):
+    return table
+
+def findVariantTable(table, parameter=None, numCores=None, variants=None, name=None):
     # define defaults
     if parameter is None: parameter = 'dG'
     if numCores is None: numCores = 1   # default is to only use one core
-    if variants is None: variants = np.arange(int(np.max(table['variant_number'])))
+    if variants is None: variants = np.arange(int(np.max(table.loc[:, 'variant_number'])))
+    if name is None:
+        name = 'tecto_object'   # default for lib 2
     
     # initialize temp file
     # define columns as all the ones between variant number and fraction consensus
-    fixed_index = int(np.where(np.array([name for name in table]) == 'fraction_consensus')[0])
-    columns = [name for name in table][:fixed_index]
+    
+    
+    columns = [name for name in table.loc[:,'variant_number':name]]
     test_stats = [parameter, 'fmin', 'fmax', 'qvalue']
-    bootstrap_parameter_index = 0
     
     # multiprocess reducing and bootstrapping
     pool = Pool(processes=numCores)   
-    datapervar = pool.map(functools.partial(perVariantStats, table, columns, test_stats, test_stats[bootstrap_parameter_index]),
+    datapervar = pool.map(functools.partial(perVariantStats, table, columns, test_stats, parameter),
                           np.array_split(np.array(variants), numCores))
     pool.close()
     
     return pd.concat(datapervar)
 
 def filterFitParameters(sub_table):
-    not_nan_binding_points = [0,1] # if first two binding points are NaN, filter
-    nan_filter = np.all(np.isfinite(sub_table[not_nan_binding_points]), 1)
-    barcode_filter = np.array(sub_table['fraction_consensus'] >= 67)
-    fit_filter = np.array(sub_table['rsq'] > 0)
+
+    try:
+        not_nan_binding_points = [0,1] # if first two binding points are NaN, filter
+        nan_filter = ~np.isnan(sub_table.loc[:, not_nan_binding_points]).all(axis=1)
+    except KeyError:
+        not_nan_binding_points = ['0','1'] # if first two binding points are NaN, filter
+        nan_filter = ~np.isnan(sub_table.loc[:, not_nan_binding_points]).all(axis=1)        
     
-    # use barcode_filter, nan_filter to reduce sub_table
-    sub_table  = sub_table.iloc[np.arange(len(sub_table))][np.all((nan_filter, barcode_filter), axis=0)]
-    return sub_table
+    barcode_filter = sub_table.loc[:, 'barcode_good']
+
+    return sub_table.loc[nan_filter&barcode_filter]
 
 def newColumns(test_stats, parameter):
     return test_stats+['numTests', 'numRejects', parameter+'_ub', parameter+'_lb']
@@ -661,16 +692,16 @@ def perVariantError(sub_table, test_stats, parameter):
     # find subset of table that has variant number equal to variant
     sub_table_filtered = filterFitParameters(sub_table)
     sub_series = pd.Series(index = newColumns(test_stats, parameter))
-    sub_series['numTests'] = len(sub_table_filtered)
-    sub_series['numRejects'] = len(sub_table) - len(sub_table_filtered)
-    sub_series[test_stats] = sub_table_filtered.median(axis=0)[test_stats]
+    sub_series.loc['numTests'] = len(sub_table_filtered)
+    sub_series.loc['numRejects'] = len(sub_table) - len(sub_table_filtered)
+    sub_series.loc[test_stats] = sub_table_filtered.median(axis=0)[test_stats]
     
     if len(sub_table_filtered) > 1:
         # get bootstrapped error bars 
         try:
-            sub_series[parameter+'_lb'], sub_series[parameter+'_ub'] = bootstrap.ci(data=sub_table_filtered[parameter], statfunction=np.median)
+            sub_series.loc[parameter+'_lb'], sub_series.loc[parameter+'_ub'] = bootstrap.ci(data=sub_table_filtered[parameter], statfunction=np.median)
         except IndexError:
-            print('value error on %d'%sub_table['variant_number'].iloc[0])                 
+            print('value error on %d'%sub_table.loc[:, 'variant_number'].iloc[0])                 
     return sub_series
 
 
