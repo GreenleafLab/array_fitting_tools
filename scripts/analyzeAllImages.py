@@ -271,19 +271,11 @@ else:
     # fit first round
     print 'Fitting best binders with no constraints...'
     parameters = fittingParameters.Parameters(concentrations, bindingSeries.iloc[:,-1], allClusterSignal, null_scores)
-    fitUnconstrainedAbs = IMlibs.splitAndFit(bindingSeries, allClusterSignal, annotatedSignalFilename,
+    fitUnconstrained = IMlibs.splitAndFit(bindingSeries, allClusterSignal, annotatedSignalFilename,
                                                   concentrations, parameters, numCores, index=index)
 
-    bindingSeriesNorm = np.divide(bindingSeries, np.vstack(allClusterSignal))
-    parameters.fitParameters.loc['upperbound', 'fmax'] = 100*bindingSeriesNorm.loc[np.isfinite(bindingSeriesNorm).all(axis=1)].max(axis=1).max()
-    parameters.fitParameters.loc['initial', 'fmax'] = parameters.scale_factor
-    fitUnconstrained = IMlibs.splitAndFit(bindingSeriesNorm, pd.Series(data=1, index=allClusterSignal.index), annotatedSignalFilename,
-                                                 concentrations, parameters, numCores, index=index)   
     # reset fitting parameters based on results
     maxdG = parameters.find_dG_from_Kd(parameters.find_Kd_from_frac_bound_concentration(0.9, concentrations[args.null_column])) # 90% bound at 
-    IMlibs.plotFitFmaxs(fitUnconstrained, allClusterSignal=allClusterSignal.loc[index], maxdG=maxdG)
-    
-    # plot constraints
     parameters.fitParameters.loc[:, 'fmax'] = IMlibs.plotFitFmaxs(fitUnconstrained, allClusterSignal=allClusterSignal.loc[index], maxdG=maxdG)
     plt.savefig(os.path.join(os.path.dirname(fittedBindingFilename), 'constrained_fmax.pdf'))
         
@@ -329,6 +321,9 @@ else:
     table = pd.read_table(os.path.splitext(fittedBindingFilename)[0] + '.abbrev.CPfitted', index_col=0)
     IMlibs.getBootstrappedErrors(variant_table, table, numCores)
     IMlibs.saveDataFrame(variant_table, variantBootstrappedFilename, float_format='%4.3f', index=True)
+
+# do single cluster fits on subset that fit well earlier
+
 
 sys.exit()
 
