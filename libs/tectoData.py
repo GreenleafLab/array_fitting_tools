@@ -3,6 +3,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 import matplotlib.cm as cmx
+from matplotlib import gridspec
 import seaborn as sns
 from scikits.bootstrap import bootstrap
 import os
@@ -11,6 +12,9 @@ import hjh.tecto_assemble
 from  hjh.junction import Junction
 import itertools
 import statsmodels.api as sm
+import scipy.stats as st
+import seqfun
+import IMlibs
 
 class Parameters():
     def __init__(self, concentrations=None):
@@ -41,8 +45,7 @@ class AffinityData():
         self.RT = 0.582  # kcal/mol at 20 degrees celsius
         
         # affinity params specific
-        index = (~np.isnan(sub_table_affinity.loc[:, ['0', '1']]).all(axis=1)&
-                 sub_table_affinity.loc[:, 'barcode_good'])
+        index = IMlibs.filterFitParameters(IMlibs.filterStandardParameters(sub_table_affinity)).index
         
         self.binding_curves = sub_table_affinity.loc[index, np.arange(numPoints).astype(str)]
         self.normalized_binding_curves = self.binding_curves.copy()
@@ -297,6 +300,60 @@ class AffinityData():
         ax.set_xlim(0.5, 2500)
         plt.tight_layout()
         return ax
+    
+    def plotClustersAll(self, fmax_lb=None):
+        max_num_plots = 16
+        fig = plt.figure(figsize=(9, 6))
+        gs = gridspec.GridSpec(4, 4)
+        
+        # sort dG and plot in this order
+        vec = self.affinity_params_cluster.dG.copy()
+        vec.sort()       
+        if len(self.binding_curves) > max_num_plots:
+            index = vec.iloc[np.linspace(0, len(vec)-1, max_num_plots).astype(int)].index
+        else:
+            index = vec.index
+        
+        for i, idx in enumerate(index):
+            ax = fig.add_subplot(gs[i])
+            self.plotCluster(idx, ax, fmax_lb=fmax_lb)
+
+        plt.annotate('absolute fluorescence (a.u.)', xy=(0.2, 0.5),
+                xycoords='figure fraction',
+                rotation=90,
+                horizontalalignment='right', verticalalignment='center',
+                fontsize=12)
+           
+        plt.annotate('concentration (nM)', xy=(0.5, 0.025),
+                xycoords='figure fraction',
+                horizontalalignment='center', verticalalignment='top',
+                fontsize=12)
+
+        plt.annotate(('# tests: %d\n'+
+                      'Pass fit filter: %3.1f%%\n'+
+                      'dG: %4.2f (%4.2f, %4.2f)')
+                      %(self.affinity_params.numTests,
+                        self.affinity_params.fitFraction*100,
+                        self.affinity_params.dG, self.affinity_params.dG_lb, self.affinity_params.dG_ub),
+                       xy=(.025, 0.975), xycoords='figure fraction',
+                      horizontalalignment='left', verticalalignment='top',
+                      fontsize=12)
+        gs.update(wspace=0.5, hspace=0.5, left=0.25, bottom=0.1, top=0.975, right=0.975)
+        pass
+    
+    def plotCluster(self, index, ax, fmax_lb=None ):
+        ax.plot(self.concentrations, self.binding_curves.loc[index], 'o', alpha=0.5, color=sns.xkcd_rgb['charcoal'] )
+        ax.plot(self.more_concentrations,
+                self._bindingcurve(self.more_concentrations, self.affinity_params_cluster.loc[index, 'dG'],
+                                                             fmin=self.affinity_params_cluster.loc[index, 'fmin'],
+                                                             fmax=self.affinity_params_cluster.loc[index, 'fmax']),
+                '-', alpha=0.5, color=sns.xkcd_rgb['vermillion'])
+        if fmax_lb is not None:
+            ax.plot([0.5, 2500], [fmax_lb, fmax_lb], 'k:', linewidth=1)
+        ax.set_xscale('log')
+        ax.set_xlim(0.5, 2500)
+        pass
+    
     
     def reinterpretSequence(self):
         regions = pd.Series(index=np.arange(len(self.seq_params.loc['sequence'])), dtype=str)
@@ -889,10 +946,10 @@ def plotSequenceJoe(variant_table):
 def plotVarianceDataset(table):
     bins = np.linspace(0, 2, 50)
     fig = plt.figure(figsize=(4.5,3.75))
-    index = table.loc[:, 'barcode_good']&(table.loc[:, 'qvalue']<=0.05)
-    index2 = table.loc[:, 'barcode_good']&(table.loc[:, 'qvalue']>0.05)
-    plt.hist(table.loc[index, 'dG_var'].dropna().astype(float), normed=False, bins=bins, color=sns.xkcd_rgb['vermillion'], alpha=0.5, label='q<=0.05')
-    plt.hist(table.loc[index2, 'dG_var'].dropna().astype(float), normed=False, bins=bins, color=sns.xkcd_rgb['light grey'], alpha=0.5, label='q>0.05')
+    index = table.loc[:, 'barcode_good'].astype(bool)&(table.loc[:, 'qvalue']<=0.05)
+    index2 = table.loc[:, 'barcode_good'].astype(bool)&(table.loc[:, 'qvalue']>0.05)
+    plt.hist(table.loc[index, 'dG_var'].dropna().astype(float).values, normed=False, bins=bins, color=sns.xkcd_rgb['vermillion'], alpha=0.5, label='q<=0.05')
+    plt.hist(table.loc[index2, 'dG_var'].dropna().astype(float).values, normed=False, bins=bins, color=sns.xkcd_rgb['light grey'], alpha=0.5, label='q>0.05')
     plt.xlabel('variance in fit dG, per cluster (kcal/mol)')
     plt.ylabel('number of clusters')
     plt.legend()
@@ -1050,7 +1107,7 @@ def plotThreeWayJunctions(variant_table):
         g.set_axis_labels("dG (kcal/mol)", "count");
         g.fig.subplots_adjust(wspace=.1, hspace=.05, left=0.15);
         
-def plotScatterplot(variant_tables):
+def plotScatterplotDelta(variant_tables):
     index = pd.concat([(variant_table.numTests >= 5)&
         (variant_table.dG_ub - variant_table.dG_lb <= 1)
         &(variant_table.qvalue < 0.05)
@@ -1077,3 +1134,211 @@ def plotScatterplot(variant_tables):
     
 
     pass
+
+def plotSequenceJoeLengthChanges(variant_table):
+    subtable = variant_table.loc[variant_table.sublibrary=='sequences']
+    grouped = subtable.groupby('helix')
+    helices = grouped['dG'].count().loc[(grouped['dG'].count() > 1)].index
+    subtable = subtable.loc[np.in1d(subtable.helix, helices)]
+    
+    newtable = pd.DataFrame(index=helices, columns=[9, 10, '11G', '11T'])
+    for name, group in subtable.groupby('helix'):
+        sub = subtable.loc[subtable.helix==name]
+        index = (sub.numTests >= 5)&(sub.dG_ub - subtable.dG_lb < 1)&(sub.length != 11)
+        newtable.loc[name, sub.loc[index].length] = sub.loc[index].dG.values
+        
+        # 11 p is more complicated
+        index = (sub.numTests >= 5)&(sub.dG_ub - subtable.dG_lb < 1)&(sub.length == 11)
+        for variant in index.loc[index].index:
+            if sub.loc[variant, 'sequence'][15] == 'T':
+                newtable.loc[name, '11T'] = sub.loc[variant].dG
+            elif sub.loc[variant, 'sequence'][15] == 'G':
+                newtable.loc[name, '11G'] = sub.loc[variant].dG
+            
+    
+    fig1 = plt.figure(figsize=(4,3.5))
+    fig2 = plt.figure(figsize=(4,3.5))
+    ax1 = fig1.add_subplot(111)
+    ax2 = fig2.add_subplot(111)
+    for helix in helices:
+        ax1.plot([9, 10, 11], newtable.loc[helix, [9, 10, '11T']], 'o-', alpha=0.1, c='k')
+        ax1.set_title('11T')
+        ax2.plot([9, 10, 11], newtable.loc[helix, [9, 10, '11G']], 'o-', alpha=0.1, c='k')
+        ax2.set_title('11T')
+    for ax in [ax1, ax2]:
+        ax.set_xlim(7.5, 12.5)
+        ax.set_ylim(-12, -5)
+        ax.set_xlabel('length (bp)')
+        ax.set_ylabel('dG (kcal/mol)')
+        ax.set_xticks([8, 9, 10, 11, 12])
+    
+    for fig in [fig1, fig2]:
+        fig.subplots_adjust(bottom=0.15, left=0.15)
+    
+def plotSequencesLengthChanges(variant_table):
+
+    subtable = variant_table.loc[variant_table.sublibrary=='sequences_tiled']
+    flanks = np.unique(subtable.flank)
+    newtable = pd.DataFrame(index= flanks, columns=[8, 9, 10, 11, 12])
+    for name, group in subtable.groupby('flank'):
+        sub = subtable.loc[subtable.flank==name]
+        index = (sub.numTests >= 5)
+        newtable.loc[name, sub.loc[index].length] = sub.loc[index].dG.values
+
+    fig = plt.figure(figsize=(4,3.5))
+    ax = fig.add_subplot(111)
+    for flank in flanks:
+        ax.plot([8, 9, 10, 11, 12], newtable.loc[flank], 'o-', alpha=0.1, c='k')
+    ax.set_xlim(7.5, 12.5)
+    ax.set_ylim(-12, -5)
+    ax.set_xlabel('length (bp)')
+    ax.set_ylabel('dG (kcal/mol)')
+    ax.set_xticks([8, 9, 10, 11, 12])
+    fig.subplots_adjust(bottom=0.15, left=0.15)
+    
+def compareSeqTiled(variant_table, length=None):
+    if length is None:
+        length = 10
+        
+    index = (variant_table.length==length)&(variant_table.numTests >=5)&(variant_table.dG_ub - variant_table.dG_lb < 1)    
+    index2 = (variant_table.sublibrary == 'sequences')&index
+    index1 = (variant_table.sublibrary == 'sequences_tiled')&index
+    
+    bins = np.arange(-12, -5, 0.1)
+    plt.figure(figsize=(4,4));
+
+    sns.distplot(variant_table.loc[index1, 'dG'].values, hist_kws={'histtype':'stepfilled'}, color='seagreen', label='tiled')
+    sns.distplot(variant_table.loc[index2, 'dG'].values, hist_kws={'histtype':'stepfilled'}, color='grey', label='random')
+    
+    plt.xlabel('dG (kcal/mol)')
+    plt.ylabel('probability density')
+    plt.tight_layout()
+    
+def plotScatterplotReplicates(variant_tables, labels=None, index=None):
+    if labels is None:
+        labels = ['rep1', 'rep2']
+    if index is None:
+        index = pd.concat([(vtable.pvalue <= 0.05)&(vtable.numTests >= 5) for vtable in variant_tables], axis=1).all(axis=1)
+    subtable = pd.concat([vtable.loc[index, 'dG'] for vtable in variant_tables], axis=1).dropna()
+    subtable.columns = labels
+    
+    xlim = [-11.75, -5.75]
+    plt.figure(figsize=(4,4))
+    plt.hexbin(subtable.loc[:, labels[0]], subtable.loc[:, labels[1]], bins='log')
+    plt.plot(xlim, xlim, 'r:')
+    plt.xlim(xlim)
+    plt.ylim(xlim)
+    plt.xlabel('dG (kcal/mol) %s'%labels[0])
+    plt.ylabel('dG (kcal/mol) %s'%labels[1])
+    r, pvalue = st.pearsonr(subtable.loc[:, labels[0]], subtable.loc[:, labels[1]])
+    plt.annotate('rsq = %4.3f\nsigma= %4.3f'%(r**2, (subtable.loc[:, labels[0]]- subtable.loc[:, labels[1]]).std()), xy=(0.05, 0.95),
+                    xycoords='axes fraction',
+                    horizontalalignment='left', verticalalignment='top',
+                    fontsize=12)
+    plt.tight_layout()
+    
+    # plot residuals
+    plt.figure(figsize=(4,4))
+    plt.hist((subtable.loc[:, labels[0]]- subtable.loc[:, labels[1]]).values , bins=np.linspace(-1, 1, 100), color=sns.xkcd_rgb['vermillion'], histtype='stepfilled', alpha=0.5)
+    plt.xlabel('ddG (kcal/mol) %s - %s'%(labels[0], labels[1]))
+    plt.ylabel('count')
+    ax = plt.gca()
+    ylim = ax.get_ylim()
+    plt.plot([0, 0], ylim, 'k:')
+    plt.tight_layout()
+    return
+
+def plotLoopFlankers(variant_table):
+    
+    subtable = variant_table.loc[variant_table.sublibrary == 'loop_flanking']
+    subtable.loc[:, 'side'] = [s[0] for s in subtable.helix]
+    index = (subtable.numTests >=5)&(subtable.dG_ub - subtable.dG_lb < 1)
+    bins = np.arange(-12, -8, 0.2)
+    g = sns.FacetGrid(subtable.loc[index], row="side", col="no_flank",
+                      size=2,
+                      margin_titles=True,
+                     )
+    g.map(plt.hist, "dG", bins=bins, alpha=0.5, histtype='stepfilled')
+    g.set_axis_labels("dG (kcal/mol)", "count");
+    g.set_xticklabels([-12, '', -11, '', -10, '', -9, '', ''])
+    g.fig.subplots_adjust(wspace=.02, hspace=.2, left=0.15);
+    
+def plotLengthChangesPerSequence(variant_table):
+    
+    # for all base paired sequences, no_flank is all base paired sequences
+    seqs = []
+    for x, y, in itertools.product('AGCU', 'AGCU'):
+        seq = ''.join([x, y])
+        seqs.append('_'.join([seq, seqfun.reverseComplement(seq, rna=True)]))
+    
+    index = (variant_table.numTests>=5)&(variant_table.sublibrary=='junction_conformations')
+    subtable = variant_table.loc[index & np.in1d(variant_table.no_flank, seqs)]
+    
+    byLength = {}
+    for seq in np.unique(subtable.junction_seq):
+        byLength[seq] = subtable.loc[subtable.junction_seq == seq].pivot(index='offset', columns='length', values='dG').loc[[0]]
+    byLength = pd.concat(byLength)
+    
+    fig = plt.figure(figsize=(4,3.5))
+    ax = fig.add_subplot(111)
+    for flank in np.unique(subtable.junction_seq):
+        ax.plot([8, 9, 10, 11, 12], byLength.loc[(flank,0)], 'o-', alpha=0.1, c='k')
+    ax.set_xlim(7.5, 12.5)
+    ax.set_ylim(-12, -5)
+    ax.set_xlabel('length (bp)')
+    ax.set_ylabel('dG (kcal/mol)')
+    ax.set_xticks([8, 9, 10, 11, 12])
+    plt.tight_layout()
+    
+def plotFmaxBoxplots(variant_table, table):
+
+    # do it also in bins of dG
+    binedges = np.arange(-12.1, -6, 0.5)
+    variant_table.loc[:, 'binned_dGs'] = np.digitize(variant_table.dG, binedges)
+    index = variant_table.numTests >= 5
+    
+    plt.figure();
+    sns.boxplot(x="binned_dGs", y="fmax", data=variant_table.loc[index],
+                order=np.unique(variant_table.binned_dGs),
+                palette="Blues_d")
+    plt.ylim(0, 5000)
+    plt.xticks(np.arange(len(binedges)), ['%3.1f:%3.1f'%(i, j) for i, j in itertools.izip(binedges[:-1], binedges[1:])]+['>%4.1f'%binedges[-1]], rotation=90)
+    plt.ylabel('median of single cluster fit fmax')
+    plt.tight_layout()
+    
+    # plot median last binding point
+    grouped = table.loc[table.barcode_good].groupby('variant_number')
+    variant_table.loc[:, 'all_cluster_signal'] = grouped['all_cluster_signal'].median()
+
+    plt.figure();
+    sns.boxplot(x="binned_dGs", y="all_cluster_signal", data=variant_table.loc[index],
+                order=np.unique(variant_table.binned_dGs),
+                palette="Blues_d")
+    plt.ylim(0, 5000)
+    plt.xticks(np.arange(len(binedges)), ['%3.1f:%3.1f'%(i, j) for i, j in itertools.izip(binedges[:-1], binedges[1:])]+['>%4.1f'%binedges[-1]], rotation=90)
+    plt.ylabel('median fluorescence in red')
+    plt.tight_layout()
+    
+    # plot normalized fmax
+    variant_table.loc[:, 'norm_fmax'] = variant_table.fmax/variant_table.all_cluster_signal
+
+    plt.figure();
+    sns.boxplot(x="binned_dGs", y="norm_fmax", data=variant_table.loc[index],
+                order=np.unique(variant_table.binned_dGs),
+                palette="Blues_d")
+    plt.ylim(0, 2)
+    plt.xticks(np.arange(len(binedges)), ['%3.1f:%3.1f'%(i, j) for i, j in itertools.izip(binedges[:-1], binedges[1:])]+['>%4.1f'%binedges[-1]], rotation=90)
+    plt.ylabel('median of single cluster fit fmax / fluorescence in red')
+    plt.tight_layout()
+    
+    # plot single cluster fit fmaxs
+    table.loc[:, 'binned_dGs'] = np.digitize(table.dG, binedges)
+
+    plt.figure();
+    sns.boxplot(x="binned_dGs", y="fmax", data=table,
+                order=np.unique(table.binned_dGs),
+                palette="Blues_d")
+    plt.ylim(0, 5000)
+    plt.xticks(np.arange(len(binedges)), ['%3.1f:%3.1f'%(i, j) for i, j in itertools.izip(binedges[:-1], binedges[1:])]+['>%4.1f'%binedges[-1]], rotation=90)
+    plt.ylabel('single cluster fit fmax')
+    plt.tight_layout()
