@@ -19,6 +19,14 @@ import functools
 import datetime
 import CPlibs
 import scipy.stats as st
+from statsmodels.sandbox.stats.multicomp import multipletests
+from joblib import Parallel, delayed
+import warnings
+import seqfun
+import seaborn as sns
+import itertools
+sys.path.insert(0, '/home/sarah/array_image_tools_SKD')
+import fittingParameters
 
 def spawnMatlabJob(matlabFunctionCallString):
     # from CPlibs
@@ -220,15 +228,21 @@ def getFPfromCPsignal(signalNamesByTileDict):
 def findCPsignalFile(cpSeqFilename, redFluors, greenFluors, cpSignalFilename):
  
     # find signal in red
-    signal = getSignalFromCPFluor(redFluors[0]) #just take first red fluor image
-
+    for filename in redFluors + greenFluors:
+        if os.path.exists(filename):
+            num_lines = int(subprocess.check_output('wc -l %s | awk \'{print $1}\''%filename, shell=True).strip())
+    
+    if os.path.exists(redFluors[0]):        
+        signal = getSignalFromCPFluor(redFluors[0]) #just take first red fluor image
+    else:
+        signal = np.ones(num_lines)*np.nan
+        
     # find signal in green
-    num_lines = len(signal)
     signal_green = np.zeros((num_lines, len(greenFluors)))
     
     # cycle through fit green images and get the final signal
     for i, currCPfluor in enumerate(greenFluors):
-        if currCPfluor == '':
+        if currCPfluor == '' or not os.path.exists(currCPfluor):
             signal_green[:,i] = np.ones(num_lines)*np.nan
         else:
             signal_green[:,i] = getSignalFromCPFluor(currCPfluor)
@@ -291,6 +305,9 @@ def getTimesFilename(annotatedSignalFilename):
 def getPerVariantFilename(fittedBindingFilename):
     return os.path.splitext(fittedBindingFilename)[0] + '.perVariant.CPfitted'
 
+def getPerVariantBootstrappedFilename(variantFittedFilename):
+    return os.path.splitext(variantFittedFilename)[0] + '.bootStrapped.CPfitted'
+
 ########## ACTUAL FUNCTIONS ##########
 def sortCPsignal(cpSeqFile, sortedAllCPsignalFile, barcode_col):
     # make sure file is sorted
@@ -327,7 +344,29 @@ def matchCPsignalToLibrary(barcodeToSequenceFilename, sortedAllCPsignalFile, seq
     os.system(to_run)
     return
 
-def fitSetKds(fitParametersFilenameParts, bindingSeriesFilenameParts, initialFitParameters, scale_factor):
+def splitAndFit(bindingSeries, allClusterSignal, annotatedSignalFilename, concentrations, parameters, numCores, index=None):
+    if index is None:
+        index = bindingSeries.index
+        
+    # split into parts
+    indicesSplit = np.array_split(index, numCores)
+    bindingSeriesSplit = [bindingSeries.loc[indices] for indices in indicesSplit]
+    allClusterSignalSplit = [allClusterSignal.loc[indices] for indices in indicesSplit]
+    
+    # save
+    bindingSeriesFilenameParts = getBindingSeriesFilenameParts(annotatedSignalFilename, numCores)
+    fitParametersFilenameParts = getfitParametersFilenameParts(bindingSeriesFilenameParts)
+    for i, bindingSeriesFilename in bindingSeriesFilenameParts.items():
+        sio.savemat(bindingSeriesFilename, {'concentrations':concentrations,
+                                            'binding_curves': bindingSeriesSplit[i].astype(float).values,
+                                            'all_cluster':allClusterSignalSplit[i].astype(float).values,
+                                            })
+    # fit
+    fitSetKds(fitParametersFilenameParts, bindingSeriesFilenameParts, parameters.fitParameters, parameters.scale_factor)
+    return joinTogetherFitParts(fitParametersFilenameParts, indices=indicesSplit)
+    
+
+def fitSetKds(fitParametersFilenameParts, bindingSeriesFilenameParts, initialFitParameters, scale_factor, indices=None):
     workerPool = multiprocessing.Pool(processes=len(bindingSeriesFilenameParts)) #create a multiprocessing pool that uses at most the specified number of cores
     for i, bindingSeriesFilename in bindingSeriesFilenameParts.items():
         result = workerPool.apply_async(findKds, args=(bindingSeriesFilename, fitParametersFilenameParts[i],
@@ -338,8 +377,7 @@ def fitSetKds(fitParametersFilenameParts, bindingSeriesFilenameParts, initialFit
                                )
     workerPool.close()
     workerPool.join()
-    fitParameters = joinTogetherFitParts(fitParametersFilenameParts)
-    return fitParameters
+    return 
 
 def fitSetKoff(fitParametersFilenameParts, bindingSeriesFilenameParts, initialFitParameters, scale_factor, fittype=None):
     if fittype is None: fittype = 'offrate'
@@ -386,9 +424,14 @@ def findKoff(bindingSeriesFilename, outputFilename, fmax_min, fmax_max, fmax_ini
     except Exception,e:
         return(matlabFunctionCallString,'Python excpetion generated in findKds: ' + e.message + e.stack)  
 
-def removeFilenameParts(filenameParts):
-    for i, filename in filenameParts.items():
+
+def removeFilenameParts(annotatedSignalFilename, numCores):
+    bindingSeriesFilenameParts = getBindingSeriesFilenameParts(annotatedSignalFilename, numCores)
+    for i, filename in bindingSeriesFilenameParts.items():
         os.system("rm %s"%filename)
+    fitParametersFilenameParts = getfitParametersFilenameParts(bindingSeriesFilenameParts)
+    for i, filename in fitParametersFilenameParts.items():
+        os.system("rm %s"%filename)    
     return
 
 def saveDataFrame(dataframe, filename, index=None, float_format=None):
@@ -399,20 +442,27 @@ def saveDataFrame(dataframe, filename, index=None, float_format=None):
     dataframe.to_csv(filename, sep='\t', na_rep="NaN", index=index, float_format=float_format)
     return
 
-def joinTogetherFitParts(fitParametersFilenameParts, parameter=None ):
+def joinTogetherFitParts(fitParametersFilenameParts=None, parameter=None, indices=None):
     if parameter is None: parameter='dG'
-    all_fit_parameters = np.empty((0,10))
+    # define columns coming from matlab file
+    cols = ['params', 'exit_flag', 'rsq', 'rmse', 'qvalue', 'params_var']
+    names = ['fmax', parameter, 'fmin', 'exit_flag', 'rsq', 'rmse', 'qvalue', 'fmax_var', parameter+'_var', 'fmin_var']
+    
+    # if no files are given, just return column names
+    if fitParametersFilenameParts is None:
+        return names
+
+    all_fit_parameters = []
     for i, fitParametersFilename in fitParametersFilenameParts.items():
         fit_parameters = sio.loadmat(fitParametersFilename)
-        all_fit_parameters = np.vstack((all_fit_parameters, np.hstack((fit_parameters['params'],
-                                                   fit_parameters['exit_flag'],
-                                                   fit_parameters['rsq'],
-                                                   fit_parameters['rmse'],
-                                                   fit_parameters['qvalue'],
-                                                   fit_parameters['params_var']))
-                                        ))
-    all_fit_parameters = pd.DataFrame(data=all_fit_parameters, columns=['fmax', parameter, 'fmin', 'exit_flag', 'rsq', 'rmse', 'qvalue', 'fmax_var', parameter+'_var', 'fmin_var'])
-    return all_fit_parameters
+        if indices is None:
+            index=None
+        else:
+            index = indices[i]
+        # save as data frame
+        all_fit_parameters.append(pd.DataFrame(index=index, columns=names, data= np.hstack([fit_parameters[col] for col in cols])) )
+    
+    return pd.concat(all_fit_parameters)
 
 def makeFittedCPsignalFile(fitParametersFilename,annotatedSignalFilename, fittedBindingFilename):
     # paste together annotated signal and fitParameters
@@ -501,10 +551,12 @@ def loadNullScores(signalNamesByTileDict, filterSet, tile=None, index=None):
     # Now load the file, specifically the signal specifed
     # by index.
     table = loadCPseqSignal(tmp_filename)
-    if index is None: index = -1    # Defulat is last ponit in binding series
-    else: index = np.ravel(np.where([name==index for name in table]))[0]
-    null_scores = table.iloc[:, index][np.isfinite(table.iloc[:, index])]
-    
+    if index is None: index = 7   # Defulat is last ponit in binding series
+    try:
+        null_scores = table.loc[:, index][np.isfinite(table.loc[:, index])]
+    except KeyError:
+        index = str(index)
+        null_scores = table.loc[:, index][np.isfinite(table.loc[:, index])]
     # removed leftovers
     os.system("rm %s"%(tmp_filename))
     return np.array(null_scores)
@@ -546,9 +598,9 @@ def loadBindingCurveFromCPsignal(filename):
     then return the binding series, normalized by all cluster image.
     """
 
-    table = pd.read_table(filename, usecols=(10,11))
-    binding_series = np.array([np.array(series.split(','), dtype=float) for series in table['binding_series']])
-    return binding_series, np.array(table['all_cluster_signal'])
+    table = pd.read_table(filename, usecols=(0, 10,11), index_col=0)
+    binding_series = pd.DataFrame([s.split(',') for s in table.binding_series], dtype=float, index=table.index)
+    return binding_series, pd.Series(table.all_cluster_signal, index=table.index, dtype=float)
 
 def loadOffRatesCurveFromCPsignal(filename, timeStampDict, numCores=None):
     """
@@ -584,10 +636,7 @@ def loadFittedCPsignal(filename, index_by_cluster=None):
     else:
         table =  pd.read_table(filename, usecols=tuple(range(index_start,index_end)))
     binding_series, all_cluster_image = loadBindingCurveFromCPsignal(filename)
-    for col in range(binding_series.shape[1]):
-        table[col] = binding_series[:, col]
-    table['all_cluster_signal'] = all_cluster_image
-    return table
+    return pd.concat([table, binding_series, pd.DataFrame(all_cluster_image, columns=['all_cluster_signal'])], axis=1)
 
 def bindingCurve(concentrations, kd, fmax=None, fmin=None):
     if fmax is None:
@@ -595,6 +644,7 @@ def bindingCurve(concentrations, kd, fmax=None, fmin=None):
     if fmin is None:
         fmin = 0
     return fmax*concentrations/(concentrations + kd) + fmin
+
 
 def plotVariant(sub_table, concentrations):
     # reduce to fits that were successful
@@ -637,72 +687,207 @@ def findBarcodeFilter(table):
 
     return table
 
-def findVariantTable(table, parameter=None, numCores=None, variants=None, name=None):
+def findVariantTable(table, parameter=None, name=None):
     # define defaults
     if parameter is None: parameter = 'dG'
-    if numCores is None: numCores = 1   # default is to only use one core
-    if variants is None: variants = np.arange(int(np.max(table.loc[:, 'variant_number'])))
     if name is None:
-        name = 'tecto_object'   # default for lib 2
+        name = 'ss_correct'   # default for lib 2
     
-    # initialize temp file
     # define columns as all the ones between variant number and fraction consensus
-    
-    
     columns = [name for name in table.loc[:,'variant_number':name]]
+    columns.remove('variant_number')
     test_stats = [parameter, 'fmin', 'fmax', 'qvalue']
     
-    # multiprocess reducing and bootstrapping
-    pool = Pool(processes=numCores)   
-    datapervar = pool.map(functools.partial(perVariantStats, table, columns, test_stats, parameter),
-                          np.array_split(np.array(variants), numCores))
-    pool.close()
+    grouped = table.groupby('variant_number')
+    variant_table = pd.concat([grouped[columns].first(),
+                               pd.DataFrame(index=grouped[columns].first().index,
+                                            columns=test_stats+[parameter+'_%s'%s for s in ['lb', 'ub']])],
+                              axis=1)
     
-    return pd.concat(datapervar)
+    # filter for nan, barcode, and fit
+    firstFilterGrouped = filterStandardParameters(table).groupby('variant_number')
+    variant_table.loc[:, 'numTests'] = firstFilterGrouped[columns[0]].count()
+    variant_table.loc[:, 'numRejects'] = grouped[columns[0]].count() - variant_table.loc[:, 'numTests'] 
+    
+    fitFilterGrouped = filterFitParameters(filterStandardParameters(table)).groupby('variant_number')
+    variant_table.loc[:, 'fitFraction'] = fitFilterGrouped[columns[0]].count()/variant_table.loc[:, 'numTests']
+    
+    # then save parameters
+    variant_table.loc[:, test_stats] = fitFilterGrouped[test_stats].median()
+    
+    # null model is that all the fits are bad. bad fits happen ~15% of the time
+    #p = 1-variant_table.loc[(variant_table.numTests>=5)&(variant_table.dG < -10), 'fitFraction'].mean()
+    p = 0.25
+    variant_table.loc[:, 'pvalue'] = np.nan
+    for n in np.unique(variant_table.loc[:, 'numTests'].dropna()):
+        # do one tailed t test
+        x = (variant_table.loc[:, 'fitFraction']*variant_table.loc[:, 'numTests']).loc[variant_table.numTests==n]
+        variant_table.loc[x.index, 'pvalue'] = st.binom.sf(x-1, n, p)
+        
+    return variant_table
 
-def filterFitParameters(sub_table):
+def getPvalueFitFilter(variant_table, p):
+    variant_table.loc[:, 'pvalue'] = np.nan
+    for n in np.unique(variant_table.loc[:, 'numTests'].dropna()):
+        # do one tailed t test
+        x = (variant_table.loc[:, 'fitFraction']*variant_table.loc[:, 'numTests']).loc[variant_table.numTests==n]
+        variant_table.loc[x.index, 'pvalue'] = st.binom.sf(x-1, n, p)
+    return      
 
+def getBootstrappedErrors(variant_table, table, numCores, parameter=None, variants=None):
+    if parameter is None: parameter = 'dG'
+    if variants is None:
+        variants = variant_table.loc[(variant_table.numTests >=3)&(variant_table.pvalue <= 0.05)].index
+        
+    subtable = filterFitParameters(filterStandardParameters(table)).loc[:, ['variant_number', parameter]]
+    grouped = subtable.groupby('variant_number')
+    
+    print '\tDividing table into groups...'
+    actual_variants = []
+    groups = []
+    for name, group in grouped:
+        if name in variants:
+            actual_variants.append(name)
+            groups.append(group)
+    
+    print '\tMultiprocessing bootstrapping...'
+    bounds = Parallel(n_jobs=20, verbose=5)(delayed(perVariantError)(group.dG) for group in groups)
+    
+    variant_table.loc[actual_variants, [parameter+'_%s'%s for s in ['lb', 'ub']]] = bounds
+    return variant_table
+
+def filterStandardParameters(table):
     try:
         not_nan_binding_points = [0,1] # if first two binding points are NaN, filter
-        nan_filter = ~np.isnan(sub_table.loc[:, not_nan_binding_points]).all(axis=1)
+        nan_filter = ~np.isnan(table.loc[:, not_nan_binding_points]).all(axis=1)
     except KeyError:
         not_nan_binding_points = ['0','1'] # if first two binding points are NaN, filter
-        nan_filter = ~np.isnan(sub_table.loc[:, not_nan_binding_points]).all(axis=1)        
-    
-    barcode_filter = sub_table.loc[:, 'barcode_good']
+        nan_filter = ~np.isnan(table.loc[:, not_nan_binding_points]).all(axis=1)        
+    barcode_filter = table.loc[:, 'barcode_good']
+    return table.loc[nan_filter&barcode_filter]
 
-    return sub_table.loc[nan_filter&barcode_filter]
+def filterFitParameters(table):
+    # fit explains at least 50% of the variance, and the variance in dG is less than 1 kcal/mol
+    #index = (table.dG_var < 1)&(table.rsq > 0.5)&(table.exit_flag>0)&(table.fmax_var<table.fmax), # kcal/mol
+    index = (table.rsq > 0.5)&(table.exit_flag>0)&(table.dG_var.astype(float) < 1)&(table.fmax_var.astype(float)<table.fmax.astype(float))
+    return table.loc[index]
 
-def newColumns(test_stats, parameter):
-    return test_stats+['numTests', 'numRejects', parameter+'_ub', parameter+'_lb']
 
-def perVariantStats(table, columns, test_stats, parameter, variants):
-    print variants
-    newtable = pd.DataFrame(columns=columns+newColumns(test_stats, parameter), index=variants)
-    for variant in variants:
-        sub_table = table[table['variant_number']==variant]
-        if not sub_table.empty:
-            newtable.loc[variant, columns] = sub_table.iloc[0][columns]
-            newtable.loc[variant, newColumns(test_stats, parameter)] = perVariantError(sub_table, test_stats, parameter)
-        else:
-            newtable.loc[variant, 'variant_number'] = variant
-    return newtable
-        
-def perVariantError(sub_table, test_stats, parameter):
+def perVariantError(measurements):
     # find subset of table that has variant number equal to variant
-    sub_table_filtered = filterFitParameters(sub_table)
-    sub_series = pd.Series(index = newColumns(test_stats, parameter))
-    sub_series.loc['numTests'] = len(sub_table_filtered)
-    sub_series.loc['numRejects'] = len(sub_table) - len(sub_table_filtered)
-    sub_series.loc[test_stats] = sub_table_filtered.median(axis=0)[test_stats]
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            bounds = bootstrap.ci(data=measurements, statfunction=np.median)
+    except IndexError:
+        bounds = [np.nan]*2           
+    return bounds
+
+def plotFractionFit(variant_table, binedges=None):
+    # plot
+    binwidth=0.01
+    bins=np.arange(0,1+binwidth, binwidth)
+    plt.figure(figsize=(4, 3.5))
+    plt.hist(variant_table.loc[variant_table.pvalue <= 0.05].fitFraction.values, alpha=0.5, color='red', bins=bins)
+    plt.hist(variant_table.loc[variant_table.pvalue > 0.05].fitFraction.values, alpha=0.5, color='grey', bins=bins)
+    plt.ylabel('number of variants')
+    plt.xlabel('fraction fit')
+    plt.tight_layout()
     
-    if len(sub_table_filtered) > 1:
-        # get bootstrapped error bars 
-        try:
-            sub_series.loc[parameter+'_lb'], sub_series.loc[parameter+'_ub'] = bootstrap.ci(data=sub_table_filtered[parameter], statfunction=np.median)
-        except IndexError:
-            print('value error on %d'%sub_table.loc[:, 'variant_number'].iloc[0])                 
-    return sub_series
+    if binedges is None:
+        binedges = np.arange(-12, -6, 0.5)
+    subtable = pd.DataFrame(index=variant_table.index,
+                            columns=['binned_dGs', 'pvalueFilter'],
+                            data=np.column_stack([np.digitize(variant_table.dG, binedges),
+                                                  variant_table.pvalue <= 0.05]))
+    g = sns.factorplot(x="binned_dGs", y="pvalueFilter", data=subtable,
+                order=np.unique(subtable.binned_dGs),
+                color="r", kind='bar');
+    g.set(ylim=(0, 1.1), );
+    g.set_xticklabels(['%3.1f:%3.1f'%(i, j) for i, j in itertools.izip(binedges[:-1], binedges[1:])]+['>%4.1f'%binedges[-1]], rotation=90)
+    g.set(xticks=np.arange(len(binedges)))
+    g.fig.subplots_adjust(hspace=.2, bottom=0.35)
+    
+    
+    
+def plotNumber(variant_table, binedges=None):
+    # plot
+    if binedges is None:
+        binedges = np.arange(-12, -6, 0.5)
+    
+    plt.figure(figsize=(4,3.5));
+    plt.hist((variant_table.numTests*
+              variant_table.fitFraction).values, np.arange(0, 150),
+            facecolor='r', edgecolor='w', histtype='stepfilled')
+    plt.xlabel('number of good clusters per variant')
+    plt.ylabel('number of variants')
+    plt.tight_layout()
+    return
+    
+    
+def plotErrorInBins(variant_table, binedges=None, count_binedges=None):
+    if binedges is None:
+        binedges = np.arange(-12, -6, 0.5)
+    subtable = pd.DataFrame(index=variant_table.index,
+                            columns=['binned_dGs', 'confInt', 'numTests'],
+                            data=np.column_stack([np.digitize(variant_table.dG, binedges),
+                                                  variant_table.dG_ub - variant_table.dG_lb,
+                                                  np.around(variant_table.numTests*variant_table.fitFraction)]))
+    subtable.loc[:, 'dG (kcal/mol)'] = ['%3.1f:%3.1f'%(binedges[bins-1], binedges[bins]-1) if bins!=len(binedges) else '>%3.1f'%binedges[-1] for bins in subtable.binned_dGs.astype(int)]
+    order = ['%3.1f:%3.1f'%(binedges[bins-1], binedges[bins]-1) if bins!=len(binedges) else '>%3.1f'%binedges[-1] for bins in np.arange(1, len(binedges)+1)]
+    
+    
+    if count_binedges is None:
+        count_binedges = [0, 5, 10, 20, 40, 80]
+    count_order = ['%d-%d'%(count_binedges[bins-1], count_binedges[bins]-1) if bins!=len(count_binedges) else '>%d'%count_binedges[-1] for bins in np.arange(1, len(count_binedges)+1)]
+    subtable.loc[:, 'binned_counts'] = np.digitize(subtable.numTests, count_binedges) 
+    subtable.loc[:, '# tests'] = ['%d-%d'%(count_binedges[bins-1], count_binedges[bins]-1) if bins!=len(count_binedges) else '>%d'%count_binedges[-1] for bins in subtable.binned_counts.astype(int)]
+    g = sns.FacetGrid(subtable, size=2.5, aspect=1.5, col="# tests", col_wrap=3,
+                      col_order=count_order )
+    g.map(sns.boxplot, "dG (kcal/mol)", "confInt",
+                order=order,
+                color="r")
+    g.set(ylim=(0, 2), );
+    g.set_xticklabels(rotation=90)
+    g.fig.subplots_adjust(hspace=.2, bottom=0.25)
+    
+def plotFitFmaxs(fitUnconstrained, remove_outliers=None, maxdG=None):
+    if remove_outliers is None:
+        remove_outliers=True
+    if maxdG is None:
+        maxdG = -9
+
+    fmaxUnconstrainedBest = fitUnconstrained.loc[(fitUnconstrained.dG < maxdG)&
+                                             (fitUnconstrained.dG_var < 1)&
+                                             (fitUnconstrained.fmax_var < fitUnconstrained.fmax),
+                                             'fmax']
+    if remove_outliers:
+        index = pd.Series(index=fmaxUnconstrainedBest.index, data=np.logical_not(seqfun.is_outlier(fmaxUnconstrainedBest)))
+        
+        print 'removed %d out of %d fit fmaxes (%4.2f%%)'%(len(index)-index.sum(), len(index), (len(index)-index.sum())/float(len(index)))
+        fmaxUnconstrainedBest = fmaxUnconstrainedBest.loc[index]
+        
+    fmax_lb, fmax_initial, fmax_upperbound = np.percentile(fmaxUnconstrainedBest, [1, 50, 100])
+    with sns.axes_style('white'):
+        fig = plt.figure(figsize=(4,3));
+        ax = fig.add_subplot(111)
+        sns.distplot(fmaxUnconstrainedBest, color='r', hist_kws={'histtype':'stepfilled'}, ax=ax)
+        ylim = [0, ax.get_ylim()[1]*1.1]
+        ax.plot([fmax_lb]*2, ylim, 'k--')
+        ax.plot([fmax_initial]*2, ylim, 'k:')
+        ax.plot([fmax_upperbound]*2, ylim, 'k--')
+        plt.ticklabel_format(style='sci', axis='y', scilimits=(0,0))
+        plt.annotate('sigma/mu=%4.2f\n(95th-5th)/50th=%4.2f'%(
+            fmaxUnconstrainedBest.std()/fmaxUnconstrainedBest.mean(),
+            (np.percentile(fmaxUnconstrainedBest, 95) - np.percentile(fmaxUnconstrainedBest, 5))/np.percentile(fmaxUnconstrainedBest, 50)),
+            xy=(0.90, 0.95),
+                        xycoords='axes fraction',
+                        horizontalalignment='right', verticalalignment='top',
+                        fontsize=12)
+        plt.xlim(0, np.percentile(fmaxUnconstrainedBest, 100)*1.05)
+        plt.ylim(ylim)
+        plt.tight_layout()
+    return [fmax_lb, fmax_initial, fmax_upperbound]
+    
 
 
-    
