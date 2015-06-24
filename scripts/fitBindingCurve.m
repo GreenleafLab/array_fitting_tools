@@ -31,7 +31,7 @@ function fitBindingCurve(bindingCurveFilename, min_constraints, max_constraints,
     %% cycle through each row and fit
     for i=1:numtottest;
         frac_bound = binding_curves(i,:);
-        qvalue(i) = CurveFitFun.findFDR(binding_curves(i, end), null_scores);
+        %qvalue(i) = CurveFitFun.findFDR(binding_curves(i, end), null_scores);
         indx = find(~isnan(frac_bound));
         f = @CurveFitFun.findBindingCurve;
         
