@@ -74,7 +74,8 @@ if __name__ == "__main__":
 
     ## Get options and arguments from command line
     parser = OptionParser()
-    parser.add_option('-i', dest="inFile", help="Merged file to be analyzed")
+    parser.add_option('-i', dest="inFile", help="Merged file to be analyzed. Does not need to be sorted")
+    parser.add_option('-s', dest="sorted", action="store_true", default=False, help="flag if the input is already filtered and sorted")
     parser.add_option('-o', dest="outFile", help="directory in which to write output")
     parser.add_option("-q", dest="avgQScoreCutoff", type=int, default=28, help="cutoff for average q score of the read")
     parser.add_option("-c", dest='colBarcode', help="column number in which the barcodes appear (1 indexed)", action='store', type='int')
@@ -91,10 +92,17 @@ if __name__ == "__main__":
     print "colBarcode: %s"%options.colBarcode
     print "colTarget: %s"%options.colTarget
     
+
     
     options.colBarcode = options.colBarcode-1
     options.colTarget = options.colTarget-1
 
+    # sort CPseq and filter again
+    if not options.sorted:
+        newInFile = os.path.splitext(options.inFile)[0] + '.sort.CPseq'
+        inFile = pd.read_table(options.inFile, header=None)
+        inFile.dropna(subset=[options.colBarcode]).sort(options.colBarcode).to_csv(newInFile, sep='\t', header=False, index=False)
+        options.inFile = newInFile
 
     ## Initiate output files
     inFile_name = os.path.splitext(os.path.basename(options.inFile))[0]
