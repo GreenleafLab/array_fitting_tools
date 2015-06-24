@@ -34,7 +34,10 @@ import uuid
 import numpy as np
 import scipy.io as sio
 import IMlibs
-
+import pandas as pd
+import seaborn
+import matplotlib.pyplot as plt
+from statsmodels.distributions.empirical_distribution import ECDF
 
 
 ### MAIN ###
@@ -54,7 +57,7 @@ parser.add_argument('-lc','--library_characterization', help='file with the char
 parser.add_argument('-bd','--barcode_dir', help='save files associated with barcode mapping here. default=signal_dir_reduced/barcode_mapping')
 parser.add_argument('-n','--num_cores', help='maximum number of cores to use')
 parser.add_argument('-gv','--fitting_parameters_path', help='path to the directory in which the "fittingParameters.py" parameter file for the run can be found')
-
+parser.add_argument('-nc', '--null_column', help='point in binding series to use for null scores (Default is last concentration) (0 indexed)', default=7, type=int)
 if not len(sys.argv) > 1:
     parser.print_help()
     sys.exit()
@@ -252,53 +255,82 @@ else:
 
 ################ Fit ################
 fittedBindingFilename = IMlibs.getFittedFilename(annotatedSignalFilename)
-
 if os.path.isfile(fittedBindingFilename):
     print 'fitted CPsignal file exists "%s". Skipping...'%fittedBindingFilename
 else:
     print 'Making fitted CP signal file "%s"...'%annotatedSignalFilename
     # get binding series
     bindingSeries, allClusterSignal = IMlibs.loadBindingCurveFromCPsignal(annotatedSignalFilename)
-    bindingSeriesSplit = np.array_split(bindingSeries, numCores)
-    allClusterSignalSplit = np.array_split(allClusterSignal, numCores)
-    bindingSeriesFilenameParts = IMlibs.getBindingSeriesFilenameParts(annotatedSignalFilename, numCores)
-    fitParametersFilenameParts = IMlibs.getfitParametersFilenameParts(bindingSeriesFilenameParts)
-    null_scores = IMlibs.loadNullScores(signalNamesByTileDict, filterSet)
-
-    # split into parts 
-    for i, bindingSeriesFilename in bindingSeriesFilenameParts.items():
-        sio.savemat(bindingSeriesFilename, {'concentrations':concentrations,
-                                            'binding_curves': bindingSeriesSplit[i].astype(float),
-                                            'all_cluster':allClusterSignalSplit[i].astype(float),
-                                            'null_scores':null_scores,
-                                            })
-    # set fit parameters
-    parameters = fittingParameters.Parameters(concentrations, bindingSeries[:,-1], allClusterSignal, null_scores)
-    fitParameters = IMlibs.fitSetKds(fitParametersFilenameParts, bindingSeriesFilenameParts, parameters.fitParameters, parameters.scale_factor)
+    null_scores = IMlibs.loadNullScores(signalNamesByTileDict, filterSet, index=args.null_column)
+    fitParameters = pd.DataFrame(index=bindingSeries.index, columns=IMlibs.joinTogetherFitParts())
+    # get binding estimation and choose 10000 that pass filter
+    ecdf = ECDF(null_scores)
+    qvalues = pd.Series(1-ecdf(bindingSeries.loc[:, args.null_column].dropna()), index=bindingSeries.loc[:, args.null_column].dropna().index)
+    index = qvalues.loc[qvalues<0.05].iloc[np.linspace(0, (qvalues<0.05).sum()-1, 1E4).astype(int)].index
     
+    # fit first round
+    print 'Fitting best binders with no constraints...'
+    parameters = fittingParameters.Parameters(concentrations, bindingSeries.iloc[:,-1], allClusterSignal, null_scores)
+    fitUnconstrainedAbs = IMlibs.splitAndFit(bindingSeries, allClusterSignal, annotatedSignalFilename,
+                                                  concentrations, parameters, numCores, index=index)
+
+    bindingSeriesNorm = np.divide(bindingSeries, np.vstack(allClusterSignal))
+    parameters.fitParameters.loc['upperbound', 'fmax'] = 100*bindingSeriesNorm.loc[np.isfinite(bindingSeriesNorm).all(axis=1)].max(axis=1).max()
+    parameters.fitParameters.loc['initial', 'fmax'] = parameters.scale_factor
+    fitUnconstrained = IMlibs.splitAndFit(bindingSeriesNorm, pd.Series(data=1, index=allClusterSignal.index), annotatedSignalFilename,
+                                                 concentrations, parameters, numCores, index=index)   
+    # reset fitting parameters based on results
+    maxdG = parameters.find_dG_from_Kd(parameters.find_Kd_from_frac_bound_concentration(0.9, concentrations[args.null_column])) # 90% bound at 
+    IMlibs.plotFitFmaxs(fitUnconstrained, allClusterSignal=allClusterSignal.loc[index], maxdG=maxdG)
+    
+    # plot constraints
+    parameters.fitParameters.loc[:, 'fmax'] = IMlibs.plotFitFmaxs(fitUnconstrained, allClusterSignal=allClusterSignal.loc[index], maxdG=maxdG)
+    plt.savefig(os.path.join(os.path.dirname(fittedBindingFilename), 'constrained_fmax.pdf'))
+        
+    # now refit all remaining clusters
+    print 'Fitting all with constraints on fmax (%4.1f, %4.1f, %4.1f)'%(parameters.fitParameters.loc['lowerbound', 'fmax'], parameters.fitParameters.loc['initial', 'fmax'], parameters.fitParameters.loc['upperbound', 'fmax'])
+    index_all = bindingSeries.dropna(axis=0, thresh=4).index
+    fitParameters.loc[index_all] = IMlibs.splitAndFit(bindingSeries, allClusterSignal, annotatedSignalFilename,
+                                                      concentrations, parameters, numCores, index=index_all)
+    fitParameters.loc[:, 'qvalue'] = qvalues
+
     # save fittedBindingFilename
     fitParametersFilename = IMlibs.getFitParametersFilename(annotatedSignalFilename)
     IMlibs.saveDataFrame(fitParameters, fitParametersFilename, index=False, float_format='%4.3f')
-    IMlibs.removeFilenameParts(fitParametersFilenameParts)
     IMlibs.makeFittedCPsignalFile(fitParametersFilename,annotatedSignalFilename, fittedBindingFilename)
     
     # remove binding series filenames
-    IMlibs.removeFilenameParts(bindingSeriesFilenameParts)
-    
+    IMlibs.removeFilenameParts(annotatedSignalFilename, numCores)
+
 ################ Reduce into Variant Table ################
 variantFittedFilename = IMlibs.getPerVariantFilename(fittedBindingFilename)
-
 if os.path.isfile(variantFittedFilename):
     print 'per variant fitted CPsignal file exists "%s". Skipping...'%variantFittedFilename
 else:
     print 'Making per variant table from %s...'%fittedBindingFilename
-    table = IMlibs.loadFittedCPsignal(fittedBindingFilename, index_by_cluster=True)
-    table = IMlibs.findBarcodeFilter(table)
-    table.to_csv(os.path.splitext(fittedBindingFilename)[0] + '.abbrev.CPfitted', sep='\t', index=True)
+    filename = os.path.splitext(fittedBindingFilename)[0] + '.abbrev.CPfitted'
+    if os.path.isfile(filename):
+        table = pd.read_table(filename, index_col=0)
+    else:  
+        table = IMlibs.loadFittedCPsignal(fittedBindingFilename, index_by_cluster=True)
+        table = IMlibs.findBarcodeFilter(table)
+        table.to_csv(os.path.splitext(fittedBindingFilename)[0] + '.abbrev.CPfitted', sep='\t', index=True)
 
-    variant_table = IMlibs.findVariantTable(table, numCores=numCores)
-    IMlibs.saveDataFrame(variant_table, variantFittedFilename, float_format='%4.3f')
-# Now reduce into variants. Save the variant number, characterization info, number
-# of times tested, only if fraction_consensus is greater than 0.67 (2/3rd),
-# and save median of normalized binding amount, median of fit parameters, (and quartiles?),
-# error in fit parameters?
+    variant_table = IMlibs.findVariantTable(table)
+    IMlibs.saveDataFrame(variant_table, variantFittedFilename, float_format='%4.3f', index=True)
+
+# now generate boostrapped errors
+variantBootstrappedFilename = IMlibs.getPerVariantBootstrappedFilename(variantFittedFilename)
+if os.path.isfile(variantBootstrappedFilename):
+    print 'bootstrapped error file exists "%s". Skipping...'%variantBootstrappedFilename
+else:
+    print 'Making boostrapped errors from %s...'%variantFittedFilename
+    variant_table = pd.read_table(variantFittedFilename, index_col=0)
+    table = pd.read_table(os.path.splitext(fittedBindingFilename)[0] + '.abbrev.CPfitted', index_col=0)
+    IMlibs.getBootstrappedErrors(variant_table, table, numCores)
+    IMlibs.saveDataFrame(variant_table, variantBootstrappedFilename, float_format='%4.3f', index=True)
+
+sys.exit()
+
+# plot some key stuff
+IMlibs.plotFractionFit(variant_table, binedges=None)
