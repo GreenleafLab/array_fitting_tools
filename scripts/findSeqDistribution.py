@@ -138,9 +138,9 @@ def findBarcodeDict(consensus, is_designed, designed_library_unique):
     read2_seq = 'CCTAGTGATCCAGC'
     # put in sequence of those that didn't match exactly with library:
     # reverse complement the sequence up to the stall sequence
-    barcodeMap['sequence'] = np.array([seqfun.reverseComplement(sequence[:sequence.find(read2_seq)]) for sequence in np.array(consensus['sequence'])])
-    barcodeMap['fraction_consensus'] = 100*np.array(consensus['fraction_consensus'])
-    barcodeMap['clusters_per_barcode'] = np.array(consensus['clusters_per_barcode'])
+    barcodeMap.loc[:, 'sequence'] = np.array([seqfun.reverseComplement(sequence[:sequence.find(read2_seq)]) for sequence in np.array(consensus['sequence'])])
+    barcodeMap.loc[:, 'fraction_consensus'] = 100*np.array(consensus['fraction_consensus'])
+    barcodeMap.loc[:, 'clusters_per_barcode'] = np.array(consensus['clusters_per_barcode'])
     indices_barcode = np.arange(len(barcodeMap))[is_designed > -1]
     indices_sequence = is_designed[is_designed > -1]
     for name in designed_library_unique:
