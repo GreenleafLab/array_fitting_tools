@@ -57,7 +57,7 @@ parser.add_argument('-lc','--library_characterization', help='file with the char
 parser.add_argument('-bd','--barcode_dir', help='save files associated with barcode mapping here. default=signal_dir_reduced/barcode_mapping')
 parser.add_argument('-n','--num_cores', help='maximum number of cores to use')
 parser.add_argument('-gv','--fitting_parameters_path', help='path to the directory in which the "fittingParameters.py" parameter file for the run can be found')
-parser.add_argument('-nc', '--null_column', help='point in binding series to use for null scores (Default is last concentration) (0 indexed)', default=7, type=int)
+parser.add_argument('-nc', '--null_column', help='point in binding series to use for null scores (Default is last concentration. -2 for second to last concentration)', default=-1, type=int)
 if not len(sys.argv) > 1:
     parser.print_help()
     sys.exit()
@@ -260,55 +260,61 @@ if os.path.isfile(fittedBindingFilename):
 else:
     print 'Making fitted CP signal file "%s"...'%annotatedSignalFilename
     # get binding series
-    bindingSeries, allClusterSignal = IMlibs.loadBindingCurveFromCPsignal(annotatedSignalFilename)
-    null_scores = IMlibs.loadNullScores(signalNamesByTileDict, filterSet, index=args.null_column)
-    fitParameters = pd.DataFrame(index=bindingSeries.index, columns=IMlibs.joinTogetherFitParts())
-    # get binding estimation and choose 10000 that pass filter
-    ecdf = ECDF(null_scores)
-    qvalues = pd.Series(1-ecdf(bindingSeries.loc[:, args.null_column].dropna()), index=bindingSeries.loc[:, args.null_column].dropna().index)
-    index = qvalues.loc[qvalues<0.05].iloc[np.linspace(0, (qvalues<0.05).sum()-1, 1E4).astype(int)].index
+    print '\tLoading binding series and all RNA signal:'
+    bindingSeries, allClusterSignal = IMlibs.loadBindingCurveFromCPsignal(annotatedSignalFilename, concentrations)
     
+    # make normalized binding series
+    IMlibs.boundFluorescence(allClusterSignal, plot=True)   # try to reduce noise by limiting how big/small you divide by
+    bindingSeriesNorm = np.divide(bindingSeries, np.vstack(allClusterSignal))
+    
+    # find null scores and max signal
+    fabs_green_max = bindingSeriesNorm.iloc[:, args.null_column]
+    null_scores = IMlibs.loadNullScores(signalNamesByTileDict, filterSet, index=args.null_column)
+    
+    # get binding estimation and choose 10000 that pass filter
+    ecdf = ECDF(pd.Series(null_scores).dropna())
+    qvalues = pd.Series(1-ecdf(bindingSeries.iloc[:, args.null_column].dropna()), index=bindingSeries.iloc[:, args.null_column].dropna().index)
+    index = qvalues.loc[qvalues<0.05].iloc[np.linspace(0, (qvalues<0.05).sum()-1, 1E4).astype(int)].index
+
     # fit first round
-    print 'Fitting best binders with no constraints...'
-    parameters = fittingParameters.Parameters(concentrations, bindingSeries.iloc[:,-1], allClusterSignal, null_scores)
-    fitUnconstrained = IMlibs.splitAndFit(bindingSeries, allClusterSignal, annotatedSignalFilename,
-                                                  concentrations, parameters, numCores, index=index)
+    print '\tFitting best binders with no constraints...'
+    parameters = fittingParameters.Parameters(concentrations, fabs_green_max.loc[index])
+    fitUnconstrained = IMlibs.splitAndFit(bindingSeriesNorm, 
+                                          concentrations, parameters.fitParameters, numCores, index=index)
 
     # reset fitting parameters based on results
     maxdG = parameters.find_dG_from_Kd(parameters.find_Kd_from_frac_bound_concentration(0.9, concentrations[args.null_column])) # 90% bound at 
-    parameters.fitParameters.loc[:, 'fmax'] = IMlibs.plotFitFmaxs(fitUnconstrained, allClusterSignal=allClusterSignal.loc[index], maxdG=maxdG)
-    plt.savefig(os.path.join(os.path.dirname(fittedBindingFilename), 'constrained_fmax.pdf'))
-        
+    for param in ['fmax', 'fmin']:
+        parameters.fitParameters.loc[:, param] = IMlibs.plotFitFmaxs(fitUnconstrained, maxdG=maxdG, param=param)
+        plt.savefig(os.path.join(os.path.dirname(fittedBindingFilename), 'constrained_%s.pdf'%param))
+       
     # now refit all remaining clusters
     print 'Fitting all with constraints on fmax (%4.1f, %4.1f, %4.1f)'%(parameters.fitParameters.loc['lowerbound', 'fmax'], parameters.fitParameters.loc['initial', 'fmax'], parameters.fitParameters.loc['upperbound', 'fmax'])
-    index_all = bindingSeries.dropna(axis=0, thresh=4).index
-    fitParameters.loc[index_all] = IMlibs.splitAndFit(bindingSeries, allClusterSignal, annotatedSignalFilename,
-                                                      concentrations, parameters, numCores, index=index_all)
-    fitParameters.loc[:, 'qvalue'] = qvalues
+    fitConstrained = pd.DataFrame(index=bindingSeriesNorm.index, columns=fitUnconstrained.columns)
+    index_all = bindingSeriesNorm.dropna(axis=0, thresh=4).index
+    fitConstrained.loc[index_all] = IMlibs.splitAndFit(bindingSeriesNorm, concentrations,
+                                                       parameters.fitParameters, numCores, index=index_all)
+    fitConstrained.loc[:, 'qvalue'] = qvalues
 
     # save fittedBindingFilename
-    fitParametersFilename = IMlibs.getFitParametersFilename(annotatedSignalFilename)
-    IMlibs.saveDataFrame(fitParameters, fitParametersFilename, index=False, float_format='%4.3f')
-    IMlibs.makeFittedCPsignalFile(fitParametersFilename,annotatedSignalFilename, fittedBindingFilename)
+    #fitParametersFilename = IMlibs.getFitParametersFilename(annotatedSignalFilename)
+    #IMlibs.saveDataFrame(fitConstrained, fitParametersFilename, index=False, float_format='%4.3f')
+    table = IMlibs.makeFittedCPsignalFile(fitConstrained,annotatedSignalFilename, fittedBindingFilename, bindingSeriesNorm, allClusterSignal)
     
-    # remove binding series filenames
-    IMlibs.removeFilenameParts(annotatedSignalFilename, numCores)
+    # save fit Parameters?
+    # save Normalized Binding Series?
 
+sys.exit()
 ################ Reduce into Variant Table ################
 variantFittedFilename = IMlibs.getPerVariantFilename(fittedBindingFilename)
 if os.path.isfile(variantFittedFilename):
     print 'per variant fitted CPsignal file exists "%s". Skipping...'%variantFittedFilename
 else:
     print 'Making per variant table from %s...'%fittedBindingFilename
-    filename = os.path.splitext(fittedBindingFilename)[0] + '.abbrev.CPfitted'
-    if os.path.isfile(filename):
-        table = pd.read_table(filename, index_col=0)
-    else:  
-        table = IMlibs.loadFittedCPsignal(fittedBindingFilename, index_by_cluster=True)
-        table = IMlibs.findBarcodeFilter(table)
-        table.to_csv(os.path.splitext(fittedBindingFilename)[0] + '.abbrev.CPfitted', sep='\t', index=True)
+    parameters = fittingParameters.Parameters(concentrations)
+    table = IMlibs.loadFittedCPsignal(fittedBindingFilename)
 
-    variant_table = IMlibs.findVariantTable(table)
+    variant_table = IMlibs.findVariantTable(table, concentrations=concentrations)
     IMlibs.saveDataFrame(variant_table, variantFittedFilename, float_format='%4.3f', index=True)
 
 # now generate boostrapped errors
