@@ -373,75 +373,6 @@ def fitSetKdsPython(subBindingSeries, concentrations, fitParameters, print_bool=
         singles[idx] = fitBindingCurve.fitSingleBindingCurve(concentrations, fluorescence, fitParametersNew, plot=False)
     return pd.concat(singles, axis=1).transpose()       
 
-
-def fitSetKds(fitParametersFilenameParts, bindingSeriesFilenameParts, initialFitParameters, scale_factor, indices=None):
-    workerPool = multiprocessing.Pool(processes=len(bindingSeriesFilenameParts)) #create a multiprocessing pool that uses at most the specified number of cores
-    for i, bindingSeriesFilename in bindingSeriesFilenameParts.items():
-        result = workerPool.apply_async(findKds, args=(bindingSeriesFilename, fitParametersFilenameParts[i],
-                                                     initialFitParameters['fmax']['lowerbound'], initialFitParameters['fmax']['upperbound'], initialFitParameters['fmax']['initial'],
-                                                     initialFitParameters['dG']['lowerbound'],   initialFitParameters['dG']['upperbound'],   initialFitParameters['dG']['initial'],
-                                                     initialFitParameters['fmin']['lowerbound'], initialFitParameters['fmin']['upperbound'], initialFitParameters['fmin']['initial'],
-                                                     scale_factor,)
-                               )
-    workerPool.close()
-    workerPool.join()
-    return 
-
-def fitSetKoff(fitParametersFilenameParts, bindingSeriesFilenameParts, initialFitParameters, scale_factor, fittype=None):
-    if fittype is None: fittype = 'offrate'
-    if fittype == 'offrate': parameter = 'toff'
-    if fittype == 'onrate': parameter = 'ton'
-    workerPool = multiprocessing.Pool(processes=len(bindingSeriesFilenameParts)) #create a multiprocessing pool that uses at most the specified number of cores
-    for i, bindingSeriesFilename in bindingSeriesFilenameParts.items():
-        result = workerPool.apply_async(findKoff, args=(bindingSeriesFilename, fitParametersFilenameParts[i],
-                                                     initialFitParameters['fmax']['lowerbound'], initialFitParameters['fmax']['upperbound'], initialFitParameters['fmax']['initial'],
-                                                     initialFitParameters[parameter]['lowerbound'], initialFitParameters[parameter]['upperbound'], initialFitParameters[parameter]['initial'],
-                                                     initialFitParameters['fmin']['lowerbound'], initialFitParameters['fmin']['upperbound'], initialFitParameters['fmin']['initial'],
-                                                     scale_factor, fittype)
-                               )
-    workerPool.close()
-    workerPool.join()
-    fitParameters = joinTogetherFitParts(fitParametersFilenameParts, parameter=parameter)
-    return fitParameters
-
-def findKds(bindingSeriesFilename, outputFilename, fmax_min, fmax_max, fmax_initial, kd_min, kd_max, kd_initial, fmin_min, fmin_max, fmin_initial, scale_factor):
-    matlabFunctionCallString = "fitBindingCurve('%s', [%4.2f, %4.2f, %4.2f], [%4.2f, %4.2f, %4.2f], '%s', [%4.2f, %4.2f, %4.2f], %4.2f );"%(bindingSeriesFilename,
-                                                                                                                
-                                                                                                                fmax_min, kd_min, fmin_min,
-                                                                                                                fmax_max, kd_max, fmin_max,
-                                                                                                                outputFilename,
-                                                                                                                fmax_initial, kd_initial, fmin_initial,
-                                                                                                                scale_factor)
-    try:
-        logString = spawnMatlabJob(matlabFunctionCallString)
-        return (matlabFunctionCallString, logString)
-    except Exception,e:
-        return(matlabFunctionCallString,'Python excpetion generated in findKds: ' + e.message + e.stack)
-    
-def findKoff(bindingSeriesFilename, outputFilename, fmax_min, fmax_max, fmax_initial, kd_min, kd_max, kd_initial, fmin_min, fmin_max, fmin_initial, scale_factor, fittype):
-    matlabFunctionCallString = "fitOffRateCurve('%s', [%4.2f, %4.2f, %4.2f], [%4.2f, %4.2f, %4.2f], '%s', [%4.2f, %4.2f, %4.2f], %4.2f, '%s' );"%(bindingSeriesFilename,
-                                                                                                                
-                                                                                                                fmax_min, kd_min, fmin_min,
-                                                                                                                fmax_max, kd_max, fmin_max,
-                                                                                                                outputFilename,
-                                                                                                                fmax_initial, kd_initial, fmin_initial,
-                                                                                                                scale_factor, fittype)
-    try:
-        logString = spawnMatlabJob(matlabFunctionCallString)
-        return (matlabFunctionCallString, logString)
-    except Exception,e:
-        return(matlabFunctionCallString,'Python excpetion generated in findKds: ' + e.message + e.stack)  
-
-
-def removeFilenameParts(annotatedSignalFilename, numCores):
-    bindingSeriesFilenameParts = getBindingSeriesFilenameParts(annotatedSignalFilename, numCores)
-    for i, filename in bindingSeriesFilenameParts.items():
-        os.system("rm %s"%filename)
-    fitParametersFilenameParts = getfitParametersFilenameParts(bindingSeriesFilenameParts)
-    for i, filename in fitParametersFilenameParts.items():
-        os.system("rm %s"%filename)    
-    return
-
 def saveDataFrame(dataframe, filename, index=None, float_format=None):
     if index is None:
         index = False
@@ -450,27 +381,6 @@ def saveDataFrame(dataframe, filename, index=None, float_format=None):
     dataframe.to_csv(filename, sep='\t', na_rep="NaN", index=index, float_format=float_format)
     return
 
-def joinTogetherFitParts(fitParametersFilenameParts=None, parameter=None, indices=None):
-    if parameter is None: parameter='dG'
-    # define columns coming from matlab file
-    cols = ['params', 'exit_flag', 'rsq', 'rmse', 'qvalue', 'params_var']
-    names = ['fmax', parameter, 'fmin', 'exit_flag', 'rsq', 'rmse', 'qvalue', 'fmax_var', parameter+'_var', 'fmin_var']
-    
-    # if no files are given, just return column names
-    if fitParametersFilenameParts is None:
-        return names
-
-    all_fit_parameters = []
-    for i, fitParametersFilename in fitParametersFilenameParts.items():
-        fit_parameters = sio.loadmat(fitParametersFilename)
-        if indices is None:
-            index=None
-        else:
-            index = indices[i]
-        # save as data frame
-        all_fit_parameters.append(pd.DataFrame(index=index, columns=names, data= np.hstack([fit_parameters[col] for col in cols])) )
-    
-    return pd.concat(all_fit_parameters)
 
 def makeFittedCPsignalFile(fitParameters,annotatedSignalFilename, fittedBindingFilename, bindingSeriesNorm=None, allClusterSignal=None):
     # start at the 'barcode' column- i.e. skip all sequence info
