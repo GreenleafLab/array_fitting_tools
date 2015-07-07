@@ -528,6 +528,7 @@ def loadBindingCurveFromCPsignal(filename, concentrations):
     return binding_series, all_cluster_signal
 
 def boundFluorescence(signal, plot=None):
+    # take i.e. all cluster signal and bound it 
     if plot is None: plot=False
     
     lowerbound = np.percentile(signal.dropna(), 1)
@@ -588,98 +589,20 @@ def bindingCurve(concentrations, kd, fmax=None, fmin=None):
         fmin = 0
     return fmax*concentrations/(concentrations + kd) + fmin
 
-
-def plotVariant(sub_table, concentrations):
-    # reduce to fits that were successful
-    sub_table = sub_table[sub_table['fit_success']==1]
-    sub_table = sub_table[sub_table['rsq']>0.5]
-    print 'testing %d variants'%len(sub_table)
-    
-    # plot  
-    num_concentrations = len(concentrations)
-    binding_curves = np.array([np.array(sub_table[i]) for i in range(num_concentrations)])
-    frac_bound = np.median(binding_curves, axis=1)
-    [percentile25, percentile75] = np.percentile(binding_curves, [25,75],axis=1)
-    fig = plt.figure(figsize=(4,4))
-    ax = fig.add_subplot(111)
-    ax.errorbar(concentrations, frac_bound, yerr=[frac_bound-percentile25, percentile75-frac_bound], fmt='o')
-    ax.plot(np.logspace(-1, 4, 50), bindingCurve(np.logspace(-1, 4, 50), np.median(sub_table['kd']), np.median(sub_table['fmax']), np.median(sub_table['fmin'])),'k')
-    ax.set_xscale('log')
-    ax.set_xlabel('concentration (nM)')
-    ax.set_ylabel('normalized fluorescence')
-    #plt.title('%d variants tested'%len(sub_table))
-    plt.tight_layout()
-    return
-
-def findBarcodeFilter(table):
-    cols = ['barcode', 'clusters_per_barcode', 'fraction_consensus']
-    table_test = pd.DataFrame(index = table.index, columns = cols + ['max_confidence', 'outside_max', 'barcode_length', 'barcode_good'] )
-    table_test.loc[:, cols] = table.loc[:, cols]
-    
-    index = table_test.loc[:, 'clusters_per_barcode'].dropna().index
-    table_test.loc[:, 'max_confidence'] = pd.Series(st.binom.interval(0.95, table_test.loc[index, 'clusters_per_barcode'].astype(int).values, 0.5)[1],
-                  index = index)
-    table_test.loc[:, 'outside_max'] = False
-    table_test.loc[:, 'outside_max'] = table_test.loc[index, 'clusters_per_barcode']*table_test.loc[index, 'fraction_consensus']/100 > table_test.loc[index, 'max_confidence']
-    
-    index = table_test.loc[:, 'barcode'].dropna().index
-    table_test.loc[:, 'barcode_length'] = 0
-    table_test.loc[index, 'barcode_length'] = [len(seq) for seq in table_test.loc[index, 'barcode'].astype(str).values]
-    
-    table.loc[:, 'barcode_good'] = table_test.loc[:, 'outside_max']&(table_test.loc[:, 'barcode_length'] > 12)
-
-    return table
-
 def formatConcentrations(concentrations):
     return [('%4.1f'%x).lstrip().rstrip('0').rstrip('.') for x in concentrations]
 
-def findFitParameters(table):
+def findMedianFits(table, parameters):
     fitFilteredTable = IMlibs.filterFitParameters(IMlibs.filterStandardParameters(table))
+    
+def findMedianFitsSubset(subtable, parameters):
+    for idx in subtable.index:
+        fitParameters = parameters.fitParameters
+        fitParameters.loc[:, ]
+    
+    pass
 
-def findPerVariantFits(table, concentrations, fitParameters):
-    concentrationCols = IMlibs.formatConcentrations(concentrations)
-    fitFilteredTable = IMlibs.filterFitParameters(IMlibs.filterStandardParameters(table))
-    fitFilteredTable.loc[:, 'fmax'] = fitFilteredTable.fmax.astype(float)
-    grouped = fitFilteredTable.groupby('variant_number')
-    
-    fmaxes = pd.concat([grouped['fmax'].count(), grouped['fmax'].median()], axis=1, keys=['number', 'fmax'])
-    fmax_std = fmaxes.groupby('number').std()
-    weights = np.sqrt(fmaxes.groupby('number').count())
-    index = fmax_std.dropna().index
-    x = np.array(fmax_std.loc[index].index).astype(float)
-    y = fmax_std.loc[index, 'fmax'].astype(float).values
-    s = np.ravel(1/np.sqrt(weights.loc[index]))
- 
-    # plot data
-    plt.figure(figsize=(4,3));
-    plt.plot(x, y,  'ko');
-    
-    # fit exponential function
-    popt, pcov = curve_fit(IMlibs.fitFunction2, x, y, p0=[1, 1, 0], sigma=s)
-    plt.plot(x, IMlibs.fitFunction2(x, *popt), 'c', label='%4.2f*exp(-%4.2f*n)+%4.2f'%(popt[0],popt[1], popt[2]))
-    
-    # fit 1/sqrt(n)
-    popt, pcov = curve_fit(IMlibs.fitFunction, x, y, p0=[1, 0], sigma=s)
-    plt.plot(x, IMlibs.fitFunction(x, *popt), 'r', label='%4.2f/sqrt(n)+%4.2f'%(popt[0], popt[1]));
 
-    plt.xlabel('number of tests')
-    plt.ylabel('std of fit fmaxes in bin')
-    plt.legend()
-    plt.tight_layout()
-    
-    fitParameters.loc['lowerbound', 'fmax'] = fmaxes.fmax.min()
-    fitParameters.loc['initial',    'fmax'] = fmaxes.fmax.mean()
-    fitParameters.loc['upperbound', 'fmax'] = fmaxes.fmax.max()
-    
-    fmins = grouped['fmin'].median()
-    
-    return
-
-def fitFunction(xdata, a, b):
-    return float(a)/np.sqrt(xdata)+b
-
-def fitFunction2(xdata, a, b, c):
-    return  a * np.exp(-b * xdata) + c
 
 def findVariantTable(table, parameter=None, name=None, concentrations=None):
     # define defaults
@@ -719,16 +642,7 @@ def findVariantTable(table, parameter=None, name=None, concentrations=None):
         x = (variant_table.loc[:, 'fitFraction']*variant_table.loc[:, 'numTests']).loc[variant_table.numTests==n]
         variant_table.loc[x.index, 'pvalue'] = st.binom.sf(x-1, n, p)
     
-    # get normalized binding series
-    concentrationCols = formatConcentrations(concentrations)
-    bindingSeries = fitFilteredTable.loc[:, concentrationCols]
-    bindingSeries.loc[:, 'variant_number'] = fitFilteredTable.variant_number
-    bindingSeriesNorm = np.divide(fitFilteredTable.loc[:, concentrationCols], np.vstack(fitFilteredTable.all_cluster_signal))
-    bindingSeriesNorm.loc[:, 'variant_number'] = fitFilteredTable.variant_number
-    allClusterSignal = fitFilteredTable.loc[:, ['all_cluster_signal']]
-    allClusterSignal.loc[:, 'variant_number'] = fitFilteredTable.variant_number
-    variant_table = pd.concat([variant_table, bindingSeriesNorm.groupby('variant_number').median()], axis=1)
-    return variant_table, bindingSeries.groupby('variant_number').median(), allClusterSignal.groupby('variant_number').median(),  bindingSeriesNorm.groupby('variant_number').median()
+    return variant_table
 
 def getPvalueFitFilter(variant_table, p):
     variant_table.loc[:, 'pvalue'] = np.nan
@@ -738,12 +652,15 @@ def getPvalueFitFilter(variant_table, p):
         variant_table.loc[x.index, 'pvalue'] = st.binom.sf(x-1, n, p)
     return      
 
-def getBootstrappedErrors(variant_table, table, numCores, parameter=None, variants=None):
+def getBootstrappedErrors(variant_table, table,  parameters, numCores, parameter=None, variants=None):
     if parameter is None: parameter = 'dG'
     if variants is None:
-        variants = variant_table.loc[(variant_table.numTests >=3)&(variant_table.pvalue <= 0.05)].index
-        
-    subtable = filterFitParameters(filterStandardParameters(table)).loc[:, ['variant_number', parameter]]
+        variants = variant_table.loc[(variant_table.pvalue <= 0.05)].index
+    
+    concentrations = parameters.concentrations
+    concentrationCols = formatConcentrations(concentrations)
+    param_names = parameters.fitParameters.dropna(axis=1).columns.tolist()
+    subtable = filterFitParameters(filterStandardParameters(table)).loc[:, ['variant_number'] + concentrationCols]
     grouped = subtable.groupby('variant_number')
     
     print '\tDividing table into groups...'
@@ -753,12 +670,14 @@ def getBootstrappedErrors(variant_table, table, numCores, parameter=None, varian
         if name in variants:
             actual_variants.append(name)
             groups.append(group)
-    
+        
     print '\tMultiprocessing bootstrapping...'
-    bounds = Parallel(n_jobs=20, verbose=5)(delayed(perVariantError)(group.dG) for group in groups)
-    
-    variant_table.loc[actual_variants, [parameter+'_%s'%s for s in ['lb', 'ub']]] = bounds
-    return variant_table
+    results = Parallel(n_jobs=numCores, verbose=numCores)(delayed(perVariantFit)(group.loc[:, concentrationCols],
+                                                                     concentrations,
+                                                                     parameters,
+                                                                     variant_table.loc[variant,param_names] ) for group, variant in itertools.izip(groups, actual_variants))
+    results = pd.concat(results)    
+    return results
 
 def filterStandardParameters(table):
 
@@ -773,6 +692,52 @@ def filterFitParameters(table):
     index = (table.rsq > 0.5)&(table.dG_stde.astype(float) < 1)&(table.fmax_stde.astype(float)<table.fmax.astype(float))
     return table.loc[index]
 
+
+def plotVariantFit(table, variant_table, variant, parameters):
+    concentrationCols = formatConcentrations(parameters.concentrations)
+    param_names = parameters.fitParameters.dropna(axis=1).columns.tolist()
+    subtable = filterFitParameters(filterStandardParameters(table)).loc[:, ['variant_number'] + concentrationCols]
+    grouped = subtable.groupby('variant_number')
+    
+    initial_points = variant_table.loc[variant, param_names]
+    results = perVariantFit(subtable.loc[subtable.variant_number==variant, concentrationCols],
+                  parameters.concentrations, parameters, initial_points, plot=True)
+    return results
+    
+
+    
+def perVariantFit(subSeries, concentrations, parameters, initial_points, eps=None, plot=None):
+    if eps is None:
+        eps = 1E-3
+    if plot is None:
+        plot = False
+    fitParameters = parameters.fitParameters
+    
+    # set fmax upper and lower bound based on number of measurements
+    fitParameters.loc[fitParameters.index[:3], 'fmax'] = parameters.find_fmax_bounds_given_n(len(subSeries))
+    
+    # set intial guesses for fmax and dG. Fmin stays!!
+    for param_name in ['fmax', 'dG']:
+        if (initial_points.loc[param_name] < fitParameters.loc['upperbound', param_name]-eps and
+            initial_points.loc[param_name] > fitParameters.loc['lowerbound', param_name]+eps):
+            #print 'changing %s'%param_name
+            if param_name == 'dG':
+                fitParameters.loc['initial', param_name] = initial_points.loc[param_name]
+            if param_name == 'fmax':
+                fitParameters.loc['initial', param_name] = initial_points.loc[param_name] + initial_points.loc['fmin'] - fitParameters.loc['initial', 'fmin'] 
+    
+    fitParameters.loc['vary'] = True
+    fitParameters.loc['vary', 'fmin'] = False   
+
+    results = fitBindingCurve.bootstrapCurves(subSeries, fitParameters, concentrations,
+                                               parameters,
+                                                default_errors=parameters, plot=plot,
+                                                n_samples=100,
+                                                eps=None,
+                                                min_fraction_railed=None)
+    variant = initial_points.name
+    return pd.DataFrame(results, columns=[variant]).transpose()
+    
 
 def perVariantError(measurements):
     # find subset of table that has variant number equal to variant
