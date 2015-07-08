@@ -280,16 +280,30 @@ else:
     print '\tFitting best binders with no constraints...'
     parameters = fittingParameters.Parameters(concentrations, fabs_green_max.loc[index])
     fitUnconstrained = IMlibs.splitAndFit(bindingSeriesNorm, 
-                                          concentrations, parameters.fitParameters, numCores, index=index)
+                                          concentrations, parameters.fitParameters, numCores, index=index, mod_fmin=True)
 
     # reset fitting parameters based on results
     maxdG = parameters.find_dG_from_Kd(parameters.find_Kd_from_frac_bound_concentration(0.9, concentrations[args.null_column])) # 90% bound at 
-    for param in ['fmax', 'fmin']:
-        parameters.fitParameters.loc[:, param] = IMlibs.plotFitFmaxs(fitUnconstrained, maxdG=maxdG, param=param)
-        plt.savefig(os.path.join(os.path.dirname(fittedBindingFilename), 'constrained_%s.pdf'%param))
-       
+    param = 'fmax'
+    parameters.fitParameters.loc[:, param] = IMlibs.plotFitFmaxs(fitUnconstrained, maxdG=maxdG, param=param)
+    plt.savefig(os.path.join(os.path.dirname(fittedBindingFilename), 'constrained_%s.pdf'%param))
+    
+    param = 'fmin'
+    index = ((fitUnconstrained.dG > parameters.mindG)&
+                 (fitUnconstrained.dG_stde < 1)&
+                 (fitUnconstrained.fmax_stde < fitUnconstrained.fmax))
+    parameters.fitParameters.loc[:, param] = IMlibs.plotFitFmaxs(fitUnconstrained, maxdG=maxdG, param=param, index=index)
+    plt.savefig(os.path.join(os.path.dirname(fittedBindingFilename), 'constrained_%s.pdf'%param))
+    
+    # do some more wrangling
+    parameters.fitParameters.loc['lowerbound', 'fmin'] = 0
+    parameters.fitParameters.loc['upperbound', 'fmin'] = 2*parameters.fitParameters.loc['initial', 'fmin']
+    parameters.fitParameters.loc[:, 'fmax'] += parameters.fitParameters.loc['initial', 'fmin']
+    
     # now refit all remaining clusters
-    print 'Fitting all with constraints on fmax (%4.1f, %4.1f, %4.1f)'%(parameters.fitParameters.loc['lowerbound', 'fmax'], parameters.fitParameters.loc['initial', 'fmax'], parameters.fitParameters.loc['upperbound', 'fmax'])
+    print 'Fitting all with constraints on fmax (%4.2f, %4.2f, %4.2f)'%(parameters.fitParameters.loc['lowerbound', 'fmax'], parameters.fitParameters.loc['initial', 'fmax'], parameters.fitParameters.loc['upperbound', 'fmax'])
+    print 'Fitting all with constraints on fmin (%4.2f, %4.2f, %4.2f)'%(parameters.fitParameters.loc['lowerbound', 'fmin'], parameters.fitParameters.loc['initial', 'fmin'], parameters.fitParameters.loc['upperbound', 'fmin'])
+
     fitConstrained = pd.DataFrame(index=bindingSeriesNorm.index, columns=fitUnconstrained.columns)
     index_all = bindingSeriesNorm.dropna(axis=0, thresh=4).index
     fitConstrained.loc[index_all] = IMlibs.splitAndFit(bindingSeriesNorm, concentrations,
@@ -304,16 +318,13 @@ else:
     # save fit Parameters?
     # save Normalized Binding Series?
 
-sys.exit()
 ################ Reduce into Variant Table ################
 variantFittedFilename = IMlibs.getPerVariantFilename(fittedBindingFilename)
 if os.path.isfile(variantFittedFilename):
     print 'per variant fitted CPsignal file exists "%s". Skipping...'%variantFittedFilename
 else:
     print 'Making per variant table from %s...'%fittedBindingFilename
-    parameters = fittingParameters.Parameters(concentrations)
     table = IMlibs.loadFittedCPsignal(fittedBindingFilename)
-
     variant_table = IMlibs.findVariantTable(table, concentrations=concentrations)
     IMlibs.saveDataFrame(variant_table, variantFittedFilename, float_format='%4.3f', index=True)
 
@@ -324,9 +335,15 @@ if os.path.isfile(variantBootstrappedFilename):
 else:
     print 'Making boostrapped errors from %s...'%variantFittedFilename
     variant_table = pd.read_table(variantFittedFilename, index_col=0)
-    table = pd.read_table(os.path.splitext(fittedBindingFilename)[0] + '.abbrev.CPfitted', index_col=0)
-    IMlibs.getBootstrappedErrors(variant_table, table, numCores)
-    IMlibs.saveDataFrame(variant_table, variantBootstrappedFilename, float_format='%4.3f', index=True)
+    table = IMlibs.loadFittedCPsignal(fittedBindingFilename)
+    parameters = fittingParameters.Parameters(concentrations, table=table)
+    plt.savefig(os.path.join(os.path.dirname(fittedBindingFilename), 'stde_fmax.at_different_n.pdf'))
+    
+    results = IMlibs.getBootstrappedErrors(variant_table, table, parameters, numCores)
+    variant_table_final = IMlibs.matchTogetherResults(variant_table, results)
+    IMlibs.saveDataFrame(variant_table_final, variantBootstrappedFilename, float_format='%4.3f', index=True)
+    IMlibs.saveDataFrame(results, os.path.splitext(variantBootstrappedFilename)[0]+
+                         '.fitParameters', float_format='%4.3f', index=True)
 
 # do single cluster fits on subset that fit well earlier
 
