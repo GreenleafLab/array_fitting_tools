@@ -345,33 +345,59 @@ def matchCPsignalToLibrary(barcodeToSequenceFilename, sortedAllCPsignalFile, seq
     os.system(to_run)
     return
 
-def splitAndFit(bindingSeries, concentrations, fitParameters, numCores, index=None):
+def splitAndFit(bindingSeries, concentrations, fitParameters, numCores, index=None, mod_fmin=None, split=None):
     if index is None:
         index = bindingSeries.index
-        
-    # split into parts
-    print 'Splitting clusters into %d groups:'%numCores
-    indicesSplit = np.array_split(index, numCores)
-    bindingSeriesSplit = [bindingSeries.loc[indices] for indices in indicesSplit]
-    printBools = [True] + [False]*(numCores-1)
-    # fit
-    print 'Fitting binding curves:'
-    fits = Parallel(n_jobs=20, verbose=25)(delayed(fitSetKdsPython)(subBindingSeries, concentrations, fitParameters, print_bool) for subBindingSeries, print_bool in itertools.izip(bindingSeriesSplit, printBools))
+    if split is None:
+        split = True
+    
+    if split:  
+        # split into parts
+        print 'Splitting clusters into %d groups:'%numCores
+        indicesSplit = np.array_split(index, numCores)
+        bindingSeriesSplit = [bindingSeries.loc[indices] for indices in indicesSplit]
+        printBools = [True] + [False]*(numCores-1)
+        print 'Fitting binding curves:'
+        fits = (Parallel(n_jobs=numCores, verbose=10)
+                (delayed(fitSetKds)(subBindingSeries, concentrations, fitParameters, mod_fmin, print_bool) for
+                 subBindingSeries, print_bool in itertools.izip(bindingSeriesSplit, printBools)))
+    else:
+        # fit
+        print 'Fitting binding curves:'
+        fits = (Parallel(n_jobs=numCores, verbose=10, batch_size=4)
+                (delayed(fitKds)(bindingSeries.loc[idx], concentrations, fitParameters, mod_fmin) for idx in index))
+
+
     return pd.concat(fits)
 
-def fitSetKdsPython(subBindingSeries, concentrations, fitParameters, print_bool=None):
+def fitSetKds(subBindingSeries, concentrations, fitParameters, mod_fmin=None, print_bool=None):
     if print_bool is None: print_bool = True
-    singles = {}
+    if mod_fmin is None: mod_fmin = False
+    #print print_bool
+    singles = []
     for i, idx in enumerate(subBindingSeries.index):
         if print_bool:
-            if (i+1)%(len(subBindingSeries)/20.) == 0: print 'working on %d out of %d iterations (%d%%)'%(i+1, len(subBindingSeries.index), 100*(i+1)/float(len(subBindingSeries.index)))
+            num_steps = min(100, (int(len(subBindingSeries)/100.)))
+            if (i+1)%num_steps == 0:
+                print 'working on %d out of %d iterations (%d%%)'%(i+1,
+                                                                   len(subBindingSeries.index),
+                                                                   100*(i+1)/float(len(subBindingSeries.index)))
         fluorescence = subBindingSeries.loc[idx]
-        fitParametersNew = fitParameters.copy()
-        if not np.isnan(fluorescence[0]):
+        singles.append(fitKds(fluorescence, concentrations, fitParameters, mod_fmin=mod_fmin))
+
+    return pd.concat(singles)
+
+def fitKds(fluorescence, concentrations, fitParameters, mod_fmin=None):
+    if mod_fmin is None:
+        mod_fmin = False
+    
+    fitParametersNew = fitParameters.copy()
+    if mod_fmin:
+        if not np.isnan(fluorescence.iloc[0]):
             # as long as the first point is measured, further constrain the fmin
-            fitParametersNew.loc['upperbound', 'fmin'] = 2*fluorescence.min()
-        singles[idx] = fitBindingCurve.fitSingleBindingCurve(concentrations, fluorescence, fitParametersNew, plot=False)
-    return pd.concat(singles, axis=1).transpose()       
+            fitParametersNew.loc['upperbound', 'fmin'] = 2*fluorescence.min()   
+    return pd.DataFrame(columns=[fluorescence.name], data=fitBindingCurve.fitSingleBindingCurve(concentrations, fluorescence, fitParametersNew, plot=False)).transpose()
+
 
 def saveDataFrame(dataframe, filename, index=None, float_format=None):
     if index is None:
@@ -602,6 +628,66 @@ def findMedianFitsSubset(subtable, parameters):
     
     pass
 
+def plotSingleClusterfit(bindingSeries, fitConstrained, cluster, parameters):
+
+    plt.figure(figsize=(4,4));
+    plt.plot(parameters.concentrations, bindingSeries.loc[cluster], 'ko', )
+    more_concentrations =  np.logspace(-2, 4, 50)  
+    fit = bindingCurve(more_concentrations,
+                       parameters.find_Kd_from_dG(fitConstrained.loc[cluster, 'dG']),
+                       fmax=fitConstrained.loc[cluster, 'fmax'],
+                       fmin=fitConstrained.loc[cluster, 'fmin'])
+    plt.plot(more_concentrations, fit, 'r')
+    ax = plt.gca()
+    ax.set_xscale('log')
+    plt.xlabel('concentration (nM)')
+    plt.ylabel('normalized fluorescence')
+    plt.tight_layout()
+    
+    
+def plotSingleVariantFits(table, results, variant, parameters ):
+    concentrations = parameters.concentrations
+    concentrationCols = formatConcentrations(concentrations)
+
+    bindingSeries = table.loc[table.variant_number==variant, concentrationCols]
+    eminus, eplus = fitBindingCurve.findErrorBarsBindingCurve(bindingSeries)
+    plt.figure(figsize=(4,4))
+    plt.errorbar(concentrations, bindingSeries.median(), yerr=[eminus, eplus], fmt='.', elinewidth=1, capsize=2, capthick=1, color='k', linewidth=1)
+    
+    # plot lb, fit, and ub
+    more_concentrations =  np.logspace(-2, 4, 50)  
+    fit = bindingCurve(more_concentrations,
+                       parameters.find_Kd_from_dG(results.loc[variant, 'dG']),
+                       fmax=results.loc[variant, 'fmax'],
+                       fmin=results.loc[variant, 'fmin'])
+    
+    if parameters.fitParameters.loc['vary', 'fmin']:
+        ub = bindingCurve(more_concentrations,
+                           parameters.find_Kd_from_dG(results.loc[variant, 'dG_lb']),
+                           fmax=results.loc[variant, 'fmax_ub'],
+                           fmin=results.loc[variant, 'fmin_ub'])
+        lb = bindingCurve(more_concentrations,
+                           parameters.find_Kd_from_dG(results.loc[variant, 'dG_ub']),
+                           fmax=results.loc[variant, 'fmax_lb'],
+                           fmin=results.loc[variant, 'fmin_lb'])
+    else:
+        ub = bindingCurve(more_concentrations,
+                           parameters.find_Kd_from_dG(results.loc[variant, 'dG_lb']),
+                           fmax=results.loc[variant, 'fmax_ub'],
+                           fmin=results.loc[variant, 'fmin'])
+        lb = bindingCurve(more_concentrations,
+                           parameters.find_Kd_from_dG(results.loc[variant, 'dG_ub']),
+                           fmax=results.loc[variant, 'fmax_lb'],
+                           fmin=results.loc[variant, 'fmin'])        
+    plt.plot(more_concentrations, fit, 'r')
+    plt.fill_between(more_concentrations, lb, ub, color='0.5', label='95% conf int', alpha=0.5)
+    ax = plt.gca()
+    ax.set_xscale('log')
+    
+
+    plt.xlabel('concentration (nM)')
+    plt.ylabel('normalized fluorescence')
+    plt.tight_layout()
 
 
 def findVariantTable(table, parameter=None, name=None, concentrations=None):
@@ -618,7 +704,7 @@ def findVariantTable(table, parameter=None, name=None, concentrations=None):
     grouped = table.groupby('variant_number')
     variant_table = pd.concat([grouped[columns].first(),
                                pd.DataFrame(index=grouped[columns].first().index,
-                                            columns=test_stats+[parameter+'_%s'%s for s in ['lb', 'ub']])],
+                                            columns=test_stats)],
                               axis=1)
     
     # filter for nan, barcode, and fit
@@ -655,12 +741,13 @@ def getPvalueFitFilter(variant_table, p):
 def getBootstrappedErrors(variant_table, table,  parameters, numCores, parameter=None, variants=None):
     if parameter is None: parameter = 'dG'
     if variants is None:
-        variants = variant_table.loc[(variant_table.pvalue <= 0.05)].index
+        variants = variant_table.index
     
     concentrations = parameters.concentrations
     concentrationCols = formatConcentrations(concentrations)
     param_names = parameters.fitParameters.dropna(axis=1).columns.tolist()
-    subtable = filterFitParameters(filterStandardParameters(table)).loc[:, ['variant_number'] + concentrationCols]
+    #subtable = filterFitParameters(filterStandardParameters(table)).loc[:, ['variant_number'] + concentrationCols]
+    subtable = filterStandardParameters(table).loc[:, ['variant_number'] + concentrationCols]
     grouped = subtable.groupby('variant_number')
     
     print '\tDividing table into groups...'
@@ -672,12 +759,22 @@ def getBootstrappedErrors(variant_table, table,  parameters, numCores, parameter
             groups.append(group)
         
     print '\tMultiprocessing bootstrapping...'
-    results = Parallel(n_jobs=numCores, verbose=numCores)(delayed(perVariantFit)(group.loc[:, concentrationCols],
+    results = Parallel(n_jobs=numCores, verbose=10)(delayed(perVariantFit)(group.loc[:, concentrationCols],
                                                                      concentrations,
                                                                      parameters,
                                                                      variant_table.loc[variant,param_names] ) for group, variant in itertools.izip(groups, actual_variants))
-    results = pd.concat(results)    
+    results = pd.concat(results)       
     return results
+
+def matchTogetherResults(variant_table, results):
+    columns = []
+    for col in variant_table:
+        if col in results.columns:
+            columns.append(col+'_init')
+        else:
+            columns.append(col)
+    variant_table.columns = columns
+    return pd.concat([variant_table, results], axis=1)
 
 def filterStandardParameters(table):
 
@@ -693,10 +790,10 @@ def filterFitParameters(table):
     return table.loc[index]
 
 
-def plotVariantFit(table, variant_table, variant, parameters):
+def fitSingleVariant(table, variant_table, variant, parameters):
     concentrationCols = formatConcentrations(parameters.concentrations)
     param_names = parameters.fitParameters.dropna(axis=1).columns.tolist()
-    subtable = filterFitParameters(filterStandardParameters(table)).loc[:, ['variant_number'] + concentrationCols]
+    subtable = filterStandardParameters(table).loc[:, ['variant_number'] + concentrationCols]
     grouped = subtable.groupby('variant_number')
     
     initial_points = variant_table.loc[variant, param_names]
@@ -704,14 +801,12 @@ def plotVariantFit(table, variant_table, variant, parameters):
                   parameters.concentrations, parameters, initial_points, plot=True)
     return results
     
-
-    
 def perVariantFit(subSeries, concentrations, parameters, initial_points, eps=None, plot=None):
     if eps is None:
         eps = 1E-3
     if plot is None:
         plot = False
-    fitParameters = parameters.fitParameters
+    fitParameters = parameters.fitParameters.copy()
     
     # set fmax upper and lower bound based on number of measurements
     fitParameters.loc[fitParameters.index[:3], 'fmax'] = parameters.find_fmax_bounds_given_n(len(subSeries))
@@ -725,13 +820,10 @@ def perVariantFit(subSeries, concentrations, parameters, initial_points, eps=Non
                 fitParameters.loc['initial', param_name] = initial_points.loc[param_name]
             if param_name == 'fmax':
                 fitParameters.loc['initial', param_name] = initial_points.loc[param_name] + initial_points.loc['fmin'] - fitParameters.loc['initial', 'fmin'] 
-    
-    fitParameters.loc['vary'] = True
-    fitParameters.loc['vary', 'fmin'] = False   
 
     results = fitBindingCurve.bootstrapCurves(subSeries, fitParameters, concentrations,
                                                parameters,
-                                                default_errors=parameters, plot=plot,
+                                                default_errors=parameters.default_errors, plot=plot,
                                                 n_samples=100,
                                                 eps=None,
                                                 min_fraction_railed=None)
@@ -793,12 +885,12 @@ def plotNumber(variant_table, binedges=None):
     
 def plotErrorInBins(variant_table, binedges=None, count_binedges=None):
     if binedges is None:
-        binedges = np.arange(-12, -6, 0.5)
+        binedges = np.arange(-12, -4, 0.5)
     subtable = pd.DataFrame(index=variant_table.index,
                             columns=['binned_dGs', 'confInt', 'numTests'],
                             data=np.column_stack([np.digitize(variant_table.dG, binedges),
                                                   variant_table.dG_ub - variant_table.dG_lb,
-                                                  np.around(variant_table.numTests*variant_table.fitFraction)]))
+                                                  np.around(variant_table.numClusters)]))
     subtable.loc[:, 'dG (kcal/mol)'] = ['%3.1f:%3.1f'%(binedges[bins-1], binedges[bins]-1) if bins!=len(binedges) else '>%3.1f'%binedges[-1] for bins in subtable.binned_dGs.astype(int)]
     order = ['%3.1f:%3.1f'%(binedges[bins-1], binedges[bins]-1) if bins!=len(binedges) else '>%3.1f'%binedges[-1] for bins in np.arange(1, len(binedges)+1)]
     
@@ -810,7 +902,7 @@ def plotErrorInBins(variant_table, binedges=None, count_binedges=None):
     subtable.loc[:, '# tests'] = ['%d-%d'%(count_binedges[bins-1], count_binedges[bins]-1) if bins!=len(count_binedges) else '>%d'%count_binedges[-1] for bins in subtable.binned_counts.astype(int)]
     g = sns.FacetGrid(subtable, size=2.5, aspect=1.5, col="# tests", col_wrap=3,
                       col_order=count_order )
-    g.map(sns.boxplot, "dG (kcal/mol)", "confInt",
+    g.map(sns.barplot, "dG (kcal/mol)", "confInt",
                 order=order,
                 color="r")
     g.set(ylim=(0, 2), );
