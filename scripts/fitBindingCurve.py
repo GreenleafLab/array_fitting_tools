@@ -123,9 +123,7 @@ def bootstrapCurves(subSeries, fitParameters, concentrations, parameters, defaul
     if eps is None:
         eps = (fitParameters.loc['upperbound', 'fmax'] - fitParameters.loc['lowerbound', 'fmax'])/100.
     if min_fraction_railed is None:
-        min_fraction_railed = .25
-    if min_fraction_railed_top is None:
-        min_fraction_railed_top = 0.75
+        min_fraction_railed = 0.75
     if plot is None:
         plot = False
     if plot_dists is None:
@@ -135,9 +133,12 @@ def bootstrapCurves(subSeries, fitParameters, concentrations, parameters, defaul
     concentrationCols = subSeries.columns
     numTests = len(subSeries)
     if numTests > 2:
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            eminus, eplus = np.asarray([np.abs(subSeries.loc[:, i].median() - bootstrap.ci(subSeries.loc[:, i], np.median, n_samples=1000)) for i in concentrationCols]).transpose()
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                eminus, eplus = np.asarray([np.abs(subSeries.loc[:, i].median() - bootstrap.ci(subSeries.loc[:, i], np.median, n_samples=1000)) for i in concentrationCols]).transpose()
+        except:
+            eminus = eplus = default_errors/np.sqrt(numTests)
     elif default_errors is None:
         eminus = eplus = np.ones(len(concentrations))*np.nan
     else:
@@ -163,24 +164,29 @@ def bootstrapCurves(subSeries, fitParameters, concentrations, parameters, defaul
         singles[i] = fitSingleBindingCurve(concentrations, fluorescence, fitParameters, errors=[eminus, eplus], plot=False)
         
         # check if after 100 tries, the fmax_ub is railed.
-        if i==min(99, n_tests-1):
-            current_fmaxes = pd.concat(singles, axis=1).transpose().fmax
-            num_railed_bottom = (np.abs(current_fmaxes-fitParameters.loc['lowerbound', 'fmax']) < eps).sum()
-            num_railed_top = (np.abs(current_fmaxes-fitParameters.loc['upperbound', 'fmax']) < eps).sum()
-            num_tests = len(current_fmaxes)
-            if num_railed_bottom/float(num_tests) > min_fraction_railed or num_railed_top/float(num_tests) > min_fraction_railed_top :
+        if i==min(49, n_tests-1):
+            current_data = pd.concat(singles, axis=1).transpose()
+            fit_fmaxes = current_data.fmax
+            fit_dG = pd.concat(singles, axis=1).transpose().dG.median()
+            
+            num_railed = ((np.abs(fit_fmaxes-fitParameters.loc['upperbound', 'fmax']) < eps).sum() +
+                          (np.abs(fit_fmaxes-fitParameters.loc['lowerbound', 'fmax']) < eps).sum())
+            num_tests = len(fit_fmaxes)
+            
+            if (num_railed/float(num_tests) > min_fraction_railed or
+                fit_dG > parameters.maxdG):
                 # problem encountered. do everything again with set fmax.
                 if plot_dists:
-                    print 'After %d iterations, fmax is railed. \n\t%d (%d%%) of fits are within eps of upperbound.'%(num_tests, num_railed_top, num_railed_top/float(num_tests)*100)
-                    print '\t%d (%d%%) of fits are within eps of lowerbound.'%(num_railed_bottom, num_railed_bottom/float(num_tests)*100)
-
+                    print 'After %d iterations, cannot find fmax.'%(num_tests)
+                    print '\tMedian fit dG = %4.2f (max is %4.2f)'%(fit_dG, parameters.maxdG)
+                    print '\t%d (%d%%) of fits are within eps of bounds.'%(num_railed, num_railed/float(num_tests)*100)
                     print 'Starting bootstrapped fit again with fmax sampled from dist'
                 redoFitFmax = True
                 break
             else:
                 if plot_dists:
-                    print 'After %d iterations: median fmax is %4.2f. \n\t%d (%d%%) of fits are within eps of upperbound.'%(num_tests, current_fmaxes.median(), num_railed_top, num_railed_top/float(num_tests)*100)
-                    print '\t%d (%d%%) of fits are within eps of lowerbound.'%(num_railed_bottom, num_railed_bottom/float(num_tests)*100)
+                    print 'After %d iterations: median fmax is %4.2f. median dG is %4.2f'%(num_tests, fit_fmaxes.median(), fit_dG)
+                    print '\t%d (%d%%) of fits are within eps of bounds.'%(num_railed, num_railed/float(num_tests)*100)
                 redoFitFmax = False
 
     if redoFitFmax:        
@@ -204,8 +210,6 @@ def bootstrapCurves(subSeries, fitParameters, concentrations, parameters, defaul
     data = np.ravel([[np.percentile(singles.loc[not_outliers, param], idx) for param in param_names] for idx in [50, 2.5, 97.5]])
     index = param_names + ['%s_lb'%param for param in param_names] + ['%s_ub'%param for param in param_names]
     results = pd.Series(index = index, data=data)
-
-    results.loc['flag'] = '%d'%(redoFitFmax)
     
     # get rsq
     params = Parameters()
@@ -215,6 +219,13 @@ def bootstrapCurves(subSeries, fitParameters, concentrations, parameters, defaul
     ss_total = np.sum((subSeries.median() - subSeries.median().mean())**2)
     ss_error = np.sum((subSeries.median() - objectiveFunction(params, concentrations))**2)
     results.loc['rsq']  = 1-ss_error/ss_total
+
+    # save some parameters
+    results.loc['numClusters'] = numTests
+    results.loc['numIter'] = len(singles)
+    results.loc['fractionOutlier'] = 1 - not_outliers.sum()/float(len(singles))
+    results.loc['flag'] = '%d'%(redoFitFmax)
+    
 
     if plot:
         if plot_dists:
