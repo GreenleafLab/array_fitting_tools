@@ -1,5 +1,7 @@
 import numpy as np
 import pandas as pd
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 import matplotlib.cm as cmx
@@ -15,6 +17,7 @@ import statsmodels.api as sm
 import scipy.stats as st
 import seqfun
 import IMlibs
+import scipy as scp
 
 class Parameters():
     def __init__(self, concentrations=None):
@@ -887,7 +890,8 @@ def filterVariants(subtable):
 
 def plotSequenceJoe(variant_table):
     subtable = variant_table.loc[variant_table.loc[:, 'sublibrary'] == 'sequences']
-    index = (subtable.length == 10)&(subtable.numTests >= 5)&(subtable.dG_ub - subtable.dG_lb < 1)
+    index = (subtable.length == 10)&(subtable.numTests >= 5)
+    #&(subtable.dG_ub - subtable.dG_lb < 1)
     subtable = subtable.loc[index]
     subtable.sort('dG', inplace=True)
     plt.figure();
@@ -993,7 +997,43 @@ def histogramSublibrary(variant_table, sublibrary):
     plt.ylabel('number of variants')
     plt.legend(loc='upper right')
     plt.tight_layout()
-
+    
+def historgram_ddG_Tert(variant_table, tert1, tert2):
+    subtable = variant_table.loc[variant_table.sublibrary == 'tertiary_contacts']
+    subtable.loc[:, 'did_bind'] = subtable.qvalue < 0.05
+    min_num_tests = 5
+    index_t1 = (subtable.numTests >= 5)&(subtable.dG_ub - subtable.dG_lb < 1)&(subtable.qvalue< 0.05)&(subtable.receptor== tert1)
+    index_t2 = (subtable.numTests >= 5)&(subtable.dG_ub - subtable.dG_lb < 1)&(subtable.qvalue< 0.05)&(subtable.receptor== tert2)
+    table_t1 = subtable[index_t1]
+    table_t2 = subtable[index_t2]
+    index = np.arange(0,len(table_t1))
+    table_t2_sorted = pd.DataFrame(index=np.arange(0,len(table_t1)), columns = table_t2.columns)
+    
+    for i, row in enumerate(table_t1.iterrows()):
+        indx_t2_keep = (table_t2.junction_seq == row[1].junction_seq)&(table_t2.effective_length == row[1].effective_length)&(table_t2.helix_one_length == row[1].helix_one_length)
+        if not table_t2[indx_t2_keep].empty:
+            table_t2_sorted.iloc[i] = table_t2[indx_t2_keep].iloc[0]
+    inds = (~pd.isnull(table_t2_sorted)).any(1).nonzero()[0]
+    if len(inds) > 1:
+        x = table_t1.iloc[inds]['dG'].values
+        y = table_t2_sorted.iloc[inds]['dG'].values
+        ddG = y-x
+        fig = plt.figure(figsize=(5,5))
+        ax = fig.add_subplot(111)
+        bins = np.arange(1, 3, 0.1)
+        #ax.hist(ddG,bins=bins, alpha=0.5, histtype='stepfilled')
+        ax.hist(ddG , bins=bins, color=sns.xkcd_rgb['vermillion'], histtype='stepfilled', alpha=0.5)
+        plt.title(r'$\Delta\Delta$' + 'G A225U')
+        plt.xlabel(r'$\Delta\Delta$' + 'G (kcal/mol)')
+        plt.ylabel('Count')
+        if tert2 is 'A225U':
+            y = np.linspace(0,35)
+            h = plt.plot(np.ones(50)*2.1, y)
+            
+        for item in ([ax.title, ax.xaxis.label, ax.yaxis.label] +
+            ax.get_xticklabels() + ax.get_yticklabels()):
+            item.set_fontsize(20)
+    return ddG
 def plotTertiaryContacts(variant_table, length=None):
     if length is None: length = 10
     subtable = variant_table.loc[variant_table.sublibrary == 'tertiary_contacts']
@@ -1020,6 +1060,95 @@ def plotTertiaryContacts(variant_table, length=None):
     g.map(plt.hist, "dG", bins=bins, alpha=0.5, histtype='stepfilled')
     g.set_axis_labels("dG (kcal/mol)", "count");
     g.fig.subplots_adjust(wspace=.02, hspace=.2, left=0.15);
+    
+    
+def plotTertvsTert(variant_table, tert1, tert2):
+    subtable = variant_table.loc[variant_table.sublibrary == 'tertiary_contacts']
+    subtable.loc[:, 'did_bind'] = subtable.qvalue < 0.05
+    min_num_tests = 5
+    index_t1 = (subtable.numTests >= 5)&(subtable.dG_ub - subtable.dG_lb < 1)&(subtable.qvalue< 0.05)&(subtable.receptor== tert1)
+    index_t2 = (subtable.numTests >= 5)&(subtable.dG_ub - subtable.dG_lb < 1)&(subtable.qvalue< 0.05)&(subtable.receptor== tert2)
+    table_t1 = subtable[index_t1]
+    table_t2 = subtable[index_t2]
+    index = np.arange(0,len(table_t1))
+    table_t2_sorted = pd.DataFrame(index=np.arange(0,len(table_t1)), columns = table_t2.columns)
+    
+    for i, row in enumerate(table_t1.iterrows()):
+        indx_t2_keep = (table_t2.junction_seq == row[1].junction_seq)&(table_t2.effective_length == row[1].effective_length)&(table_t2.helix_one_length == row[1].helix_one_length)
+        if not table_t2[indx_t2_keep].empty:
+            table_t2_sorted.iloc[i] = table_t2[indx_t2_keep].iloc[0]
+    inds = (~pd.isnull(table_t2_sorted)).any(1).nonzero()[0]
+    if len(inds) > 1:
+        x = table_t1.iloc[inds]['dG'].values
+        y = table_t2_sorted.iloc[inds]['dG'].values
+        slope, intercept, r_value, p_value, std_err = scp.stats.linregress(x,y)
+        fig = plt.figure(figsize=(5,5))
+        ax = fig.add_subplot(111, aspect='equal')
+        
+
+        #ax2 = sns.jointplot(x, y, kind="reg", size=8)
+        ax.scatter(x, y, marker='.', c='k', alpha=0.8)
+        # plot line of slope one
+        # line of slope 1
+        origin = np.array([-12, -12-(x-y).mean()])
+        ax.set_xlim([-12, -7])
+        ax.set_ylim([-12, -7])
+        ax.plot([-12, -7], [-12, -7], '--', color=sns.xkcd_rgb['vermillion'], label='yisx')
+        sns.set_style("darkgrid")
+ 
+        ax.plot([origin[0], origin[0]+5], [origin[1], origin[1]+5], '--', color=sns.xkcd_rgb['amber'], label='slope 1')
+        ax.set_xlabel(tert1,fontsize=15)
+        ax.set_ylabel(tert2,fontsize=15)
+        ax = sns.regplot(x,y)
+        #xlim_max = np.array([-12, -4])
+        stringprint = ('R^2 = ' + str(round(r_value**2,2)) + '\n'
+                       'slope = ' + str(round(slope,2)) + '\n')
+                       #'y-int = '+ str(round(intercept,2)) + '\n')
+                       
+        
+        ax.text(-11.75,-8, stringprint, fontsize=13)
+        ax.get_xaxis().set_minor_locator(mpl.ticker.AutoMinorLocator())
+        ax.get_yaxis().set_minor_locator(mpl.ticker.AutoMinorLocator())
+        ax.grid(b=True, which='major', color='w', linewidth=1.0)
+        ax.grid(b=True, which='minor', color='w', linewidth=0.5)
+
+    #X = sm.add_constant(x)
+    
+    #
+    ## robust least squares
+    #model = sm.RLM(y, X)
+    #results = model.fit()
+    
+
+def makeTertMatrix(variant_table,figDirectory):
+    #want to compare every tertiary contact to every other
+    inds_r = [0, 1, 2, 3, 6, 7, 9, 10]
+    subtable = variant_table.loc[variant_table.sublibrary == 'tertiary_contacts']
+    subtable.loc[:, 'did_bind'] = subtable.qvalue < 0.05
+    min_num_tests = 5
+    grouped = subtable.groupby('receptor')
+    receptors = grouped.first().index
+    receptors = receptors[inds_r]
+    
+    for pair in map(','.join, itertools.combinations(receptors, 2)):
+        terts = pair.split(',')
+        if not(terts[0] == terts[1]):
+            print pair
+            tectoData.plotTertvsTert(variant_table,terts[0], terts[1])
+            print 'scatter.%svs.%s.pdf'%(terts[0],terts[1])
+            plt.savefig(os.path.join(figDirectory, 'scatter.%svs.%s.pdf'%(terts[0],terts[1])))
+            plt.close()
+    
+    #fig = plt.figure(figsize=(7,7))
+    #ax.scatter(x, y, marker='.', c='k', alpha=0.8)
+    #
+    #X = sm.add_constant(x)
+    #xlim_max = np.array([-12, -4])
+    #
+    ## robust least squares
+    #model = sm.RLM(np.asarray(y), np.asarray(x) )
+    #results = model.fit()
+    #ax.plot(xlim_max,  results.params.dG*xlim_max + results.params.const, 'r:', label='best fit')
     
 def plotAbsFluorescence(a, index, concentrations=None):
     
@@ -1089,24 +1218,197 @@ def plotDeltaAbsFluorescence(a, filterName, concentrations=None):
 
 def plotThreeWayJunctions(variant_table):
     subtable = variant_table.loc[variant_table.sublibrary == 'three_way_junctions']
-
     subtable.loc[:, 'did_bind'] = subtable.qvalue < 0.05
+    
     min_num_tests = 5
     bins = np.arange(-12, -5, 0.2)
     
     seqs = np.unique(subtable.junction_seq)
     for seq in np.array_split(seqs, 2):
-    
+        print seq
         index = (subtable.numTests >= min_num_tests)&np.in1d(subtable.junction_seq, seq)
         g = sns.FacetGrid(subtable.loc[index], col="loop", row="junction_seq", hue="did_bind",
                           size=2,
                           margin_titles=True,
                           aspect=1.5,
-                          hue_kws={"color":[sns.xkcd_rgb['light grey'], sns.xkcd_rgb['vermillion']]})
+                          hue_kws={"color":[sns.xkcd_rgb['vermillion'], sns.xkcd_rgb['light grey']]})
         g.map(plt.hist, "dG", bins=bins, alpha=0.5, histtype='stepfilled')
-        g.set_axis_labels("dG (kcal/mol)", "count");
+        g.set_axis_labels("\DeltaG (kcal/mol)", "count");
         g.fig.subplots_adjust(wspace=.1, hspace=.05, left=0.15);
         
+def plotThreeWayJunctions_specific(variant_table):
+    subtable = variant_table.loc[variant_table.sublibrary == 'three_way_junctions']
+    subtable.loc[:, 'did_bind'] = subtable.qvalue < 0.05
+    
+    min_num_tests = 5
+    bins = np.arange(-12, -5, 0.2)
+    
+    seqs = np.unique(subtable.junction_seq)
+    seqs_specific = seqs[[4,0,6]]
+    index = (subtable.numTests >= min_num_tests)&np.in1d(subtable.junction_seq, seqs_specific)
+    sns.set(font_scale=2)
+    g = sns.FacetGrid(subtable.loc[index], col="loop", row="junction_seq", hue="did_bind",
+                      size=5,
+                      margin_titles=True,
+                      aspect=1.3,
+                      row_order = seqs_specific, 
+                      hue_kws={"color":[sns.xkcd_rgb['vermillion'], sns.xkcd_rgb['light grey']]})
+    g = (g.map(plt.hist, "dG", bins=bins, alpha=0.5, histtype='stepfilled')).set_titles("diners")
+    g.set_axis_labels(r'$\Delta$' + "G (kcal/mol)", "count");
+    g.fig.subplots_adjust(wspace=.2, hspace=.15, left=0.15);
+    plt.setp(g.fig.texts, text="")
+    g.set_titles(row_template="", col_template="")
+    
+    #g.col_names.remove    
+def plotThreeWaySwitch(variant_table, figDirectory):
+    subtable = variant_table.loc[variant_table.sublibrary == 'three_way_junctions']
+    subtable.loc[:, 'did_bind'] = subtable.qvalue < 0.05
+    min_num_tests = 5
+    bins = np.arange(-12, -5, 0.2)
+    topos = np.unique(subtable.junction_seq)
+    table_threeway_all = pd.DataFrame(columns = subtable.columns)
+    for topo in topos:
+        index_t = (subtable.junction_seq== topo)&(subtable.numTests >= 5)&(~np.isnan(subtable.dG))
+        table_t = subtable[index_t]
+        table_GGAA = pd.DataFrame(columns=table_t.columns)
+        table_UUCG = pd.DataFrame(columns=table_t.columns)
+        for flank in np.unique(subtable.flank):
+            index_GGAA = (table_t.flank== flank)&(table_t.loop== 'GGAA_UUCG')
+            if not table_t[index_GGAA].empty:
+                for i, row in enumerate(table_t[index_GGAA].iterrows()):
+                    #print row
+                    index_UUCG = (table_t.helix_one_length == row[1].helix_one_length)&(table_t.loop == 'UUCG_GGAA')&(table_t.flank== flank)
+                    if not table_t[index_UUCG].empty:
+                       table_GGAA = table_GGAA.append(table_t[index_GGAA].iloc[i])
+                       table_UUCG = table_UUCG.append(table_t[index_UUCG])
+                    
+        x = table_GGAA['dG'].values
+        y = table_UUCG['dG'].values
+        KGGAA = np.exp(-x/0.58)
+        KUUCG = np.exp(-y/0.58)
+        Kbind = KUUCG + KGGAA
+        Kconf = KGGAA/KUUCG
+        dGbind = -0.58*np.log(Kbind)
+        dGconf = -0.58*np.log(Kconf)
+        table_GGAA.loc[:,'KGGAA'] = KGGAA
+        table_GGAA.loc[:,'KUUCG'] = KUUCG
+        table_GGAA.loc[:,'Kbind'] = Kbind
+        table_GGAA.loc[:,'Kconf'] =  Kconf
+        table_GGAA.loc[:,'dGbind'] = dGbind
+        table_GGAA.loc[:,'dGconf'] = dGconf
+        table_threeway_all = table_threeway_all.append(table_GGAA)
+        
+        
+        slope, intercept, r_value, p_value, std_err = scp.stats.linregress(x,y)
+        fig = plt.figure(figsize=(7,7))
+        ax = fig.add_subplot(111, aspect='equal')
+        
+
+        #ax2 = sns.jointplot(x, y, kind="reg", size=8)
+        ax.scatter(x, y, marker='.', c='k', alpha=0.8)
+        # plot line of slope one
+        # line of slope 1
+        #origin = np.array([-12, -12-(x-y).mean()])
+        ax.set_xlim([-12, -7])
+        ax.set_ylim([-12, -7])
+        #ax.plot([-12, -7], [-12, -7], '--', color=sns.xkcd_rgb['vermillion'], label='yisx')
+        sns.set_style("darkgrid")
+ 
+        #ax.plot([origin[0], origin[0]+5], [origin[1], origin[1]+5], '--', color=sns.xkcd_rgb['amber'], label='slope 1')
+        ax.set_xlabel('GGAA',fontsize=15)
+        ax.set_ylabel('UUCG',fontsize=15)
+        ax = sns.regplot(x,y)
+        #xlim_max = np.array([-12, -4])
+        stringprint = ('R^2 = ' + str(round(r_value**2,2)) + '\n'
+                       'slope = ' + str(round(slope,2)) + '\n')
+                       #'y-int = '+ str(round(intercept,2)) + '\n')
+                       
+        
+        ax.text(-11.75,-8, stringprint, fontsize=13)
+        ax.get_xaxis().set_minor_locator(mpl.ticker.AutoMinorLocator())
+        ax.get_yaxis().set_minor_locator(mpl.ticker.AutoMinorLocator())
+        ax.grid(b=True, which='major', color='w', linewidth=1.0)
+        ax.grid(b=True, which='minor', color='w', linewidth=0.5)
+        fig.suptitle(topo)
+        plt.savefig(os.path.join(figDirectory, 'threewayUUCGvsGGAA.topology%s.pdf'%(topo)))
+        plt.close('all')
+        
+        fig = plt.figure(figsize=(10,10))
+        gs = gridspec.GridSpec(2, 2)
+        ax1 = fig.add_subplot(gs[0,0])
+        
+        ax1.hist(Kconf , bins=np.linspace(0, 200, 50 ), color=sns.xkcd_rgb['vermillion'], histtype='stepfilled', alpha=0.5)
+        plt.xlabel('Kconf')
+        plt.ylabel('count')
+        plt.tight_layout()
+        ax2 = fig.add_subplot(gs[0,1])
+        ax2.hist(dGconf, bins=np.linspace(-3.5, 3.5, 40), color=sns.xkcd_rgb['vermillion'], histtype='stepfilled', alpha=0.5,label="dGconf")
+        ax2.hist(dGbind, bins=np.linspace(-12.5, -5.5, 40), color=sns.xkcd_rgb['amber'], histtype='stepfilled', alpha=0.5, label="dGbind")
+        ax2.legend()
+        plt.xlabel('dG (kcal/mol)')
+        plt.ylabel('count')
+        
+        ax3 = fig.add_subplot(gs[1,0])
+        ax3 = sns.boxplot(table_GGAA.dGbind, groupby=np.sort(table_GGAA.helix_one_length))
+        plt.ylabel('dGbind (kcal/mol)')
+        ax3.set_ylim([-12.5,-5.5])
+        ax4 = fig.add_subplot(gs[1,1])
+        ax4 = sns.boxplot(table_GGAA.dGconf, groupby=np.sort(table_GGAA.helix_one_length))
+        ax4.set_ylim([-3.5, 3.5])
+        plt.ylabel('dGconf (kcal/mol)')
+        fig.suptitle(topo)
+        #grouped = subtable.groupby('receptor')
+        plt.savefig(os.path.join(figDirectory, 'threeway.topology%s.energetics.pdf'%(topo)))
+    return table_threeway_all   
+    #need to color by length
+
+def compareTopos(variant_table, figDirectory):
+    subtable = plotThreeWaySwitch(variant_table, figDirectory)
+    subtable = subtable.sort('flank')
+    topos = np.unique(subtable.junction_seq)
+    lengths = np.unique(subtable.helix_one_length)
+    #topology of no insertions
+    
+    #topo_ = topos[4]
+    counter = 1
+    for topo_, topo, in itertools.combinations(topos, 2):
+        print counter, topo_, topo
+        counter = counter +1
+        if topo_ is not topo:
+            table_ = subtable[subtable.junction_seq== topo_]
+            dGconf_ = np.array([])
+            dGconf_2 = np.array([])
+            for length in lengths:
+                subtable_ = table_[(table_.helix_one_length == length)]
+                flanks_ = subtable_.flank
+                index_t2 = (subtable.junction_seq== topo)&(subtable.helix_one_length== length)
+                subtable_t2 = subtable[index_t2]
+                index_keep =  np.in1d(subtable[index_t2].flank, flanks_)
+                index_keep_ =  np.in1d(flanks_,subtable[index_t2].flank)
+                dGconf_ = np.append(dGconf_,  subtable_[index_keep_].dGconf)
+                dGconf_2 = np.append(dGconf_2,  subtable_t2[index_keep].dGconf)
+            slope, intercept, r_value, p_value, std_err = scp.stats.linregress(dGconf_,dGconf_2)    
+            fig = plt.figure(figsize=(7,7))
+            ax = fig.add_subplot(111, aspect='equal')
+            ax.scatter(dGconf_, dGconf_2, marker='.', c='k', alpha=0.8)
+            # plot line of slope one
+            # line of slope 1
+            origin = np.array([-2.5, -2.5-(dGconf_-dGconf_2).mean()])
+            ax.set_xlim([-2.5, 2])
+            ax.set_ylim([-2.5, 2])
+            ax.plot([-2.5, 2], [-2.5,2], '--', color=sns.xkcd_rgb['vermillion'], label='yisx')
+            ax.plot([origin[0], origin[0]+5], [origin[1], origin[1]+5], '--', color=sns.xkcd_rgb['amber'], label='slope 1')
+            ax = sns.regplot(dGconf_,dGconf_2)
+            plt.xlabel('dGconf %s'%(topo_))
+            plt.ylabel('dGconf %s'%(topo))
+            plt.title('Compare three way junctions of topology %s vs %s'%(topo,topo_))
+            sns.set_style("darkgrid")
+            plt.savefig(os.path.join(figDirectory, 'threeway.dGconf_topology%svs%s.pdf'%(topo, topo_)))
+            plt.close()
+        
+  
+
+    
 def plotScatterplotDelta(variant_tables):
     index = pd.concat([(variant_table.numTests >= 5)&
         (variant_table.dG_ub - variant_table.dG_lb <= 1)
