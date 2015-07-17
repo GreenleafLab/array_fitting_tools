@@ -354,7 +354,8 @@ def splitAndFit(bindingSeries, concentrations, fitParameters, numCores, index=No
     if split:  
         # split into parts
         print 'Splitting clusters into %d groups:'%numCores
-        indicesSplit = np.array_split(index, numCores)
+        # assume that list is sorted somehow
+        indicesSplit = [index[i::numCores] for i in range(numCores)]
         bindingSeriesSplit = [bindingSeries.loc[indices] for indices in indicesSplit]
         printBools = [True] + [False]*(numCores-1)
         print 'Fitting binding curves:'
@@ -377,7 +378,7 @@ def fitSetKds(subBindingSeries, concentrations, fitParameters, mod_fmin=None, pr
     singles = []
     for i, idx in enumerate(subBindingSeries.index):
         if print_bool:
-            num_steps = min(100, (int(len(subBindingSeries)/100.)))
+            num_steps = max(min(100, (int(len(subBindingSeries)/100.))), 1)
             if (i+1)%num_steps == 0:
                 print 'working on %d out of %d iterations (%d%%)'%(i+1,
                                                                    len(subBindingSeries.index),
@@ -494,9 +495,10 @@ def loadCPseqSignal(filename, concentrations=None):
     table = pd.read_csv(filename, sep='\t', header=None, names=cols, index_col=False)
     return table
 
-def loadNullScores(signalNamesByTileDict, filterSet, tile=None, index=None):
+def loadNullScores(signalNamesByTileDict, filterSet, tile=None, index=None, return_binding_series=None, concentrations=None):
     # find one CPsignal file before reduction. Find subset of rows that don't
     # contain filterSet
+    if return_binding_series is None: return_binding_series = False
     if tile is None: tile = '003'   # Default is third tile
     filename = signalNamesByTileDict[tile]
 
@@ -507,9 +509,13 @@ def loadNullScores(signalNamesByTileDict, filterSet, tile=None, index=None):
     subset = [str(s).find(filterSet) == -1 for s in table.loc[:, 'filter']]
     
     if index is None: index = -1
-    null_scores = np.array([float(s.split(',')[index]) for s in table.loc[subset].binding_series])
-    
-    return null_scores[np.isfinite(null_scores)]
+    binding_series = pd.DataFrame([s.split(',') for s in table.loc[subset].binding_series], dtype=float, index=table.loc[subset].index)
+    if concentrations is not None:
+        binding_series.columns = formatConcentrations(concentrations)
+    if return_binding_series:
+        return binding_series.dropna(axis=0)
+    else: 
+        return binding_series.iloc[:, index].dropna()
 
 def tileIntToString(currTile):
     if currTile < 10:
@@ -541,7 +547,7 @@ def getTimeDeltaDict(timeStampDict):
         timeDeltas[tile] = getTimeDeltas(timeStamps) + getTimeDeltaBetweenTiles(timeStampDict, tile)
     return timeDeltas
 
-def loadBindingCurveFromCPsignal(filename, concentrations):
+def loadBindingCurveFromCPsignal(filename, concentrations, subset=None):
     """
     open file after being reduced to the clusters you are interested in.
     find the all cluster signal and the binding series (comma separated),
@@ -549,6 +555,8 @@ def loadBindingCurveFromCPsignal(filename, concentrations):
     """
     formatted_concentrations = formatConcentrations(concentrations)
     table = pd.read_table(filename, usecols=(0, 10,11), index_col=0)
+    if subset is not None:
+        table = table.loc[subset]
     binding_series = pd.DataFrame([s.split(',') for s in table.binding_series], dtype=float, index=table.index, columns=formatted_concentrations)
     all_cluster_signal = pd.Series(table.all_cluster_signal, index=table.index, dtype=float)
     return binding_series, all_cluster_signal
@@ -618,16 +626,6 @@ def bindingCurve(concentrations, kd, fmax=None, fmin=None):
 def formatConcentrations(concentrations):
     return [('%4.1f'%x).lstrip().rstrip('0').rstrip('.') for x in concentrations]
 
-def findMedianFits(table, parameters):
-    fitFilteredTable = IMlibs.filterFitParameters(IMlibs.filterStandardParameters(table))
-    
-def findMedianFitsSubset(subtable, parameters):
-    for idx in subtable.index:
-        fitParameters = parameters.fitParameters
-        fitParameters.loc[:, ]
-    
-    pass
-
 def plotSingleClusterfit(bindingSeries, fitConstrained, cluster, parameters):
 
     plt.figure(figsize=(4,4));
@@ -645,11 +643,15 @@ def plotSingleClusterfit(bindingSeries, fitConstrained, cluster, parameters):
     plt.tight_layout()
     
     
-def plotSingleVariantFits(table, results, variant, parameters ):
+def plotSingleVariantFits(table, results, variant, parameters, plot_init=None ):
+    if plot_init is None:
+        plot_init = False
     concentrations = parameters.concentrations
     concentrationCols = formatConcentrations(concentrations)
-
-    bindingSeries = table.loc[table.variant_number==variant, concentrationCols]
+    
+    filteredTable = filterStandardParameters(table, concentrations)
+    bindingSeries = filteredTable.loc[table.variant_number==variant, concentrationCols]
+    #bindingSeriesFiltered = filterFitParameters(filteredTable).loc[table.variant_number==variant, concentrationCols]
     eminus, eplus = fitBindingCurve.findErrorBarsBindingCurve(bindingSeries)
     plt.figure(figsize=(4,4))
     plt.errorbar(concentrations, bindingSeries.median(), yerr=[eminus, eplus], fmt='.', elinewidth=1, capsize=2, capthick=1, color='k', linewidth=1)
@@ -660,27 +662,37 @@ def plotSingleVariantFits(table, results, variant, parameters ):
                        parameters.find_Kd_from_dG(results.loc[variant, 'dG']),
                        fmax=results.loc[variant, 'fmax'],
                        fmin=results.loc[variant, 'fmin'])
-    
-    if parameters.fitParameters.loc['vary', 'fmin']:
-        ub = bindingCurve(more_concentrations,
-                           parameters.find_Kd_from_dG(results.loc[variant, 'dG_lb']),
-                           fmax=results.loc[variant, 'fmax_ub'],
-                           fmin=results.loc[variant, 'fmin_ub'])
-        lb = bindingCurve(more_concentrations,
-                           parameters.find_Kd_from_dG(results.loc[variant, 'dG_ub']),
-                           fmax=results.loc[variant, 'fmax_lb'],
-                           fmin=results.loc[variant, 'fmin_lb'])
-    else:
-        ub = bindingCurve(more_concentrations,
-                           parameters.find_Kd_from_dG(results.loc[variant, 'dG_lb']),
-                           fmax=results.loc[variant, 'fmax_ub'],
-                           fmin=results.loc[variant, 'fmin'])
-        lb = bindingCurve(more_concentrations,
-                           parameters.find_Kd_from_dG(results.loc[variant, 'dG_ub']),
-                           fmax=results.loc[variant, 'fmax_lb'],
-                           fmin=results.loc[variant, 'fmin'])        
     plt.plot(more_concentrations, fit, 'r')
-    plt.fill_between(more_concentrations, lb, ub, color='0.5', label='95% conf int', alpha=0.5)
+    try:
+        if parameters.fitParameters.loc['vary', 'fmin']:
+            ub = bindingCurve(more_concentrations,
+                               parameters.find_Kd_from_dG(results.loc[variant, 'dG_lb']),
+                               fmax=results.loc[variant, 'fmax_ub'],
+                               fmin=results.loc[variant, 'fmin_ub'])
+            lb = bindingCurve(more_concentrations,
+                               parameters.find_Kd_from_dG(results.loc[variant, 'dG_ub']),
+                               fmax=results.loc[variant, 'fmax_lb'],
+                               fmin=results.loc[variant, 'fmin_lb'])
+        else:
+            ub = bindingCurve(more_concentrations,
+                               parameters.find_Kd_from_dG(results.loc[variant, 'dG_lb']),
+                               fmax=results.loc[variant, 'fmax_ub'],
+                               fmin=results.loc[variant, 'fmin'])
+            lb = bindingCurve(more_concentrations,
+                               parameters.find_Kd_from_dG(results.loc[variant, 'dG_ub']),
+                               fmax=results.loc[variant, 'fmax_lb'],
+                               fmin=results.loc[variant, 'fmin'])        
+        
+        plt.fill_between(more_concentrations, lb, ub, color='0.5', label='95% conf int', alpha=0.5)
+    except:
+        pass
+    if plot_init:
+        fit = bindingCurve(more_concentrations,
+                   parameters.find_Kd_from_dG(results.loc[variant, 'dG_init']),
+                   fmax=results.loc[variant, 'fmax_init'],
+                   fmin=results.loc[variant, 'fmin_init'])
+        plt.plot(more_concentrations, fit, sns.xkcd_rgb['purplish'], linestyle=':')
+        
     ax = plt.gca()
     ax.set_xscale('log')
     
@@ -708,13 +720,13 @@ def findVariantTable(table, parameter=None, name=None, concentrations=None):
                               axis=1)
     
     # filter for nan, barcode, and fit
-    firstFilterGrouped = filterStandardParameters(table).groupby('variant_number')
-    variant_table.loc[:, 'numTests'] = firstFilterGrouped[columns[0]].count()
-    variant_table.loc[:, 'numRejects'] = grouped[columns[0]].count() - variant_table.loc[:, 'numTests'] 
+    firstFilterGrouped = filterStandardParameters(table, concentrations).groupby('variant_number')
+    variant_table.loc[:, 'numTests'] = firstFilterGrouped[parameter].count()
+    variant_table.loc[:, 'numRejects'] = grouped[parameter].count() - variant_table.loc[:, 'numTests'] 
     
-    fitFilteredTable = filterFitParameters(filterStandardParameters(table))
+    fitFilteredTable = filterFitParameters(filterStandardParameters(table, concentrations))
     fitFilterGrouped = fitFilteredTable.groupby('variant_number')
-    variant_table.loc[:, 'fitFraction'] = fitFilterGrouped[columns[0]].count()/variant_table.loc[:, 'numTests']
+    variant_table.loc[:, 'fitFraction'] = fitFilterGrouped[parameter].count()/variant_table.loc[:, 'numTests']
     
     # then save parameters
     variant_table.loc[:, test_stats] = fitFilterGrouped[test_stats].median()
@@ -738,16 +750,16 @@ def getPvalueFitFilter(variant_table, p):
         variant_table.loc[x.index, 'pvalue'] = st.binom.sf(x-1, n, p)
     return      
 
-def getBootstrappedErrors(variant_table, table,  parameters, numCores, parameter=None, variants=None):
+def getBootstrappedErrors(table,  parameters, numCores, parameter=None, variants=None):
     if parameter is None: parameter = 'dG'
     if variants is None:
-        variants = variant_table.index
+        variants = np.unique(table.variant_number.dropna())
     
     concentrations = parameters.concentrations
     concentrationCols = formatConcentrations(concentrations)
     param_names = parameters.fitParameters.dropna(axis=1).columns.tolist()
     #subtable = filterFitParameters(filterStandardParameters(table)).loc[:, ['variant_number'] + concentrationCols]
-    subtable = filterStandardParameters(table).loc[:, ['variant_number'] + concentrationCols]
+    subtable = filterStandardParameters(table, concentrations).loc[:, ['variant_number'] + concentrationCols + param_names]
     grouped = subtable.groupby('variant_number')
     
     print '\tDividing table into groups...'
@@ -762,8 +774,9 @@ def getBootstrappedErrors(variant_table, table,  parameters, numCores, parameter
     results = Parallel(n_jobs=numCores, verbose=10)(delayed(perVariantFit)(group.loc[:, concentrationCols],
                                                                      concentrations,
                                                                      parameters,
-                                                                     variant_table.loc[variant,param_names] ) for group, variant in itertools.izip(groups, actual_variants))
-    results = pd.concat(results)       
+                                                                     group.loc[:, param_names].median() ) for group in groups)
+    results = pd.concat(results)
+    results.index = actual_variants
     return results
 
 def matchTogetherResults(variant_table, results):
@@ -776,12 +789,17 @@ def matchTogetherResults(variant_table, results):
     variant_table.columns = columns
     return pd.concat([variant_table, results], axis=1)
 
-def filterStandardParameters(table):
+def filterStandardParameters(table, concentrations=None):
 
-    not_nan_binding_points = formatConcentrations([0.91, 2.73])# if first two binding points are NaN, filter
-    nan_filter = ~np.isnan(table.loc[:, not_nan_binding_points]).all(axis=1)        
-    barcode_filter = table.loc[:, 'barcode_good']
-    return table.loc[nan_filter&barcode_filter]
+    #not_nan_binding_points = formatConcentrations([0.91, 2.73])# if first two binding points are NaN, filter
+    #not_nan_binding_points = formatConcentrations(concentrations)
+    #nan_filter = ~np.isnan(table.loc[:, not_nan_binding_points]).all(axis=1)
+    if 'barcode_good' in table.columns:
+        barcode_filter = table.loc[:, 'barcode_good']
+        barcode_filter.fillna(False, inplace=True)
+        return table.loc[barcode_filter]
+    else:
+        return table
 
 def filterFitParameters(table):
     # fit explains at least 50% of the variance, and the variance in dG is less than 1 kcal/mol
@@ -790,13 +808,13 @@ def filterFitParameters(table):
     return table.loc[index]
 
 
-def fitSingleVariant(table, variant_table, variant, parameters):
+def fitSingleVariant(table, variant, parameters):
     concentrationCols = formatConcentrations(parameters.concentrations)
     param_names = parameters.fitParameters.dropna(axis=1).columns.tolist()
-    subtable = filterStandardParameters(table).loc[:, ['variant_number'] + concentrationCols]
+    subtable = filterStandardParameters(table, parameters.concentrations).loc[:, ['variant_number'] + concentrationCols + param_names]
     grouped = subtable.groupby('variant_number')
     
-    initial_points = variant_table.loc[variant, param_names]
+    initial_points = grouped.median().loc[variant, param_names]
     results = perVariantFit(subtable.loc[subtable.variant_number==variant, concentrationCols],
                   parameters.concentrations, parameters, initial_points, plot=True)
     return results
@@ -888,9 +906,9 @@ def plotErrorInBins(variant_table, binedges=None, count_binedges=None):
         binedges = np.arange(-12, -4, 0.5)
     subtable = pd.DataFrame(index=variant_table.index,
                             columns=['binned_dGs', 'confInt', 'numTests'],
-                            data=np.column_stack([np.digitize(variant_table.dG, binedges),
-                                                  variant_table.dG_ub - variant_table.dG_lb,
-                                                  np.around(variant_table.numClusters)]))
+                            data=np.column_stack([np.digitize(variant_table.dG.astype(float), binedges),
+                                                  (variant_table.dG_ub - variant_table.dG_lb).astype(float),
+                                                  np.around(variant_table.numClusters.astype(float))]))
     subtable.loc[:, 'dG (kcal/mol)'] = ['%3.1f:%3.1f'%(binedges[bins-1], binedges[bins]-1) if bins!=len(binedges) else '>%3.1f'%binedges[-1] for bins in subtable.binned_dGs.astype(int)]
     order = ['%3.1f:%3.1f'%(binedges[bins-1], binedges[bins]-1) if bins!=len(binedges) else '>%3.1f'%binedges[-1] for bins in np.arange(1, len(binedges)+1)]
     
@@ -900,14 +918,15 @@ def plotErrorInBins(variant_table, binedges=None, count_binedges=None):
     count_order = ['%d-%d'%(count_binedges[bins-1], count_binedges[bins]-1) if bins!=len(count_binedges) else '>%d'%count_binedges[-1] for bins in np.arange(1, len(count_binedges)+1)]
     subtable.loc[:, 'binned_counts'] = np.digitize(subtable.numTests, count_binedges) 
     subtable.loc[:, '# tests'] = ['%d-%d'%(count_binedges[bins-1], count_binedges[bins]-1) if bins!=len(count_binedges) else '>%d'%count_binedges[-1] for bins in subtable.binned_counts.astype(int)]
-    g = sns.FacetGrid(subtable, size=2.5, aspect=1.5, col="# tests", col_wrap=3,
-                      col_order=count_order )
-    g.map(sns.barplot, "dG (kcal/mol)", "confInt",
-                order=order,
-                color="r")
-    g.set(ylim=(0, 2), );
-    g.set_xticklabels(rotation=90)
-    g.fig.subplots_adjust(hspace=.2, bottom=0.25)
+    with sns.axes_style('darkgrid'):
+        g = sns.FacetGrid(subtable, size=2.5, aspect=1.5, col="# tests", col_wrap=3,
+                          col_order=count_order )
+        g.map(sns.barplot, "dG (kcal/mol)", "confInt",
+                    order=order,
+                    color="r")
+        g.set(ylim=(0, 2), );
+        g.set_xticklabels(rotation=90)
+        g.fig.subplots_adjust(hspace=.2, bottom=0.25)
     
 def plotFitFmaxs(fitUnconstrained, remove_outliers=None, maxdG=None, index=None, param=None):
     if param is None: param='fmax'
@@ -928,6 +947,14 @@ def plotFitFmaxs(fitUnconstrained, remove_outliers=None, maxdG=None, index=None,
         fmaxUnconstrainedBest = fmaxUnconstrainedBest.loc[subset]
         
     fmax_lb, fmax_initial, fmax_upperbound = np.percentile(fmaxUnconstrainedBest, [0, 50, 100])
+    
+    # find maximum of probability distribution
+    counts, binedges = np.histogram(fmaxUnconstrainedBest, bins=np.linspace(fmaxUnconstrainedBest.min(), fmaxUnconstrainedBest.max(), 50))
+    counts = counts[1:]; binedges=binedges[1:] # ignore first bin
+    idx_max = np.argmax(counts)
+    if idx_max != 0 and idx_max != len(counts)-1:
+        fmax_initial = binedges[idx_max+1]
+        
     with sns.axes_style('white'):
         fig = plt.figure(figsize=(4,3));
         ax = fig.add_subplot(111)
@@ -948,6 +975,52 @@ def plotFitFmaxs(fitUnconstrained, remove_outliers=None, maxdG=None, index=None,
         plt.ylim(ylim)
         plt.tight_layout()
     return [fmax_lb, fmax_initial, fmax_upperbound]
+
+def findProbableFmin(bindingSeriesNorm, qvalues, remove_outliers=None, min_q=None):
+
+    if remove_outliers is None:
+        remove_outliers=True
+    if min_q is None:
+        min_q = 0.75
+    fminProbable = bindingSeriesNorm.loc[qvalues.index].loc[qvalues>min_q].iloc[:, 0].dropna()
+    if remove_outliers:
+        subset = pd.Series(index=fminProbable.index, data=np.logical_not(seqfun.is_outlier(fminProbable)))
+        print 'removed %d out of %d fit fmins (%4.2f%%)'%(len(subset)-subset.sum(), len(subset), (len(subset)-subset.sum())/float(len(subset)))
+        fminProbable = fminProbable.loc[subset]
     
+    # initial bounds by percentile    
+    fmax_lb, fmax_initial, fmax_upperbound = np.percentile(fminProbable, [0, 50, 100])
+    
+    # find maximum of probability distribution
+    counts, binedges = np.histogram(fminProbable, bins=np.linspace(fminProbable.min(), fminProbable.max(), 50))
+    counts = counts[1:]; binedges=binedges[1:] # ignore first bin
+    idx_max = np.argmax(counts)
+    if idx_max != 0 and idx_max != len(counts)-1:
+        fmax_initial = binedges[idx_max+1]
 
+    # only let fmin go up to ~2 std devs from initial
+    #std = fminProbable.loc[fminProbable>binedges[0]].std()
+    #fmax_upperbound = fmax_initial + std*2
 
+    # plot
+    with sns.axes_style('white'):
+        fig = plt.figure(figsize=(4,3));
+        ax = fig.add_subplot(111)
+        sns.distplot(fminProbable, color='r', hist_kws={'histtype':'stepfilled'}, ax=ax)
+        ylim = [0, ax.get_ylim()[1]*1.1]
+        ax.plot([fmax_lb]*2, ylim, 'k--')
+        ax.plot([fmax_initial]*2, ylim, 'k:')
+        ax.plot([fmax_upperbound]*2, ylim, 'k--')
+        plt.ticklabel_format(style='sci', axis='y', scilimits=(0,0))
+        plt.annotate('sigma/mu=%4.2f\n(95th-5th)/50th=%4.2f'%(
+            fminProbable.std()/fminProbable.mean(),
+            (np.percentile(fminProbable, 95) - np.percentile(fminProbable, 5))/np.percentile(fminProbable, 50)),
+            xy=(0.90, 0.95),
+                        xycoords='axes fraction',
+                        horizontalalignment='right', verticalalignment='top',
+                        fontsize=12)
+        plt.xlim(0, np.percentile(fminProbable, 100)*1.05)
+        plt.ylim(ylim)
+        plt.tight_layout()
+
+    return [fmax_lb, fmax_initial, fmax_upperbound]
