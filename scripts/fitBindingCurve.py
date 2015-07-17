@@ -14,7 +14,7 @@ def objectiveFunction(params, concentrations, data=None, weights=None):
     fmax = parvals['fmax']
     dG   = parvals['dG']
     fmin = parvals['fmin']
-    fracbound = fmax*concentrations/(concentrations+np.exp(dG/0.582)/1e-9)+fmin
+    fracbound = (fmax - fmin)*concentrations/(concentrations + np.exp(dG / 0.582)/1e-9)+fmin
 
     if data is None:
         return fracbound
@@ -143,7 +143,7 @@ def bootstrapCurves(subSeries, fitParameters, concentrations, parameters, defaul
         eminus = eplus = np.ones(len(concentrations))*np.nan
     else:
         eminus = eplus = default_errors/np.sqrt(numTests)
-    
+    median_fluorescence = subSeries.median()
     
     if numTests <10 and np.power(numTests, numTests) <= n_samples:
         # then do all possible permutations
@@ -155,39 +155,55 @@ def bootstrapCurves(subSeries, fitParameters, concentrations, parameters, defaul
         indices = np.random.choice(subSeries.index, size=(n_samples, len(subSeries)), replace=True)
     n_tests = len(indices)
     
-    # if n_tests is less than 5
-    singles = {}
-    for i, clusters in enumerate(indices):
+    # if last point in binding series is below fmax constraints, do by other method
+    if median_fluorescence[-2] < fitParameters.loc['lowerbound', 'fmax']:
+        redoFitFmax = True
         if plot_dists:
-            if i%(n_tests/10.)==0: print 'working on %d out of %d, %d%%'%(i, n_tests, i/float(n_tests)*100)
-        fluorescence = subSeries.loc[clusters].median()
-        singles[i] = fitSingleBindingCurve(concentrations, fluorescence, fitParameters, errors=[eminus, eplus], plot=False)
-        
-        # check if after 100 tries, the fmax_ub is railed.
-        if i==min(49, n_tests-1):
-            current_data = pd.concat(singles, axis=1).transpose()
-            fit_fmaxes = current_data.fmax
-            fit_dG = pd.concat(singles, axis=1).transpose().dG.median()
+            print ('last concentration is below lb for fmax '+
+                   '(%4.2f out of %4.2f (%d%%). Doing bootstrapped fit with fmax samples from dist'%(median_fluorescence[-1],
+                                                                                                     fitParameters.loc['lowerbound', 'fmax'],
+                                                                                                     median_fluorescence[-1]/fitParameters.loc['lowerbound', 'fmax']*100))
+    else:
+        redoFitFmax = False
+        if plot_dists:
+            print ('last concentration is above lb for fmax '+
+                   '(%4.2f out of %4.2f (%d%%). Proceeding by varying fmax'%(median_fluorescence[-1],
+                                                                                                     fitParameters.loc['lowerbound', 'fmax'],
+                                                                                                     median_fluorescence[-1]/fitParameters.loc['lowerbound', 'fmax']*100))
+    
+    # if n_tests is less than 5
+    if not redoFitFmax:
+        singles = {}
+        for i, clusters in enumerate(indices):
+            if plot_dists:
+                if i%(n_tests/10.)==0: print 'working on %d out of %d, %d%%'%(i, n_tests, i/float(n_tests)*100)
+            fluorescence = subSeries.loc[clusters].median()
+            singles[i] = fitSingleBindingCurve(concentrations, fluorescence, fitParameters, errors=[eminus, eplus], plot=False)
             
-            num_railed = ((np.abs(fit_fmaxes-fitParameters.loc['upperbound', 'fmax']) < eps).sum() +
-                          (np.abs(fit_fmaxes-fitParameters.loc['lowerbound', 'fmax']) < eps).sum())
-            num_tests = len(fit_fmaxes)
-            
-            if (num_railed/float(num_tests) > min_fraction_railed or
-                fit_dG > parameters.maxdG):
-                # problem encountered. do everything again with set fmax.
-                if plot_dists:
-                    print 'After %d iterations, cannot find fmax.'%(num_tests)
-                    print '\tMedian fit dG = %4.2f (max is %4.2f)'%(fit_dG, parameters.maxdG)
-                    print '\t%d (%d%%) of fits are within eps of bounds.'%(num_railed, num_railed/float(num_tests)*100)
-                    print 'Starting bootstrapped fit again with fmax sampled from dist'
-                redoFitFmax = True
-                break
-            else:
-                if plot_dists:
-                    print 'After %d iterations: median fmax is %4.2f. median dG is %4.2f'%(num_tests, fit_fmaxes.median(), fit_dG)
-                    print '\t%d (%d%%) of fits are within eps of bounds.'%(num_railed, num_railed/float(num_tests)*100)
-                redoFitFmax = False
+            # check if after 100 tries, the fmax_ub is railed.
+            if i==min(49, n_tests-1):
+                current_data = pd.concat(singles, axis=1).transpose()
+                fit_fmaxes = current_data.fmax
+                fit_dG = pd.concat(singles, axis=1).transpose().dG.median()
+                
+                num_railed = ((np.abs(fit_fmaxes-fitParameters.loc['upperbound', 'fmax']) < eps).sum() +
+                              (np.abs(fit_fmaxes-fitParameters.loc['lowerbound', 'fmax']) < eps).sum())
+                num_tests = len(fit_fmaxes)
+                
+                if (num_railed/float(num_tests) > min_fraction_railed):
+                    # problem encountered. do everything again with set fmax.
+                    if plot_dists:
+                        print 'After %d iterations, cannot find fmax.'%(num_tests)
+                        print '\tMedian fit dG = %4.2f'%(fit_dG)
+                        print '\t%d (%d%%) of fits are within eps of bounds.'%(num_railed, num_railed/float(num_tests)*100)
+                        print 'Starting bootstrapped fit again with fmax sampled from dist'
+                    redoFitFmax = True
+                    break
+                else:
+                    if plot_dists:
+                        print 'After %d iterations: median fmax is %4.2f. median dG is %4.2f'%(num_tests, fit_fmaxes.median(), fit_dG)
+                        print '\t%d (%d%%) of fits are within eps of bounds.'%(num_railed, num_railed/float(num_tests)*100)
+                    redoFitFmax = False
 
     if redoFitFmax:        
         singles = {}
@@ -216,8 +232,8 @@ def bootstrapCurves(subSeries, fitParameters, concentrations, parameters, defaul
     for param in param_names:
         params.add(param, value=results.loc[param])
         
-    ss_total = np.sum((subSeries.median() - subSeries.median().mean())**2)
-    ss_error = np.sum((subSeries.median() - objectiveFunction(params, concentrations))**2)
+    ss_total = np.sum((median_fluorescence - median_fluorescence.mean())**2)
+    ss_error = np.sum((median_fluorescence - objectiveFunction(params, concentrations))**2)
     results.loc['rsq']  = 1-ss_error/ss_total
 
     # save some parameters
@@ -231,19 +247,18 @@ def bootstrapCurves(subSeries, fitParameters, concentrations, parameters, defaul
         if plot_dists:
             # plot histogram of parameters
             for param in param_names:
-                plt.figure(figsize=(4,3))
-                sns.distplot(singles.loc[:, param].dropna().values, hist_kws={'histtype':'stepfilled'}, color='b')
-                ax = plt.gca()
-                ylim = ax.get_ylim()
-                plt.plot([results.loc[param]]*2, ylim, 'k--', alpha=0.5)
-                plt.plot([results.loc['%s_lb'%param]]*2, ylim, 'k:', alpha=0.5)
-                plt.plot([results.loc['%s_ub'%param]]*2, ylim, 'k:', alpha=0.5)
-                plt.ylabel('prob density')
-                plt.xlabel(param)
-                plt.tight_layout()
-
-
-                       
+                if fitParameters.loc['vary', param]:
+                    plt.figure(figsize=(4,3))
+                    sns.distplot(singles.loc[:, param].dropna().values, hist_kws={'histtype':'stepfilled'}, color='b')
+                    ax = plt.gca()
+                    ylim = ax.get_ylim()
+                    plt.plot([results.loc[param]]*2, ylim, 'k--', alpha=0.5)
+                    plt.plot([results.loc['%s_lb'%param]]*2, ylim, 'k:', alpha=0.5)
+                    plt.plot([results.loc['%s_ub'%param]]*2, ylim, 'k:', alpha=0.5)
+                    plt.ylabel('prob density')
+                    plt.xlabel(param)
+                    plt.tight_layout()
+           
         more_concentrations = np.logspace(-2, 4, 50)
         plt.figure(figsize=(4,4))
         plt.errorbar(concentrations, subSeries.median(), yerr=[eminus, eplus], fmt='.', elinewidth=1, capsize=2, capthick=1, color='k', linewidth=1)
