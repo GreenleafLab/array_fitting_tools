@@ -156,7 +156,7 @@ class Parameters():
             self.per_variant = per_variant
             self.default_errors = grouped[concentrationCols].std().mean()
                 
-            start = 1 # start fit with at least three vclusters/variant
+            start = 2 # start fit with at least three vclusters/variant
             self.fits = pd.DataFrame(index=per_variant_params, columns=['sigma', 'c'])
             for param in per_variant_params:
                 params = lmfit.Parameters()
