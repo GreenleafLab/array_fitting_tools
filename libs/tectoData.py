@@ -40,19 +40,18 @@ class AffinityData():
     def __init__(self, sub_table_affinity, sub_variant_table_affinity, sub_table_offrates=None, sub_variant_table_offrates=None,times=None, concentrations=None): 
         # affinity params general
         if concentrations is None:
-            self.concentrations = 2000./np.power(3, np.arange(8))[::-1]
-        else:
-            self.concentrations = concentrations
+            concentrations = 2000./np.power(3, np.arange(8))[::-1]
+        self.concentrations = concentrations
         self.numPoints = numPoints = len(self.concentrations)
         self.more_concentrations = np.logspace(-2, 4, 50)        
         self.RT = 0.582  # kcal/mol at 20 degrees celsius
         
         # affinity params specific
-        index = IMlibs.filterFitParameters(IMlibs.filterStandardParameters(sub_table_affinity)).index
+        index = IMlibs.filterStandardParameters(sub_table_affinity, self.concentrations).index
         
-        self.binding_curves = sub_table_affinity.loc[index, np.arange(numPoints).astype(str)]
+        self.binding_curves = sub_table_affinity.loc[index, IMlibs.formatConcentrations(concentrations)]
         self.normalized_binding_curves = self.binding_curves.copy()
-        for i in np.arange(numPoints).astype(str):
+        for i in IMlibs.formatConcentrations(concentrations):
             self.normalized_binding_curves.loc[:, i] = (sub_table_affinity.loc[index, i] - sub_table_affinity.loc[index, 'fmin'])/ sub_table_affinity.loc[index, 'fmax']
         
         self.clusters = sub_table_affinity.index
@@ -61,7 +60,7 @@ class AffinityData():
         self.affinity_params = sub_variant_table_affinity.loc['dG':]
         self.affinity_params.loc['eminus'] = sub_variant_table_affinity.loc['dG'] - sub_variant_table_affinity.loc['dG_lb']
         self.affinity_params.loc['eplus'] = sub_variant_table_affinity.loc['dG_ub'] - sub_variant_table_affinity.loc['dG']
-        self.affinity_params_cluster = sub_table_affinity.loc[index, 'fmax':'fmin_var']
+        self.affinity_params_cluster = sub_table_affinity.loc[index, 'fmax':'fmin_stde']
         
         # sequnece parameters
         if 'ss' in sub_variant_table_affinity.index:
@@ -100,7 +99,7 @@ class AffinityData():
     def findNormalizedError(self):
         
         ybounds = pd.DataFrame(index=np.arange(self.numPoints).astype(str), columns=['fnorm_lb', 'fnorm_ub'])
-        for i in range(self.numPoints):
+        for i in IMlibs.formatConcentrations(self.concentrations):
             ybounds.loc[str(i)] = bootstrap.ci(self.normalized_binding_curves.loc[:, str(i)], statfunction=np.median)
         yerr = pd.DataFrame(index=np.arange(self.numPoints).astype(str), columns=['eminus', 'eplus'])
         yerr.loc[:, 'eminus'] = self.normalized_binding_curves.median(axis=0) - ybounds.loc[:, 'fnorm_lb']
@@ -888,22 +887,31 @@ def filterVariants(subtable):
     
     return subtable.loc[index]
 
-def plotSequenceJoe(variant_table):
-    subtable = variant_table.loc[variant_table.loc[:, 'sublibrary'] == 'sequences']
-    index = (subtable.length == 10)&(subtable.numTests >= 5)
-    #&(subtable.dG_ub - subtable.dG_lb < 1)
+
+def plotSequenceJoe(variant_table, helices=None, mismatches=None):
+    if helices is None:
+        helices = True
+    if mismatches is None:
+        mismatches = False
+    subtable = variant_table.copy()
+    #index = (subtable.length == 10)&(subtable.numTests >= 5)&(subtable.dG_ub - subtable.dG_lb < 1)
+    index = (subtable.length == 10)
     subtable = subtable.loc[index]
-    subtable.sort('dG', inplace=True)
-    plt.figure();
-    plt.scatter(np.arange(len(subtable)), subtable.dG, facecolors='none', edgecolors='k')
+    #subtable.sort('dG', inplace=True)
+    #plt.figure();
+    #plt.scatter(np.arange(len(subtable)), subtable.dG, facecolors='none', edgecolors='k')
     
-    predicted = pd.read_table('/home/sarah/JunctionLibrary/seq_params/exhustive_helices.results', sep=' ', header=None, usecols=[0, 4], names=['seq', 'ddG'])
-    predicted.index = [s.replace('U', 'T') for s in predicted.seq]
+    if helices:
+        predicted = pd.read_table('/home/sarah/JunctionLibrary/seq_params/exhustive_helices.results', sep=' ', header=None, usecols=[0, 4], names=['seq', 'ddG'])
+        predicted.index = [s.replace('U', 'T') for s in predicted.seq]
+    if mismatches:
+        predicted = pd.read_table('/home/sarah/JunctionLibrary/seq_params/double_double_sequences.predictions.txt', index_col=0)
     
-    x = subtable.dG
-    y = predicted.loc[subtable.sequence, 'ddG']
-    y.index = x.index
     
+    subtable.index = subtable.sequence
+    A = pd.concat([subtable.loc[predicted.index].dG, predicted.ddG], axis=1).dropna()
+    x = A.dG
+    y = A.ddG   
     
     fig = plt.figure(figsize=(4,4))
     ax = fig.add_subplot(111)
@@ -926,10 +934,10 @@ def plotSequenceJoe(variant_table):
     ax.plot(xlim_max,  results.params.dG*xlim_max + results.params.const, 'r:', label='best fit')
        
     # line of slope 1
-    origin = np.array([-10.621, 0]) - np.array([2]*2)
+    origin = np.array([(A.dG - A.ddG).mean(), 0]) - np.array([2]*2)
     ax.plot([origin[0], origin[0]+5], [origin[1], origin[1]+5], '--', color=sns.xkcd_rgb['turquoise'], label='slope 1')
     
-    ax.set_xlim(-12, -9.5)
+    ax.set_xlim(-12.5, -9.5)
     ax.set_ylim(-1.5, 2)
     ax.set_xlabel('dG observed (kcal/mol)')
     ax.set_ylabel('ddG predicted (kcal/mol)')

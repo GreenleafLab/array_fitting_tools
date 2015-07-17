@@ -21,8 +21,8 @@ from collections import Counter
 from optparse import OptionParser
 import datetime
 import pandas as pd
-
-
+import scipy.stats as st
+import matplotlib.pyplot as plt
 ''' Functions '''
 
 # Writes a single line with a newline to the specified file
@@ -99,15 +99,17 @@ if __name__ == "__main__":
 
     # sort CPseq and filter again
     if not options.sorted:
+        print "Sorting input CPseq file..."
         newInFile = os.path.splitext(options.inFile)[0] + '.sort.CPseq'
         inFile = pd.read_table(options.inFile, header=None)
         inFile.dropna(subset=[options.colBarcode]).sort(options.colBarcode).to_csv(newInFile, sep='\t', header=False, index=False)
         options.inFile = newInFile
-
+        
+    print "Compressing barcodes..."
     ## Initiate output files
     inFile_name = os.path.splitext(os.path.basename(options.inFile))[0]
     outFolder = os.path.dirname(options.outFile)
-    outputFileName =  options.outFile
+    outputFileName =  options.outFile + '.tmp'
     statFileName =  os.path.join(outFolder, inFile_name+"_compressedBarcodes.stat")
 
     logFileName =   os.path.join(outFolder, "compressBarcodes_v8.log")
@@ -262,5 +264,49 @@ if __name__ == "__main__":
     ws.close()
     logFile.close()
 
+    # load compressed barode file, and append whether the barcode is 'good' or not
+    finalFilename = options.outFile
+    #filenames = ['tecto_lib2.AEL52_AG172_AG1D1_AG3EL.unique_barcodes.tmp',
+    #             'tecto_lib2.AEL52_AG1D1_AG3EL_AG1CV.unique_barcodes.tmp',
+    #             'tecto_lib2.AEL52_AG172_AG3EL.unique_barcodes.tmp',
+    #             'tecto_lib2.AEL52_AG1D1_AG3EL.unique_barcodes.tmp',
+    #             'tecto_lib2.AG172_AG3EL_AG1D1.unique_barcodes.tmp']
+    #for filename in filenames:
+    barcodes = pd.read_table(outputFileName, header=None, names=['sequence', 'barcode', 'clusters_per_barcode', 'fraction_consensus', 'mean_barcode_quality'], usecols=range(4)+[6])
+    #max_confidence = pd.Series(st.binom.interval(0.95, barcodes.loc[:, 'clusters_per_barcode'].astype(int).values, 0.5)[1], index=barcodes.index)
+    #barcodes.loc[:, 'barcode_good'] = barcodes.clusters_per_barcode*barcodes.fraction_consensus > max_confidence
 
+    # another way
+    p = 0.25
+    for n in np.unique(barcodes.clusters_per_barcode):
+        # do one tailed t test
+        x = (barcodes.clusters_per_barcode*barcodes.fraction_consensus).loc[barcodes.clusters_per_barcode==n]
+        barcodes.loc[x.index, 'pvalue'] = st.binom.sf(x-1, n, p)
 
+    barcodes.loc[:, 'barcode_good'] = (barcodes.pvalue < 0.05)&[len(s)>12 for s in barcodes.barcode]
+    
+    # save
+    barcodes.to_csv(finalFilename, sep='\t', index=False)
+    
+    print finalFilename.split('.')[1].replace('_', '\t')
+    print '\t%d good barcodes out of %d (%d%%)'%(barcodes.barcode_good.sum(), len(barcodes), 100*barcodes.barcode_good.sum()/float(len(barcodes)) )
+    #plt.figure(); plt.plot(np.linspace(0, 1, 11), np.array(n_good)/float(n_good[0]), 'o')
+    
+    # plot histogram
+    plt.figure(figsize=(4,3))
+    plt.hist(barcodes.loc[barcodes.barcode_good, 'clusters_per_barcode'].values, bins=np.arange(60), alpha=0.5, color=sns.xkcd_rgb['deep blue'], label='good bc')
+    plt.hist(barcodes.loc[~barcodes.barcode_good, 'clusters_per_barcode'].values, bins=np.arange(60), alpha=0.5, color=sns.xkcd_rgb['light grey'], label='bad bc')
+    plt.xlabel('number of times measured')
+    plt.ylabel('number of barcodes')
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(os.path.splitext(finalFilename)[0]+'.clusters_per_barcode.pdf')
+    # plot histogram
+    plt.figure(figsize=(4,3))
+    plt.hist(barcodes.loc[barcodes.barcode_good, 'fraction_consensus'].values, bins=np.linspace(0, 1), alpha=0.5, color=sns.xkcd_rgb['deep blue'], label='good bc')
+    plt.hist(barcodes.loc[~barcodes.barcode_good, 'fraction_consensus'].values, bins=np.linspace(0, 1), alpha=0.5, color=sns.xkcd_rgb['light grey'], label='bad bc')
+    plt.xlabel('fraction consensus')
+    plt.ylabel('number of barcodes')
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(os.path.splitext(finalFilename)[0]+'.fraction_consensus.pdf')

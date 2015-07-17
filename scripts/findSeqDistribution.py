@@ -141,6 +141,7 @@ def findBarcodeDict(consensus, is_designed, designed_library_unique):
     barcodeMap.loc[:, 'sequence'] = np.array([seqfun.reverseComplement(sequence[:sequence.find(read2_seq)]) for sequence in np.array(consensus['sequence'])])
     barcodeMap.loc[:, 'fraction_consensus'] = 100*np.array(consensus['fraction_consensus'])
     barcodeMap.loc[:, 'clusters_per_barcode'] = np.array(consensus['clusters_per_barcode'])
+    barcodeMap.loc[:, 'barcode_good'] = np.array(consensus['barcode_good'])
     indices_barcode = np.arange(len(barcodeMap))[is_designed > -1]
     indices_sequence = is_designed[is_designed > -1]
     for name in designed_library_unique:
