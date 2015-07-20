@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 import seqfun
 import scipy.stats as st
 import IMlibs
-import lmfit
+#import lmfit
 
 
 class Parameters():

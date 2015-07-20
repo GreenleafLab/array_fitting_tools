@@ -39,7 +39,7 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import random
 import glob
-from statsmodels.distributions.empirical_distribution import ECDF
+from statsmodels.distributions.empirical_distribution import ECDF               
 sns.set_style('white', )
 
 ### MAIN ###
@@ -47,19 +47,28 @@ sns.set_style('white', )
 ################ Parse input parameters ################
 
 #set up command line argument parser
-parser = argparse.ArgumentParser(description="master script for the fitting clusters to binding curves pipeline")
-parser.add_argument('-ftd','--filtered_tile_dir', help='directory that holds (or will hold) the filtered sequence data', required=True)
-parser.add_argument('-fd','--CPfluor_dirs_to_quantify', help='text file giving the dir names to look for CPfluor files in', required=True)
-parser.add_argument('-os','--signal_dir', help='save signal files to here. default = filtered_tile_dir/signals')
-parser.add_argument('-osr','--signal_dir_reduced', default=None,help='save signal files reduced by filter set to here. default = signal_dir/reduced_signals')
-parser.add_argument('-fs','--filter_set', help='name of filter to fit binding curve', required=True)
-parser.add_argument('-seq', '--CPseq', default=None, help='CPseq file for barcode mapping, default=reduced CPsignal file')
-parser.add_argument('-bar', '--unique_barcode', default=None, help='unique_barcode file for library. default=make from seq input or filtered seqs')
-parser.add_argument('-lc','--library_characterization', help='file with the characterization data of the deisgned library')
-parser.add_argument('-bd','--barcode_dir', help='save files associated with barcode mapping here. default=signal_dir_reduced/barcode_mapping')
-parser.add_argument('-n','--num_cores', help='maximum number of cores to use')
-parser.add_argument('-gv','--fitting_parameters_path', help='path to the directory in which the "fittingParameters.py" parameter file for the run can be found')
-parser.add_argument('-nc', '--null_column', help='point in binding series to use for null scores (Default is last concentration. -2 for second to last concentration)', default=-1, type=int)
+parser = argparse.ArgumentParser(description='master script for the fitting '+
+                                 'clusters to binding curves pipeline')
+parser.add_argument('filteredCPseqs', 
+                    help='directory that holds the filtered sequence data (CPseq)')
+parser.add_argument('mapCPfluors',
+                    help='map file giving the dir names to look for CPfluor files')
+parser.add_argument('-od','--output_dir', default="binding_curves",
+                    help='save output files to here. default = ./binding_curves')
+parser.add_argument('-fp','--filterPos', help='set of filters (semicolon separated) '
+                    'that designate clusters to fit. If not set, use all.')                        
+parser.add_argument('-fn','--filterNeg', help='set of filters (semicolon separated) '
+                     'that designate "background" clusters. If not set, assume '
+                     'complement to filterPos')
+parser.add_argument('-n','--num_cores', type=int, default=1,
+                    help='maximum number of cores to use. default=1')
+parser.add_argument('-gv','--fitting_parameters_path',
+                    help='path to the directory in which the "fittingParameters.py" '
+                    'parameter file for the run can be found')
+parser.add_argument('-nc', '--null_column', type=int, default=-1,
+                    help='point in binding series to use for null scores (Default is '
+                    'last concentration. -2 for second to last concentration)', )
+
 if not len(sys.argv) > 1:
     parser.print_help()
     sys.exit()
@@ -72,53 +81,38 @@ if args.fitting_parameters_path is not None:
     sys.path.insert(0, args.fitting_parameters_path)
 import fittingParameters
 
-
-
-# FUNCITONS
-def collectLogs(inLog): #multiprocessing callback function to collect the output of the worker processes
-    logFilename = inLog[0]
-    logText = inLog[1]
-    resultList[logFilename] = logText
-
-
 # import CPseq filtered files split by tile
 print 'Finding CPseq files in directory "%s"...'%args.filtered_tile_dir
-filteredCPseqFilenameDict = IMlibs.findTileFilesInDirectory(args.filtered_tile_dir, ['_filtered.CPseq'], [])
+filteredCPseqFilenameDict = IMlibs.findTileFilesInDirectory(args.filtered_tile_dir,
+                                                            ['CPseq'])
 tileList = filteredCPseqFilenameDict.keys()
 
 # import directory names to analyze
-print 'Finding CPfluor files in directories given in "%s"...'%args.CPfluor_dirs_to_quantify
-fluor_dirs_red, fluor_dirs, concentrations = IMlibs.loadMapFile(args.CPfluor_dirs_to_quantify)
-fluorNamesByTileDict = IMlibs.getFluorFileNames(fluor_dirs, tileList)
-fluorNamesByTileRedDict = IMlibs.getFluorFileNames(fluor_dirs_red, tileList)
+print 'Finding CPfluor files in directories given in "%s"...'%args.mapCPfluors
+fluorDirsAll, fluorDirsSignal, concentrations = IMlibs.loadMapFile(args.mapCPfluors)
+fluorNamesByTileDict = IMlibs.getFluorFileNames(fluorDirsSignal, tileList)
+fluorNamesByTileRedDict = IMlibs.getFluorFileNames(fluorDirAll, tileList)
 
-
-
-# initiate multiprocessing
-if args.num_cores is None:
-    numCores = 1
-else: numCores = int(args.num_cores)
+# make output base directory
+if not os.path.exists(args.output_dir):
+    os.mkdir(args.output_dir)
 
 ################ Make signal files ################
-if args.signal_dir is not None:
-    signal_directory = args.signal_dir
-else:
-    signal_directory = os.path.join(args.filtered_tile_dir,'signals')
-
-print 'Converting CPfluor files into CPsignal files in directory "%s"'%signal_directory
-
-signalNamesByTileDict = IMlibs.getCPsignalDictfromCPseqDict(filteredCPseqFilenameDict, signal_directory)
+signalDirectory = os.path.join(args.output_dir, 'CPsignal')
+signalNamesByTileDict = IMlibs.getCPsignalDictfromCPseqDict(filteredCPseqFilenameDict,
+                                                            signalDirectory)
+print 'Converting CPfluor files into CPsignal files in directory "%s"'%signalDirectory
 already_exist = np.zeros(len(signalNamesByTileDict), dtype=bool)
-if os.path.isdir(signal_directory): #if the CPsignal file is already present
-    print 'SignalDirectory "' + signal_directory + '" already exists...'
-    print '   finding tile .CPsignal files in directory "%s"...'%(signal_directory)
+if os.path.isdir(signalDirectory): #if the CPsignal file is already present
+    print 'SignalDirectory "' + signalDirectory + '" already exists...'
+    print '   finding tile .CPsignal files in directory "%s"...'%(signalDirectory)
     for i, tile in enumerate(tileList):
         already_exist[i] = os.path.isfile(signalNamesByTileDict[tile])
         if already_exist[i]:
             print "   found tile %s: %s. Skipping..."%(tile, signalNamesByTileDict[tile])
         else: print "   missing tile %s"%tile
 else:
-    os.makedirs(signal_directory) #create a new output directory if it doesn't exist
+    os.makedirs(signalDirectory) #create a new output directory if it doesn't exist
     
 if np.sum(already_exist) < len(filteredCPseqFilenameDict):
     # initiate multiprocessing
@@ -131,62 +125,133 @@ if np.sum(already_exist) < len(filteredCPseqFilenameDict):
             currCPseqSignalOut = signalNamesByTileDict[tile]
             print "Making signal file %s from %s"%(currCPseqSignalOut, currCPseqfile)
             # make CP signal files
-            workerPool.apply_async(IMlibs.findCPsignalFile, args=(currCPseqfile, currRedCPfluors, currGreenCPfluors, currCPseqSignalOut))
-
+            workerPool.apply_async(IMlibs.findCPsignalFile, args=(currCPseqfile,
+                                                                  currRedCPfluors,
+                                                                  currGreenCPfluors,
+                                                                  currCPseqSignalOut))
     workerPool.close()
     workerPool.join()
 
 # check to make sure they are all made
-if np.all([os.path.exists(filename) for tile, filename in signalNamesByTileDict.items()]):
+if np.all([os.path.exists(filename) for filename in signalNamesByTileDict.values()]):
     print 'All signal files successfully generated'
 else:
     print 'not all signal files successfully generated'
     sys.exit()
     
     
+################ Make concatenated, reduced signal file ########################
+filterPos = args.filterPos
+reducedSignalDirectory = os.path.join(args.output_dir, 'CPfitted')
+reducedSignalNamesByTileDict = IMlibs.getReducedCPsignalDict(signalNamesByTileDict,
+                                                  directory=reducedSignalDirectory)
+reducedCPsignalFile = IMlibs.getReducedCPsignalFilename(reducedSignalNamesByTileDict)
+print ('Making reduced CPsignal file in directory "%s"'
+       %reducedSignalDirectory)
 
-################ Reduce signal files ################
-if args.signal_dir_reduced is not None:
-    reduced_signal_directory = args.signal_dir_reduced
+# if file already exists, skip
+if os.path.exists(reducedCPsignalFile):
+    print 'Reduced CPsignal file already exists. Skipping... %s'%reducedCPsignalFile
 else:
-    reduced_signal_directory = os.path.join(signal_directory,'reduced_signals')
-filterSet = args.filter_set
-    
-print 'Converting CPsignal files into reduced CPsignal files in directory "' +reduced_signal_directory
-
-# make directory if necessary or see if files already exist
-reducedSignalNamesByTileDict = IMlibs.getReducedCPsignalDictFromCPsignalDict(signalNamesByTileDict, filterSet, reduced_signal_directory)
-already_exist = np.zeros(len(reducedSignalNamesByTileDict), dtype=bool)
-if os.path.isdir(reduced_signal_directory): #if the CPsignal file is already present
-    print 'Reduced SignalDirectory "' + reduced_signal_directory + '" already exists...'
-    print '   finding tile %s.CPsignal files in directory "%s"'%(filterSet, reduced_signal_directory)
+    if not os.path.exists(reducedSignalDirectory):
+        os.mkdir(reducedSignalDirectory)
+    workerPool = multiprocessing.Pool(processes=numCores) 
     for i, tile in enumerate(tileList):
-        already_exist[i] = os.path.isfile(reducedSignalNamesByTileDict[tile])
-        if already_exist[i]:
-            print "   found tile %s: %s. Skipping..."%(tile, reducedSignalNamesByTileDict[tile])
-        else: print "   missing tile %s"%tile
-else:
-    print 'Making directory %s for reduced signals'%reduced_signal_directory
-    os.makedirs(reduced_signal_directory) #create a new output directory if it doesn't exist
-    
-if np.sum(already_exist) < len(filteredCPseqFilenameDict):
-    # initiate multiprocessing
-
-    workerPool = multiprocessing.Pool(processes=numCores) #create a multiprocessing pool that uses at most the specified number of cores
-    for i, tile in enumerate(tileList):
-        
-        # check if that file already exists in directory
-        if not already_exist[i]:
-            # define filenames
-            cpSignalFilename = signalNamesByTileDict[tile]
-            reducedCPsignalFilename = reducedSignalNamesByTileDict[tile]
-            print "Making reduced signal file %s from %s with filter set %s"%(reducedCPsignalFilename, cpSignalFilename, filterSet)
-            # make CP signal files
-            workerPool.apply_async(IMlibs.reduceCPsignalFile, args=(cpSignalFilename, filterSet, reducedCPsignalFilename))
-        else:
-            print "Signal file %s already exists"%currCPseqSignalOut
+        # make temporary reduced signal file
+        cpSignalFilename = signalNamesByTileDict[tile]
+        reducedCPsignalFilename = reducedSignalNamesByTileDict[tile]
+        print ("Making reduced signal file %s from %s with filter set %s"
+               %(reducedCPsignalFilename, cpSignalFilename, filterPos))
+        workerPool.apply_async(IMlibs.reduceCPsignalFile,
+                               args=(cpSignalFilename, filterPos,
+                                     reducedCPsignalFilename))
     workerPool.close()
     workerPool.join()
+    
+    if np.all([os.path.exists(filename) for filename in reducedSignalNamesByTileDict.values()]):
+        print 'All temporary reduced signal files successfully generated'
+    else:
+        print 'Error: Not all temporary reduced signal files successfully generated. Exiting.'
+        sys.exit()
+        
+    # concatenate temp files
+    try:
+        IMlibs.sortConcatenateCPsignal(reducedSignalNamesByTileDict, reducedCPsignalFile)
+    except:
+        print 'Error: Could not concatenate reduced signal files. Exiting.'
+        sys.exit()
+    
+    # remove temp files
+    for filename in reducedSignalNamesByTileDict.values():
+        os.remove(filename)
+    
+
+################ Fit ################
+
+fittedBindingFilename = IMlibs.getFittedFilename(reducedCPsignalFile)
+if os.path.isfile(fittedBindingFilename):
+    print 'CPfitted file exists "%s". Skipping...'%fittedBindingFilename
+else:
+    print 'Fitting single cluster fits "%s"...'%fittedBindingFilename
+    # get binding series
+    print '\tLoading binding series and all RNA signal:'
+    bindingSeries, allClusterSignal = IMlibs.loadBindingCurveFromCPsignal(reducedCPsignalFile, concentrations)
+    
+    # make normalized binding series
+    IMlibs.boundFluorescence(allClusterSignal, plot=True)   # try to reduce noise by limiting how big/small you divide by
+    bindingSeriesNorm = np.divide(bindingSeries, np.vstack(allClusterSignal))
+    
+    # find null scores and max signal
+    fabs_green_max = bindingSeriesNorm.iloc[:, args.null_column]
+    null_scores = IMlibs.loadNullScores(signalNamesByTileDict, filterPos=filterPos, filterNeg=filterNeg, binding_point=args.null_column)
+    
+    # get binding estimation and choose 10000 that pass filter
+    ecdf = ECDF(pd.Series(null_scores).dropna())
+    qvalues = pd.Series(1-ecdf(bindingSeries.iloc[:, args.null_column].dropna()), index=bindingSeries.iloc[:, args.null_column].dropna().index)
+    qvalues.sort()
+    index = qvalues.iloc[:1E4].index # take top 10K binders
+    
+    # fit first round
+    print '\tFitting best binders with no constraints...'
+    parameters = fittingParameters.Parameters(concentrations, fabs_green_max.loc[index])
+    fitUnconstrained = IMlibs.splitAndFit(bindingSeriesNorm, 
+                                          concentrations, parameters.fitParameters, numCores, index=index, mod_fmin=True)
+
+    # reset fitting parameters based on results
+    maxdG = parameters.find_dG_from_Kd(parameters.find_Kd_from_frac_bound_concentration(0.9, concentrations[args.null_column])) # 90% bound at 
+    param = 'fmax'
+    parameters.fitParameters.loc[:, param] = IMlibs.plotFitFmaxs(fitUnconstrained, maxdG=maxdG, param=param)
+    plt.savefig(os.path.join(os.path.dirname(fittedBindingFilename), 'constrained_%s.pdf'%param))
+    
+    param = 'fmin'
+    parameters.fitParameters.loc[:, param] = IMlibs.findProbableFmin(bindingSeriesNorm, qvalues)
+    plt.savefig(os.path.join(os.path.dirname(fittedBindingFilename), 'constrained_%s.pdf'%param))
+        
+    # now refit all remaining clusters
+    print 'Fitting all with constraints on fmax (%4.2f, %4.2f, %4.2f)'%(parameters.fitParameters.loc['lowerbound', 'fmax'], parameters.fitParameters.loc['initial', 'fmax'], parameters.fitParameters.loc['upperbound', 'fmax'])
+    print 'Fitting all with constraints on fmin (%4.4f, %4.4f, %4.4f)'%(parameters.fitParameters.loc['lowerbound', 'fmin'], parameters.fitParameters.loc['initial', 'fmin'], parameters.fitParameters.loc['upperbound', 'fmin'])
+    
+    # save fit parameters
+    fitParametersFilename = os.path.join(os.path.dirname(fittedBindingFilename),
+                                         'bindingParameters.%s.fp'%datetime.datetime.today().strftime("%Y-%m-%d_%H-%M-%S"))
+    parameters.fitParameters.to_csv(fitParametersFilename, sep='\t')
+    fitConstrained = pd.DataFrame(index=bindingSeriesNorm.index, columns=fitUnconstrained.columns)
+    
+    # sort by qvalue to try to get groups of equal distributions of binders/nonbinders
+    index = pd.concat([bindingSeriesNorm, pd.DataFrame(qvalues, columns=['qvalue'])], axis=1).sort('qvalue').index
+    index_all = bindingSeriesNorm.loc[index].dropna(axis=0, thresh=4).index
+    fitConstrained.loc[index_all] = IMlibs.splitAndFit(bindingSeriesNorm, concentrations,
+                                                       parameters.fitParameters, numCores, index=index_all)
+    fitConstrained.loc[:, 'qvalue'] = qvalues
+
+    # save fittedBindingFilename
+    #fitParametersFilename = IMlibs.getFitParametersFilename(annotatedSignalFilename)
+    #IMlibs.saveDataFrame(fitConstrained, fitParametersFilename, index=False, float_format='%4.3f')
+    table = IMlibs.makeFittedCPsignalFile(fitConstrained,annotatedSignalFilename, fittedBindingFilename, bindingSeriesNorm, allClusterSignal)
+    
+    # save fit Parameters?
+    # save Normalized Binding Series?
+
 
 
 ################ Map to variants ################
@@ -255,71 +320,7 @@ else:
     print 'Making annotated CPsignal file "%s"...'%annotatedSignalFilename
     IMlibs.matchCPsignalToLibrary(barcodeToSequenceFilename, sortedAllCPsignalFile, annotatedSignalFilename)
 
-################ Fit ################
 sys.exit()
-fittedBindingFilename = IMlibs.getFittedFilename(annotatedSignalFilename)
-if os.path.isfile(fittedBindingFilename):
-    print 'fitted CPsignal file exists "%s". Skipping...'%fittedBindingFilename
-else:
-    print 'Making fitted CP signal file "%s"...'%annotatedSignalFilename
-    # get binding series
-    print '\tLoading binding series and all RNA signal:'
-    bindingSeries, allClusterSignal = IMlibs.loadBindingCurveFromCPsignal(annotatedSignalFilename, concentrations)
-    
-    # make normalized binding series
-    IMlibs.boundFluorescence(allClusterSignal, plot=True)   # try to reduce noise by limiting how big/small you divide by
-    bindingSeriesNorm = np.divide(bindingSeries, np.vstack(allClusterSignal))
-    
-    # find null scores and max signal
-    fabs_green_max = bindingSeriesNorm.iloc[:, args.null_column]
-    null_scores = IMlibs.loadNullScores(signalNamesByTileDict, filterSet, index=args.null_column)
-    
-    # get binding estimation and choose 10000 that pass filter
-    ecdf = ECDF(pd.Series(null_scores).dropna())
-    qvalues = pd.Series(1-ecdf(bindingSeries.iloc[:, args.null_column].dropna()), index=bindingSeries.iloc[:, args.null_column].dropna().index)
-    qvalues.sort()
-    index = qvalues.iloc[:1E4].index # take top 10K binders
-    
-    # fit first round
-    print '\tFitting best binders with no constraints...'
-    parameters = fittingParameters.Parameters(concentrations, fabs_green_max.loc[index])
-    fitUnconstrained = IMlibs.splitAndFit(bindingSeriesNorm, 
-                                          concentrations, parameters.fitParameters, numCores, index=index, mod_fmin=True)
-
-    # reset fitting parameters based on results
-    maxdG = parameters.find_dG_from_Kd(parameters.find_Kd_from_frac_bound_concentration(0.9, concentrations[args.null_column])) # 90% bound at 
-    param = 'fmax'
-    parameters.fitParameters.loc[:, param] = IMlibs.plotFitFmaxs(fitUnconstrained, maxdG=maxdG, param=param)
-    plt.savefig(os.path.join(os.path.dirname(fittedBindingFilename), 'constrained_%s.pdf'%param))
-    
-    param = 'fmin'
-    parameters.fitParameters.loc[:, param] = IMlibs.findProbableFmin(bindingSeriesNorm, qvalues)
-    plt.savefig(os.path.join(os.path.dirname(fittedBindingFilename), 'constrained_%s.pdf'%param))
-        
-    # now refit all remaining clusters
-    print 'Fitting all with constraints on fmax (%4.2f, %4.2f, %4.2f)'%(parameters.fitParameters.loc['lowerbound', 'fmax'], parameters.fitParameters.loc['initial', 'fmax'], parameters.fitParameters.loc['upperbound', 'fmax'])
-    print 'Fitting all with constraints on fmin (%4.4f, %4.4f, %4.4f)'%(parameters.fitParameters.loc['lowerbound', 'fmin'], parameters.fitParameters.loc['initial', 'fmin'], parameters.fitParameters.loc['upperbound', 'fmin'])
-    
-    # save fit parameters
-    fitParametersFilename = os.path.join(os.path.dirname(fittedBindingFilename),
-                                         'bindingParameters.%s.fp'%datetime.datetime.today().strftime("%Y-%m-%d_%H-%M-%S"))
-    parameters.fitParameters.to_csv(fitParametersFilename, sep='\t')
-    fitConstrained = pd.DataFrame(index=bindingSeriesNorm.index, columns=fitUnconstrained.columns)
-    
-    # sort by qvalue to try to get groups of equal distributions of binders/nonbinders
-    index = pd.concat([bindingSeriesNorm, pd.DataFrame(qvalues, columns=['qvalue'])], axis=1).sort('qvalue').index
-    index_all = bindingSeriesNorm.loc[index].dropna(axis=0, thresh=4).index
-    fitConstrained.loc[index_all] = IMlibs.splitAndFit(bindingSeriesNorm, concentrations,
-                                                       parameters.fitParameters, numCores, index=index_all)
-    fitConstrained.loc[:, 'qvalue'] = qvalues
-
-    # save fittedBindingFilename
-    #fitParametersFilename = IMlibs.getFitParametersFilename(annotatedSignalFilename)
-    #IMlibs.saveDataFrame(fitConstrained, fitParametersFilename, index=False, float_format='%4.3f')
-    table = IMlibs.makeFittedCPsignalFile(fitConstrained,annotatedSignalFilename, fittedBindingFilename, bindingSeriesNorm, allClusterSignal)
-    
-    # save fit Parameters?
-    # save Normalized Binding Series?
 
 ################ Reduce into Variant Table ################
 variantFittedFilename = IMlibs.getPerVariantFilename(fittedBindingFilename)

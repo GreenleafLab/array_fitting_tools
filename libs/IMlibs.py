@@ -14,13 +14,13 @@ import numpy as np
 import pandas as pd
 import scipy.io as sio
 import matplotlib.pyplot as plt
-from scikits.bootstrap import bootstrap
+#from scikits.bootstrap import bootstrap
 import functools
 import datetime
-import CPlibs
+#import CPlibs
 import scipy.stats as st
 from statsmodels.sandbox.stats.multicomp import multipletests
-from joblib import Parallel, delayed
+#from joblib import Parallel, delayed
 import warnings
 import seqfun
 import seaborn as sns
@@ -68,14 +68,15 @@ def spawnMatlabJob(matlabFunctionCallString):
     except Exception, e:
         return 'Python exception generated in spawnMatlabJob: ' + e.message
 
-def filenameMatchesAListOfExtensions(filename, extensionList):
+def filenameMatchesAListOfExtensions(filename, extensionList=None):
     # from CPlibs
-    for currExt in extensionList:
-        if filename.lower().endswith(currExt.lower()):
-            return True
+    if extensionList is not None:
+        for currExt in extensionList:
+            if filename.lower().endswith(currExt.lower()):
+                return True
     return False
 
-def findTileFilesInDirectory(dirPath, extensionList, excludedExtensionList):
+def findTileFilesInDirectory(dirPath, extensionList, excludedExtensionList=None):
     # from CPlibs
     dirList = os.listdir(dirPath)
 
@@ -104,7 +105,7 @@ def getTileNumberFromFilename(inFilename):
 
 def loadMapFile(mapFilename):
     """
-    load map file. header prefixed by '>' gives the root directory
+    load map file. first line gives the root directory
     next line is the all cluster image.
     The remainder are filenames to compare with associated concentrations
     """
@@ -122,7 +123,7 @@ def loadMapFile(mapFilename):
     concentrations = np.zeros(num_dirs)
     for i, line in enumerate(remainder):
         directories[i] = os.path.join(root_dir, line.strip().split('\t')[0])
-        concentrations[i] = line.strip().split('\t')[1]
+        concentrations[i] = line.strip().split()[1]
     f.close()
     return red_dir, np.array(directories), concentrations
 
@@ -139,7 +140,7 @@ def getFluorFileNames(directories, tileNames):
         filenameDict[tile] = ['']*len(directories)
         for i, directory in enumerate(directories):
             try:
-                filename = subprocess.check_output('find %s -maxdepth 2 -name "*CPfluor" -type f | grep tile%s'%(directory, tile), shell=True).strip()
+                filename = subprocess.check_output('find %s -maxdepth 1 -name "*CPfluor" -type f | grep tile%s'%(directory, tile), shell=True).strip()
             except: filename = ''
             filenameDict[tile][i] = filename
     return filenameDict
@@ -194,7 +195,7 @@ def getCPsignalFileFromCPseq(cpSeqFilename, directory=None):
         directory = os.path.dirname(cpSeqFilename)
     return os.path.join(directory,  os.path.splitext(os.path.basename(cpSeqFilename))[0] + '.CPsignal')
 
-def getReducedCPsignalDictFromCPsignalDict(signalNamesByTileDict, filterSet = None, directory = None):
+def getReducedCPsignalDict(signalNamesByTileDict, filterSet = None, directory = None):
     if filterSet is None:
         filterSet = 'reduced'
     if directory is None:
@@ -204,9 +205,17 @@ def getReducedCPsignalDictFromCPsignalDict(signalNamesByTileDict, filterSet = No
     for tiles, cpSignalFilename in signalNamesByTileDict.items():
         if find_dir:
             directory = os.path.dirname(cpSignalFilename)
-        reducedSignalNamesByTileDict[tiles] = os.path.join(directory, os.path.splitext(os.path.basename(cpSignalFilename))[0] + '_%s.CPsignal'%filterSet)
+        reducedSignalNamesByTileDict[tiles] = os.path.join(directory, os.path.splitext('__'+os.path.basename(cpSignalFilename))[0] + '_%s.CPsignal'%filterSet)
     return reducedSignalNamesByTileDict
 
+def getReducedCPsignalFilename(reducedSignalNamesByTileDict):
+    filename = reducedSignalNamesByTileDict.values()[0]
+    dirname = os.path.dirname(filename)
+    basename = os.path.basename(filename).lstrip('_')
+
+    removeIndex = basename.find('tile')
+    newBasename = basename[:removeIndex] + basename[removeIndex+8:]
+    return os.path.join(dirname, newBasename)
 
 def getSignalFromCPFluor(CPfluorfilename):
     fitResults = pd.read_csv(CPfluorfilename, usecols=range(7, 12), sep=':', header=None, names=['success', 'amplitude', 'sigma', 'fit_X', 'fit_Y'] )
@@ -254,9 +263,14 @@ def findCPsignalFile(cpSeqFilename, redFluors, greenFluors, cpSignalFilename):
     np.savetxt(cpSignalFilename, np.transpose(np.vstack((cp_seq, signal_comma_format))), fmt='%s', delimiter='\t')      
     return signal_green
 
-def reduceCPsignalFile(cpSignalFilename, filterSet, reducedCPsignalFilename):
+def reduceCPsignalFile(cpSignalFilename, filterPos, reducedCPsignalFilename):
+    # filterPos is semicolon separated list of filters to keep
+    filters = filterPos.split(';')
+    awkFilterText = ' || '.join(['(a[i]==\"%s\")'%s for s in filters])
+        
+        
     # take only lines that contain the filterSet
-    to_run = "awk '{n=split($2, a,\":\"); b=0; for (i=1; i<=n; i++) if (a[i]==\"%s\") b=1; if (b==1) print $0}' %s > %s"%(filterSet, cpSignalFilename, reducedCPsignalFilename)
+    to_run = "awk '{n=split($2, a,\":\"); b=0; for (i=1; i<=n; i++) if (%s) b=1; if (b==1) print $0}' %s > %s"%(awkFilterText, cpSignalFilename, reducedCPsignalFilename)
     #to_run = "awk '{i=index($2, \"%s\"); if (i>0) print}' %s > %s"%(filterSet, cpSignalFilename, reducedCPsignalFilename)
     print to_run
     os.system(to_run)
@@ -317,11 +331,12 @@ def sortCPsignal(cpSeqFile, sortedAllCPsignalFile, barcode_col):
     mydata.to_csv(sortedAllCPsignalFile, sep='\t', na_rep='nan', header=False, index=False)
     return
 
-def sortConcatenateCPsignal(reducedSignalNamesByTileDict, barcode_col, sortedAllCPsignalFile):
+def sortConcatenateCPsignal(reducedSignalNamesByTileDict, sortedAllCPsignalFile, barcode_col=None):
     # save concatenated and sorted CPsignal file
     allCPsignals = ' '.join([value for value in reducedSignalNamesByTileDict.itervalues()])
     os.system("cat %s > %s"%(allCPsignals, sortedAllCPsignalFile))
-    sortCPsignal(sortedAllCPsignalFile, sortedAllCPsignalFile, barcode_col)
+    if barcode_col is not None:
+        sortCPsignal(sortedAllCPsignalFile, sortedAllCPsignalFile, barcode_col)
     return
 
 def compressBarcodes(sortedAllCPsignalFile, barcode_col, seq_col, compressedBarcodeFile):
@@ -495,11 +510,22 @@ def loadCPseqSignal(filename, concentrations=None):
     table = pd.read_csv(filename, sep='\t', header=None, names=cols, index_col=False)
     return table
 
-def loadNullScores(signalNamesByTileDict, filterSet, tile=None, index=None, return_binding_series=None, concentrations=None):
+def loadNullScores(signalNamesByTileDict, filterPos=None, filterNeg=None,
+                   tile=None, binding_point=None, return_binding_series=None,
+                   concentrations=None):
     # find one CPsignal file before reduction. Find subset of rows that don't
     # contain filterSet
-    if return_binding_series is None: return_binding_series = False
-    if tile is None: tile = '003'   # Default is third tile
+    if return_binding_series is None:
+        return_binding_series = False
+    if tile is None:
+        tile = '003'   # Default is third tile
+    if binding_point is None:
+        binding_point = -1
+    if filterPos is None:
+        if filterNeg is None:
+            print "Error: need to define either filterPos or filterNeg"
+            return
+
     filename = signalNamesByTileDict[tile]
 
     # Now load the file, specifically the signal specifed
@@ -508,8 +534,10 @@ def loadNullScores(signalNamesByTileDict, filterSet, tile=None, index=None, retu
     table.dropna(subset=['filter'], axis=0, inplace=True)
     subset = [str(s).find(filterSet) == -1 for s in table.loc[:, 'filter']]
     
-    if index is None: index = -1
-    binding_series = pd.DataFrame([s.split(',') for s in table.loc[subset].binding_series], dtype=float, index=table.loc[subset].index)
+
+    binding_series = pd.DataFrame([s.split(',') for s in table.loc[subset].binding_series],
+        dtype=float, index=table.loc[subset].index)
+    
     if concentrations is not None:
         binding_series.columns = formatConcentrations(concentrations)
     if return_binding_series:
@@ -547,17 +575,17 @@ def getTimeDeltaDict(timeStampDict):
         timeDeltas[tile] = getTimeDeltas(timeStamps) + getTimeDeltaBetweenTiles(timeStampDict, tile)
     return timeDeltas
 
-def loadBindingCurveFromCPsignal(filename, concentrations, subset=None):
+def loadBindingCurveFromCPsignal(filename, concentrations=None, subset=None):
     """
     open file after being reduced to the clusters you are interested in.
     find the all cluster signal and the binding series (comma separated),
     then return the binding series, normalized by all cluster image.
     """
-    formatted_concentrations = formatConcentrations(concentrations)
-    table = pd.read_table(filename, usecols=(0, 10,11), index_col=0)
+    #formatted_concentrations = formatConcentrations(concentrations)
+    table = loadCPseqSignal(filename)
     if subset is not None:
         table = table.loc[subset]
-    binding_series = pd.DataFrame([s.split(',') for s in table.binding_series], dtype=float, index=table.index, columns=formatted_concentrations)
+    binding_series = pd.DataFrame([s.split(',') for s in table.binding_series], dtype=float, index=table.index)
     all_cluster_signal = pd.Series(table.all_cluster_signal, index=table.index, dtype=float)
     return binding_series, all_cluster_signal
 
@@ -570,13 +598,14 @@ def boundFluorescence(signal, plot=None):
     
     if plot:
         binwidth = (upperbound - lowerbound)/50.
-        plt.figure()
+        plt.figure(figsize=(4,4))
         sns.distplot(signal.dropna(), bins = np.arange(signal.min(), signal.max()+binwidth, binwidth), color='seagreen')
         ax = plt.gca()
         ylim = ax.get_ylim()
         plt.plot([lowerbound]*2, ylim, 'k:')
         plt.plot([upperbound]*2, ylim, 'k:')
         plt.xlim(0, upperbound + 2*signal.std())
+        plt.tight_layout()
     signal.loc[signal < lowerbound] = lowerbound
     signal.loc[signal > upperbound] = upperbound
     
@@ -652,7 +681,10 @@ def plotSingleVariantFits(table, results, variant, parameters, plot_init=None ):
     filteredTable = filterStandardParameters(table, concentrations)
     bindingSeries = filteredTable.loc[table.variant_number==variant, concentrationCols]
     #bindingSeriesFiltered = filterFitParameters(filteredTable).loc[table.variant_number==variant, concentrationCols]
-    eminus, eplus = fitBindingCurve.findErrorBarsBindingCurve(bindingSeries)
+    try:
+        eminus, eplus = fitBindingCurve.findErrorBarsBindingCurve(bindingSeries)
+    except NameError:
+        eminus, eplus = [np.ones(len(concentrations))*np.nan]*2
     plt.figure(figsize=(4,4))
     plt.errorbar(concentrations, bindingSeries.median(), yerr=[eminus, eplus], fmt='.', elinewidth=1, capsize=2, capthick=1, color='k', linewidth=1)
     
