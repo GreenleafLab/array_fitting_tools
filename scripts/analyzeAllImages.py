@@ -35,10 +35,12 @@ import numpy as np
 import scipy.io as sio
 import IMlibs
 import pandas as pd
-import seaborn
+import seaborn as sns
 import matplotlib.pyplot as plt
+import random
+import glob
 from statsmodels.distributions.empirical_distribution import ECDF
-
+sns.set_style('white', )
 
 ### MAIN ###
 
@@ -254,6 +256,7 @@ else:
     IMlibs.matchCPsignalToLibrary(barcodeToSequenceFilename, sortedAllCPsignalFile, annotatedSignalFilename)
 
 ################ Fit ################
+sys.exit()
 fittedBindingFilename = IMlibs.getFittedFilename(annotatedSignalFilename)
 if os.path.isfile(fittedBindingFilename):
     print 'fitted CPsignal file exists "%s". Skipping...'%fittedBindingFilename
@@ -274,8 +277,9 @@ else:
     # get binding estimation and choose 10000 that pass filter
     ecdf = ECDF(pd.Series(null_scores).dropna())
     qvalues = pd.Series(1-ecdf(bindingSeries.iloc[:, args.null_column].dropna()), index=bindingSeries.iloc[:, args.null_column].dropna().index)
-    index = qvalues.loc[qvalues<0.05].iloc[np.linspace(0, (qvalues<0.05).sum()-1, 1E4).astype(int)].index
-
+    qvalues.sort()
+    index = qvalues.iloc[:1E4].index # take top 10K binders
+    
     # fit first round
     print '\tFitting best binders with no constraints...'
     parameters = fittingParameters.Parameters(concentrations, fabs_green_max.loc[index])
@@ -289,23 +293,22 @@ else:
     plt.savefig(os.path.join(os.path.dirname(fittedBindingFilename), 'constrained_%s.pdf'%param))
     
     param = 'fmin'
-    index = ((fitUnconstrained.dG > parameters.mindG)&
-                 (fitUnconstrained.dG_stde < 1)&
-                 (fitUnconstrained.fmax_stde < fitUnconstrained.fmax))
-    parameters.fitParameters.loc[:, param] = IMlibs.plotFitFmaxs(fitUnconstrained, maxdG=maxdG, param=param, index=index)
+    parameters.fitParameters.loc[:, param] = IMlibs.findProbableFmin(bindingSeriesNorm, qvalues)
     plt.savefig(os.path.join(os.path.dirname(fittedBindingFilename), 'constrained_%s.pdf'%param))
-    
-    # do some more wrangling
-    parameters.fitParameters.loc['lowerbound', 'fmin'] = 0
-    parameters.fitParameters.loc['upperbound', 'fmin'] = 2*parameters.fitParameters.loc['initial', 'fmin']
-    parameters.fitParameters.loc[:, 'fmax'] += parameters.fitParameters.loc['initial', 'fmin']
-    
+        
     # now refit all remaining clusters
     print 'Fitting all with constraints on fmax (%4.2f, %4.2f, %4.2f)'%(parameters.fitParameters.loc['lowerbound', 'fmax'], parameters.fitParameters.loc['initial', 'fmax'], parameters.fitParameters.loc['upperbound', 'fmax'])
-    print 'Fitting all with constraints on fmin (%4.2f, %4.2f, %4.2f)'%(parameters.fitParameters.loc['lowerbound', 'fmin'], parameters.fitParameters.loc['initial', 'fmin'], parameters.fitParameters.loc['upperbound', 'fmin'])
-
+    print 'Fitting all with constraints on fmin (%4.4f, %4.4f, %4.4f)'%(parameters.fitParameters.loc['lowerbound', 'fmin'], parameters.fitParameters.loc['initial', 'fmin'], parameters.fitParameters.loc['upperbound', 'fmin'])
+    
+    # save fit parameters
+    fitParametersFilename = os.path.join(os.path.dirname(fittedBindingFilename),
+                                         'bindingParameters.%s.fp'%datetime.datetime.today().strftime("%Y-%m-%d_%H-%M-%S"))
+    parameters.fitParameters.to_csv(fitParametersFilename, sep='\t')
     fitConstrained = pd.DataFrame(index=bindingSeriesNorm.index, columns=fitUnconstrained.columns)
-    index_all = bindingSeriesNorm.dropna(axis=0, thresh=4).index
+    
+    # sort by qvalue to try to get groups of equal distributions of binders/nonbinders
+    index = pd.concat([bindingSeriesNorm, pd.DataFrame(qvalues, columns=['qvalue'])], axis=1).sort('qvalue').index
+    index_all = bindingSeriesNorm.loc[index].dropna(axis=0, thresh=4).index
     fitConstrained.loc[index_all] = IMlibs.splitAndFit(bindingSeriesNorm, concentrations,
                                                        parameters.fitParameters, numCores, index=index_all)
     fitConstrained.loc[:, 'qvalue'] = qvalues
@@ -339,7 +342,7 @@ else:
     parameters = fittingParameters.Parameters(concentrations, table=table)
     plt.savefig(os.path.join(os.path.dirname(fittedBindingFilename), 'stde_fmax.at_different_n.pdf'))
     
-    results = IMlibs.getBootstrappedErrors(variant_table, table, parameters, numCores)
+    results = IMlibs.getBootstrappedErrors(table, parameters, numCores)
     variant_table_final = IMlibs.matchTogetherResults(variant_table, results)
     IMlibs.saveDataFrame(variant_table_final, variantBootstrappedFilename, float_format='%4.3f', index=True)
     IMlibs.saveDataFrame(results, os.path.splitext(variantBootstrappedFilename)[0]+
@@ -350,5 +353,68 @@ else:
 
 sys.exit()
 
+# load background binding curves
+checkBackground = False
+fittedBackgroundFilename = '%s.background%s'%(os.path.splitext(fittedBindingFilename))
+variantBackgroundFilename = '%s.background%s'%(os.path.splitext(variantBootstrappedFilename))
+if checkBackground:
+    
+    # load all cluster signal in positive clsuters, trim it as before, and use it to estimate binding Series of 'null' clusters
+    tmp, allClusterSignal = IMlibs.loadBindingCurveFromCPsignal(annotatedSignalFilename, concentrations)
+    del tmp
+    IMlibs.boundFluorescence(allClusterSignal, plot=True)   # try to reduce noise by limiting how big/small you divide by
+    
+    # load background clusters
+    bindingSeries = IMlibs.loadNullScores(signalNamesByTileDict, filterSet, tile='003', return_binding_series=True, concentrations=concentrations)
+    bindingSeriesNorm = np.divide(bindingSeries, allClusterSignal.median())
+    ecdf = ECDF(pd.Series(bindingSeries.iloc[:, -1]).dropna())
+    qvalues = pd.Series(1-ecdf(bindingSeries.iloc[:, -1].dropna()), index=bindingSeries.iloc[:, -1].dropna().index)
+
+    # find most recent fp
+    filenames = glob.glob(os.path.join(os.path.dirname(fittedBindingFilename), "*.fp"))
+    initial_file = filenames[0]
+    initial_date = datetime.datetime.strptime(os.path.basename(initial_file.split('.')[1]), "%Y-%m-%d_%H-%M-%S")
+    final_file = initial_file
+    final_date = initial_date
+    for filename in filenames:
+        new_date = datetime.datetime.strptime(os.path.basename(filename.split('.')[1]), "%Y-%m-%d_%H-%M-%S")
+        if new_date > final_date:
+            final_date = new_date
+            final_file = filename
+    fitParameters = pd.read_table(final_file, index_col=0)
+    
+    # fit 10,000 background clusters
+    index_all = bindingSeriesNorm.dropna(axis=0, thresh=4).index
+    fitBackground = IMlibs.splitAndFit(bindingSeriesNorm, concentrations,
+                                                       parameters.fitParameters, numCores, index=index_all)
+    fitBackground.loc[:, 'qvalue'] = qvalues.loc[index_all]
+    tableBackground = pd.concat([pd.DataFrame(index=bindingSeries.index, columns=['variant_number']),
+                                 bindingSeriesNorm,
+                                 pd.DataFrame(index=bindingSeries.index, columns=['all_cluster_signal'], data=allClusterSignal.median()),
+                                 fitBackground], axis=1)
+    tableBackground.to_csv(fittedBackgroundFilename, sep='\t')
+    # do subsets
+    table = IMlibs.loadFittedCPsignal(fittedBindingFilename)
+    variant_table = pd.read_table(variantBootstrappedFilename, index_col=0)
+    parameters = fittingParameters.Parameters(concentrations, table=table)
+    
+    
+    tableBackground.loc[:, 'variant_number'] = np.nan
+    
+    num_iterations = 1000
+    remaining_indexes = pd.Series(index_all.values)
+    # assign some random variant numbers   
+    for i in np.arange(num_iterations):
+        
+        n_clusters = int(random.choice(variant_table.numClusters.dropna().values))
+        clusters = random.sample(remaining_indexes, n_clusters)
+        remaining_indexes = remaining_indexes[~np.in1d(remaining_indexes, clusters)]
+        if i%100==0: print i
+        #print len(remaining_indexes)
+        tableBackground.loc[clusters, 'variant_number'] = i
+    results = IMlibs.getBootstrappedErrors(tableBackground.dropna(subset=['variant_number'], axis=0), parameters, numCores)
+    results.to_csv(variantBackgroundFilename, sep='\t', index=True, header=True, float_format='%.3e')
+    tableBackground.to_csv(fittedBackgroundFilename, sep='\t', float_format='%.3e')
+    
 # plot some key stuff
 IMlibs.plotFractionFit(variant_table, binedges=None)

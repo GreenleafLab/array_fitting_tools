@@ -156,18 +156,19 @@ class Parameters():
             self.per_variant = per_variant
             self.default_errors = grouped[concentrationCols].std().mean()
                 
-            start = 3 # start fit with at least three vclusters/variant
+            start = 2 # start fit with at least three vclusters/variant
             self.fits = pd.DataFrame(index=per_variant_params, columns=['sigma', 'c'])
             for param in per_variant_params:
                 params = lmfit.Parameters()
-
-                params.add('sigma', value=1, min=0)
-                params.add('c', value=0, min=0)
+                params.add('sigma', value=per_variant.loc[start, '%s_std'%param]/np.sqrt(start), min=0)
+                params.add('c', value=per_variant.iloc[-10:].mean().loc['%s_std'%param], min=0)
+                
                 results = lmfit.minimize(self.objectiveFunction, params,
                                    args=(np.array(per_variant.loc[start:].index),),
                                    kws={'y':per_variant.loc[start:, '%s_std'%param].values,
                                         'weights':per_variant.loc[start:, 'weight'].values},
                                    xtol=1E-6, ftol=1E-6, maxfev=10000)
+                
                 popt = [params[name].value for name in params.keys()]
                 
                 #popt, pcov = curve_fit(self.fitFunction,
