@@ -1,9 +1,9 @@
-#from lmfit import minimize, Parameters, report_fit, conf_interval
+from lmfit import minimize, Parameters, report_fit, conf_interval
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
-#from scikits.bootstrap import bootstrap
+from scikits.bootstrap import bootstrap
 from statsmodels.stats.weightstats import DescrStatsW
 import warnings
 import itertools

@@ -14,59 +14,21 @@ import numpy as np
 import pandas as pd
 import scipy.io as sio
 import matplotlib.pyplot as plt
-#from scikits.bootstrap import bootstrap
+from scikits.bootstrap import bootstrap
 import functools
 import datetime
-#import CPlibs
+
 import scipy.stats as st
 from statsmodels.sandbox.stats.multicomp import multipletests
-#from joblib import Parallel, delayed
+from joblib import Parallel, delayed
 import warnings
 import seqfun
 import seaborn as sns
 import itertools
-import fitBindingCurve
-sys.path.insert(0, '/home/sarah/array_image_tools_SKD')
-import fittingParameters
 
-def spawnMatlabJob(matlabFunctionCallString):
-    # from CPlibs
-    try:
-        #construct the command-line matlab call 
-        functionCallString =                      "try,"
-        functionCallString = functionCallString +     matlabFunctionCallString + ';'
-        functionCallString = functionCallString + "catch e,"
-        functionCallString = functionCallString +     "disp(getReport(e,'extended'));"
-        functionCallString = functionCallString + "end,"
-        functionCallString = functionCallString + "quit;"
-    
-        logFilename = 'matlabProcess_' + str(uuid.uuid4()) + str(time.time()) + '.tempLog' #timestamped logfile filename
-    
-        cmdString ='matlab -nodesktop -nosplash -singleCompThread -r "{0}"'.format(functionCallString)
-        cmdString = cmdString + ' 1>> {0}'.format(logFilename)
-        cmdString = cmdString + ' 2>> {0}'.format(logFilename)
-       
-        print 'issuing subprocess shell command: ' + cmdString
-       
-        returnCode = subprocess.call(cmdString,shell=True) #execute the command in the shell
-        returnCode2 = subprocess.call('stty sane',shell=True) #matlab messes up the terminal in a weird way--this fixes it 
-    
-        #read log file into a string
-        try:
-            with open(logFilename) as logFilehandle:
-                logString = logFilehandle.read()
-            # delete logfile
-            try:
-                os.unlink(logFilename)
-            except OSError:
-                pass
-        except IOError:
-            logString = 'Log file not generated for command "' + functionCallString + '".'
-    
-        # return log
-        return logString
-    except Exception, e:
-        return 'Python exception generated in spawnMatlabJob: ' + e.message
+import fitBindingCurve
+import findSeqDistribution
+
 
 def filenameMatchesAListOfExtensions(filename, extensionList=None):
     # from CPlibs
@@ -265,8 +227,7 @@ def findCPsignalFile(cpSeqFilename, redFluors, greenFluors, cpSignalFilename):
 
 def reduceCPsignalFile(cpSignalFilename, filterPos, reducedCPsignalFilename):
     # filterPos is semicolon separated list of filters to keep
-    filters = filterPos.split(';')
-    awkFilterText = ' || '.join(['(a[i]==\"%s\")'%s for s in filters])
+    awkFilterText = ' || '.join(['(a[i]==\"%s\")'%s for s in filterPos])
         
         
     # take only lines that contain the filterSet
@@ -284,32 +245,16 @@ def getAllSortedCPsignalFilename(reducedSignalNamesByTileDict, directory):
     newfilename = os.path.basename(filename[:filename.find('tile')] + filename[filename.find('filtered'):])
     return os.path.join(directory, os.path.splitext(newfilename)[0] + '_sorted.CPsignal')
 
-def getSortedFilename(filename):
-    return os.path.splitext(filename)[0] + '.sorted' + os.path.splitext(filename)[1]
-
 def getCompressedBarcodeFilename(sortedAllCPsignalFile):
     return os.path.splitext(sortedAllCPsignalFile)[0] + '.unique_barcodes'
 
-def getBarcodeMapFilename(sortedAllCPsignalFile):
-    return os.path.splitext(sortedAllCPsignalFile)[0] + '.barcode_to_seq'
-
-def getAnnotatedSignalFilename(sortedAllCPsignalFile):
-    return os.path.splitext(sortedAllCPsignalFile)[0] + '.annotated.CPsignal'
 
 def getFittedFilename(sequenceToLibraryFilename):
     return os.path.splitext(sequenceToLibraryFilename)[0] + '.CPfitted'
 
-def getBindingSeriesFilenameParts(sequenceToLibraryFilename, numCores):
-    bindingSeriesFilenameDict = {}
-    for i in range(numCores):
-        bindingSeriesFilenameDict[i] = os.path.splitext(sequenceToLibraryFilename)[0] + '.%d.binding_series.mat'%i
-    return bindingSeriesFilenameDict
+def getAnnotatedFilename(sequenceToLibraryFilename):
+    return os.path.splitext(sequenceToLibraryFilename)[0] + '.CPannot'
 
-def getfitParametersFilenameParts(bindingSeriesFilenameParts):
-    fitParametersFilenameParts = {}
-    for i, filename in bindingSeriesFilenameParts.items():
-        fitParametersFilenameParts[i] = os.path.splitext(os.path.splitext(filename)[0])[0] + '.fitParameters.mat'
-    return fitParametersFilenameParts
 
 def getFitParametersFilename(sequenceToLibraryFilename):
     return os.path.splitext(sequenceToLibraryFilename)[0] + '.fitParameters'
@@ -346,19 +291,6 @@ def compressBarcodes(sortedAllCPsignalFile, barcode_col, seq_col, compressedBarc
     os.system(to_run)
     return
 
-def barcodeToSequenceMap(compressedBarcodeFile, libraryDesignFile, outFile):
-    script = 'findSeqDistribution'
-    to_run =  "python -m %s -b %s -l %s -o %s "%(script, compressedBarcodeFile, libraryDesignFile, outFile)
-    print to_run
-    os.system(to_run)
-    return
-
-def matchCPsignalToLibrary(barcodeToSequenceFilename, sortedAllCPsignalFile, sequenceToLibraryFilename):
-    script = 'matchCPsignalLibrary'
-    to_run =  "python -m %s -b %s -i %s -o %s "%(script, barcodeToSequenceFilename, sortedAllCPsignalFile, sequenceToLibraryFilename)
-    print to_run
-    os.system(to_run)
-    return
 
 def splitAndFit(bindingSeries, concentrations, fitParameters, numCores, index=None, mod_fmin=None, split=None):
     if index is None:
@@ -442,6 +374,7 @@ def makeFittedCPsignalFile(fitParameters,annotatedSignalFilename, fittedBindingF
     table.to_csv(fittedBindingFilename, index=True, header=True, sep='\t')
     return table
 
+
 def loadLibraryCharacterization(filename, version=None):
     if version is None:
         version = 'v2'
@@ -450,10 +383,10 @@ def loadLibraryCharacterization(filename, version=None):
         cols = ['sequence', 'topology', 'loop', 'receptor', 'helix_context',
                 'junction_sequence', 'helix_sequence', 'helix_one_length',
                 'helix_two_length', 'junction_length', 'total_length']
-        mydata = pd.read_table(filename, header=0, names=cols, index_col=False)
+        mydata = pd.read_table(filename, header=0, names=cols, index_col=False, usecols=['sequence'])
     
     elif version == 'v2':
-        mydata = pd.read_table(filename)
+        mydata = pd.read_table(filename, usecols=['sequence'])
     return mydata
 
 def loadCompressedBarcodeFile(filename):
@@ -461,53 +394,15 @@ def loadCompressedBarcodeFile(filename):
     mydata = pd.read_table(filename)
     return mydata
 
-def findSequenceRepresentation(consensus_sequences, compare_to, exact_match=None):
-    # initialize
-    if exact_match is None:
-        exact_match = False # default is to search for whether it contains the sequence .
-                            # set to True if the sequences must match exactly
-    num_bc_per_variant = np.zeros(len(compare_to), dtype=int) # number consensus sequences per designed sequence
-    is_designed = np.zeros(len(consensus_sequences), dtype=int)-1 # -1 if no designed sequence is found that matches. else index
-    
-    # cycle through designed sequences. Find if they are in the actual sequences
-    for i, sequence in enumerate(compare_to):
-        if i%1000==0:
-            print "checking %dth sequence"%i
-        
-        # whether the sequence (designed) is in the actual sequence, given by the fastq
-        in_fastq = True
-    
-        # start count
-        count = -1
-        
-        # first location in the sorted list that the sequence might match
-        indx = np.searchsorted(consensus_sequences, sequence)
-        
-        # starting from the first index given by searching the sorted list,
-        # cycle until the seuqnece is no longer found
-        while in_fastq:
-            count += 1
-            if indx+count < len(consensus_sequences):
-                if exact_match:
-                    in_fastq = consensus_sequences[indx+count] == sequence
-                else:
-                    in_fastq = consensus_sequences[indx+count].find(sequence)==0
-            else:
-                in_fastq = False
-            # if the designed sequence is in the most probable location of the
-            # sorted consensus sequences, give 'is_designed' at that location to the
-            # indx of the matching sequence in 'compare_to'
-            if in_fastq:
-                is_designed[indx+count] = i
-        num_bc_per_variant[i] = count
-    return num_bc_per_variant, is_designed
+def loadCPseqSignal(filename, concentrations=None, index_col=None, usecols=None):
 
-def loadCPseqSignal(filename, concentrations=None):
     """
     function to load CPseqsignal file with the appropriate headers
     """
-    cols = ['tileID','filter','read1_seq','read1_quality','read2_seq','read2_quality','index1_seq','index1_quality','index2_seq', 'index2_quality','all_cluster_signal','binding_series']
-    table = pd.read_csv(filename, sep='\t', header=None, names=cols, index_col=False)
+    cols = ['tileID','filter','read1_seq','read1_quality','read2_seq',
+            'read2_quality','index1_seq','index1_quality','index2_seq',
+            'index2_quality','all_cluster_signal','binding_series']
+    table = pd.read_csv(filename, sep='\t', header=None, names=cols, index_col=index_col, usecols=usecols)
     return table
 
 def loadNullScores(signalNamesByTileDict, filterPos=None, filterNeg=None,
@@ -532,8 +427,15 @@ def loadNullScores(signalNamesByTileDict, filterPos=None, filterNeg=None,
     # by index.
     table = loadCPseqSignal(filename)
     table.dropna(subset=['filter'], axis=0, inplace=True)
-    subset = [str(s).find(filterSet) == -1 for s in table.loc[:, 'filter']]
-    
+    if filterNeg is None:
+        # if any of the positive filters are found, 
+        subset = np.logical_not(np.asarray([[str(s).find(filterSet) > -1
+                                             for s in table.loc[:, 'filter']]
+            for filterSet in filterPos]).any(axis=0))
+    else:
+        subset = np.asarray([[str(s).find(filterSet) > -1
+                                             for s in table.loc[:, 'filter']]
+            for filterSet in filterNeg]).any(axis=0)
 
     binding_series = pd.DataFrame([s.split(',') for s in table.loc[subset].binding_series],
         dtype=float, index=table.loc[subset].index)
@@ -543,7 +445,7 @@ def loadNullScores(signalNamesByTileDict, filterPos=None, filterNeg=None,
     if return_binding_series:
         return binding_series.dropna(axis=0)
     else: 
-        return binding_series.iloc[:, index].dropna()
+        return binding_series.iloc[:, binding_point].dropna()
 
 def tileIntToString(currTile):
     if currTile < 10:
@@ -575,17 +477,19 @@ def getTimeDeltaDict(timeStampDict):
         timeDeltas[tile] = getTimeDeltas(timeStamps) + getTimeDeltaBetweenTiles(timeStampDict, tile)
     return timeDeltas
 
-def loadBindingCurveFromCPsignal(filename, concentrations=None, subset=None):
+def loadBindingCurveFromCPsignal(filename, concentrations, subset=None, index_col=None):
     """
     open file after being reduced to the clusters you are interested in.
     find the all cluster signal and the binding series (comma separated),
     then return the binding series, normalized by all cluster image.
     """
-    #formatted_concentrations = formatConcentrations(concentrations)
-    table = loadCPseqSignal(filename)
+
+    formatted_concentrations = formatConcentrations(concentrations)
+    table = loadCPseqSignal(filename, index_col=index_col)
     if subset is not None:
         table = table.loc[subset]
-    binding_series = pd.DataFrame([s.split(',') for s in table.binding_series], dtype=float, index=table.index)
+    binding_series = pd.DataFrame([s.split(',') for s in table.binding_series],
+        dtype=float, index=table.index, columns=formatted_concentrations)
     all_cluster_signal = pd.Series(table.all_cluster_signal, index=table.index, dtype=float)
     return binding_series, all_cluster_signal
 
@@ -593,24 +497,32 @@ def boundFluorescence(signal, plot=None):
     # take i.e. all cluster signal and bound it 
     if plot is None: plot=False
     
-    lowerbound = np.percentile(signal.dropna(), 1)
-    upperbound = signal.median() + 5*signal.std()
+    signal = signal.copy()
     
-    if plot:
-        binwidth = (upperbound - lowerbound)/50.
-        plt.figure(figsize=(4,4))
-        sns.distplot(signal.dropna(), bins = np.arange(signal.min(), signal.max()+binwidth, binwidth), color='seagreen')
-        ax = plt.gca()
-        ylim = ax.get_ylim()
-        plt.plot([lowerbound]*2, ylim, 'k:')
-        plt.plot([upperbound]*2, ylim, 'k:')
-        plt.xlim(0, upperbound + 2*signal.std())
-        plt.tight_layout()
-    signal.loc[signal < lowerbound] = lowerbound
-    signal.loc[signal > upperbound] = upperbound
+    # check if at least one element of signal is not nan
+    if np.isfinite(signal).sum() > 0:    
+        lowerbound = np.percentile(signal.dropna(), 1)
+        upperbound = signal.median() + 5*signal.std()
+        
+        if plot:
+            binwidth = (upperbound - lowerbound)/50.
+            plt.figure(figsize=(4,4))
+            sns.distplot(signal.dropna(), bins = np.arange(signal.min(), signal.max()+binwidth, binwidth), color='seagreen')
+            ax = plt.gca()
+            ax.tick_params(right='off', top='off')
+            ylim = ax.get_ylim()
+            plt.plot([lowerbound]*2, ylim, 'k:')
+            plt.plot([upperbound]*2, ylim, 'k:')
+            plt.xlim(0, upperbound + 2*signal.std())
+            plt.tight_layout()
+        signal.loc[signal < lowerbound] = lowerbound
+        signal.loc[signal > upperbound] = upperbound
     
+    else:
+        #if they are all nan, set to 1 for division
+        signal.loc[:] = 1
     return signal
-
+    
 def loadOffRatesCurveFromCPsignal(filename, timeStampDict, numCores=None):
     """
     open file after being reduced to the clusters you are interested in.
@@ -652,8 +564,21 @@ def bindingCurve(concentrations, kd, fmax=None, fmin=None):
         fmin = 0
     return fmax*concentrations/(concentrations + kd) + fmin
 
+def find_dG_from_Kd(Kd, concentration_units=None, RT=None):
+    if RT is None:
+        RT = 0.582
+    if concentration_units is None:
+        concentration_units = 1E-9
+    return RT*np.log(Kd*concentration_units)
+
+def find_Kd_from_dG(dG, concentration_units=None, RT=None):
+    return np.exp(dG/RT)/concentration_units
+
+def find_Kd_from_frac_bound_concentration(frac_bound, concentration):
+    return concentration/float(frac_bound) - concentration
+
 def formatConcentrations(concentrations):
-    return [('%4.1f'%x).lstrip().rstrip('0').rstrip('.') for x in concentrations]
+    return [('%.2E'%x) for x in concentrations]
 
 def plotSingleClusterfit(bindingSeries, fitConstrained, cluster, parameters):
 
