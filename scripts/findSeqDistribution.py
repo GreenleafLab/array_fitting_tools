@@ -168,9 +168,26 @@ def findSeqMap(libCharacterizationFile, cpSignalFile, uniqueBarcodesFile=None,
         seqMap.loc[index.index] = barcodeMap.loc[index, cols].values
 
         seqMap.sort('variant_number', inplace=True)
-        return seqMap
+    else:
+        seqMap = barcodeMap.loc[:, cols]
+
     
-    return barcodeMap.loc[:, ['variant_number', 'sequence', 'barcode_good']]
+    if mapToBarcode:
+        logText = ['Used Barcode File: %s'%uniqueBarcodesFile,
+            '\t%d unique barcodes total'%len(barcodeMap),
+            '\t%d (%4.1f%%) mapped to library variant'%(len(barcodeMap.dropna(subset=['variant_number'])),
+                                                       len(barcodeMap.dropna(subset=['variant_number']))/
+                                                       float(len(barcodeMap))*100)]
+    else: logText = []
+    logText = (logText + 
+            ['Mapped to clusters in %s'%cpSignalFile,
+            '\t%d clusters total'%len(seqMap),
+            '\t%d (%4.1f%%) mapped to library variant'%(len(seqMap.dropna(subset=['variant_number'])),
+                                                       len(seqMap.dropna(subset=['variant_number']))/
+                                                       float(len(seqMap))*100)])
+    print '\n'.join(logText)
+
+    return seqMap
 
 ##### SCRIPT #####
 if __name__ == '__main__':

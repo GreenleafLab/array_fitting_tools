@@ -225,17 +225,19 @@ def findCPsignalFile(cpSeqFilename, redFluors, greenFluors, cpSignalFilename):
     np.savetxt(cpSignalFilename, np.transpose(np.vstack((cp_seq, signal_comma_format))), fmt='%s', delimiter='\t')      
     return signal_green
 
-def reduceCPsignalFile(cpSignalFilename, filterPos, reducedCPsignalFilename):
-    # filterPos is semicolon separated list of filters to keep
-    awkFilterText = ' || '.join(['(a[i]==\"%s\")'%s for s in filterPos])
+def reduceCPsignalFile(cpSignalFilename, reducedCPsignalFilename, filterPos=None):
+    
+    if filterPos is None:
+        # use all clusters
+        to_run = "awk '{print $0}' %s > %s"%(awkFilterText, cpSignalFilename, reducedCPsignalFilename)
+    else:
+        # filterPos is list of filters to keep
+        awkFilterText = ' || '.join(['(a[i]==\"%s\")'%s for s in filterPos])  
+        # take only lines that contain the filterSet
+        to_run = "awk '{n=split($2, a,\":\"); b=0; for (i=1; i<=n; i++) if (%s) b=1; if (b==1) print $0}' %s > %s"%(awkFilterText, cpSignalFilename, reducedCPsignalFilename)
         
-        
-    # take only lines that contain the filterSet
-    to_run = "awk '{n=split($2, a,\":\"); b=0; for (i=1; i<=n; i++) if (%s) b=1; if (b==1) print $0}' %s > %s"%(awkFilterText, cpSignalFilename, reducedCPsignalFilename)
-    #to_run = "awk '{i=index($2, \"%s\"); if (i>0) print}' %s > %s"%(filterSet, cpSignalFilename, reducedCPsignalFilename)
     print to_run
     os.system(to_run)
-    #os.system("awk '{i=index($2, \"%s\"); if (i>0 && $9!=\"\" && $9!=\"nan\") print}' %s > %s"%(filterSet, cpSignalFilename, reducedCPsignalFilename))
     return
 
 ########## FILENAME CHANGERS ##########
@@ -263,7 +265,7 @@ def getTimesFilename(annotatedSignalFilename):
     return os.path.splitext(annotatedSignalFilename)[0] + '.times'
 
 def getPerVariantFilename(fittedBindingFilename):
-    return os.path.splitext(fittedBindingFilename)[0] + '.perVariant.CPfitted'
+    return os.path.splitext(fittedBindingFilename)[0] + '.CPvariant'
 
 def getPerVariantBootstrappedFilename(variantFittedFilename):
     return os.path.splitext(variantFittedFilename)[0] + '.bootStrapped.CPfitted'
@@ -405,15 +407,13 @@ def loadCPseqSignal(filename, concentrations=None, index_col=None, usecols=None)
     table = pd.read_csv(filename, sep='\t', header=None, names=cols, index_col=index_col, usecols=usecols)
     return table
 
-def loadNullScores(signalNamesByTileDict, filterPos=None, filterNeg=None,
-                   tile=None, binding_point=None, return_binding_series=None,
+def loadNullScores(backgroundTileFile, filterPos=None, filterNeg=None,
+                   binding_point=None, return_binding_series=None,
                    concentrations=None):
     # find one CPsignal file before reduction. Find subset of rows that don't
     # contain filterSet
     if return_binding_series is None:
         return_binding_series = False
-    if tile is None:
-        tile = '003'   # Default is third tile
     if binding_point is None:
         binding_point = -1
     if filterPos is None:
@@ -421,18 +421,20 @@ def loadNullScores(signalNamesByTileDict, filterPos=None, filterNeg=None,
             print "Error: need to define either filterPos or filterNeg"
             return
 
-    filename = signalNamesByTileDict[tile]
-
     # Now load the file, specifically the signal specifed
     # by index.
-    table = loadCPseqSignal(filename)
+    table = loadCPseqSignal(backgroundTileFile)
     table.dropna(subset=['filter'], axis=0, inplace=True)
+    
+    # if filterNeg is given, use only this to find background clusters
+    # otherwise, use clusters that don't have any of filterPos
     if filterNeg is None:
-        # if any of the positive filters are found, 
+        # if any of the positive filters are found, don't use these clusters
         subset = np.logical_not(np.asarray([[str(s).find(filterSet) > -1
                                              for s in table.loc[:, 'filter']]
             for filterSet in filterPos]).any(axis=0))
     else:
+        # if any of the negative filters are found, use these clusters
         subset = np.asarray([[str(s).find(filterSet) > -1
                                              for s in table.loc[:, 'filter']]
             for filterSet in filterNeg]).any(axis=0)
@@ -506,7 +508,7 @@ def boundFluorescence(signal, plot=None):
         
         if plot:
             binwidth = (upperbound - lowerbound)/50.
-            plt.figure(figsize=(4,4))
+            plt.figure(figsize=(4,3))
             sns.distplot(signal.dropna(), bins = np.arange(signal.min(), signal.max()+binwidth, binwidth), color='seagreen')
             ax = plt.gca()
             ax.tick_params(right='off', top='off')
@@ -547,9 +549,15 @@ def loadOffRatesCurveFromCPsignal(filename, timeStampDict, numCores=None):
         xvalues[tiles==tile] = timeDelta
     return binding_series, np.array(table['all_cluster_signal']), xvalues, tiles  
 
-def loadFittedCPsignal(filename):
-    
-    table = pd.read_table(filename, index_col=0)
+def loadFittedCPsignal(fittedBindingFilename, annotatedClusterFile=None):
+    if annotatedClusterFile is not None:
+        table = pd.concat([pd.read_table(annotatedClusterFile, index_col=0),
+                           pd.read_table(fittedBindingFilename, index_col=0)],
+            axis=1)
+        table.sort('variant_number', inplace=True)
+    else:
+        table = pd.read_table(fittedBindingFilename, index_col=0)
+
     for param in table:
         try:
             table.loc[:, param] = table.param.astype(float)
@@ -563,19 +571,6 @@ def bindingCurve(concentrations, kd, fmax=None, fmin=None):
     if fmin is None:
         fmin = 0
     return fmax*concentrations/(concentrations + kd) + fmin
-
-def find_dG_from_Kd(Kd, concentration_units=None, RT=None):
-    if RT is None:
-        RT = 0.582
-    if concentration_units is None:
-        concentration_units = 1E-9
-    return RT*np.log(Kd*concentration_units)
-
-def find_Kd_from_dG(dG, concentration_units=None, RT=None):
-    return np.exp(dG/RT)/concentration_units
-
-def find_Kd_from_frac_bound_concentration(frac_bound, concentration):
-    return concentration/float(frac_bound) - concentration
 
 def formatConcentrations(concentrations):
     return [('%.2E'%x) for x in concentrations]
@@ -663,38 +658,47 @@ def findVariantTable(table, parameter=None, name=None, concentrations=None):
     # define defaults
     if parameter is None: parameter = 'dG'
     if name is None:
-        name = 'ss_correct'   # default for lib 2
+        name = 'sequence'   # default for lib 2
     
     # define columns as all the ones between variant number and fraction consensus
     columns = [name for name in table.loc[:,'variant_number':name]]
     columns.remove('variant_number')
-    test_stats = [parameter, 'fmin', 'fmax', 'qvalue']
+    test_stats = ['fmax', parameter, 'fmin',  'qvalue']
+    test_stats_init = ['%s_init'%param for param in ['fmax', parameter, 'fmin']] + ['qvalue']
+    other_cols = ['numTests', 'numRejects', 'fitFraction', 'numClusters',
+                  'pvalue', 'fmax_lb','fmax', 'fmax_ub',
+                  '%s_lb'%parameter, parameter, '%s_ub'%parameter,
+                  'fmin', 'rsq', 'numIter', 'fractionOutlier', 'flag']
     
     grouped = table.groupby('variant_number')
-    variant_table = pd.concat([grouped[columns].first(),
-                               pd.DataFrame(index=grouped[columns].first().index,
-                                            columns=test_stats)],
+    variant_table = pd.concat([grouped.first().loc[:, columns],
+                               pd.DataFrame(index=grouped.first().index,
+                                            columns=test_stats_init+other_cols)],
                               axis=1)
     
     # filter for nan, barcode, and fit
-    firstFilterGrouped = filterStandardParameters(table, concentrations).groupby('variant_number')
-    variant_table.loc[:, 'numTests'] = firstFilterGrouped[parameter].count()
-    variant_table.loc[:, 'numRejects'] = grouped[parameter].count() - variant_table.loc[:, 'numTests'] 
+    firstFilterGrouped = filterStandardParameters(table).groupby('variant_number')
+    variant_table.loc[:, 'numTests'] = firstFilterGrouped.count().loc[:, name]
+    variant_table.loc[:, 'numRejects'] = (grouped.count().loc[:, name] -
+                                          variant_table.loc[:, 'numTests'])
     
-    fitFilteredTable = filterFitParameters(filterStandardParameters(table, concentrations))
+    fitFilteredTable = filterFitParameters(filterStandardParameters(table))
     fitFilterGrouped = fitFilteredTable.groupby('variant_number')
-    variant_table.loc[:, 'fitFraction'] = fitFilterGrouped[parameter].count()/variant_table.loc[:, 'numTests']
+    variant_table.loc[:, 'fitFraction'] = (fitFilterGrouped.count().loc[:, name]/
+                                           variant_table.loc[:, 'numTests'])
     
     # then save parameters
-    variant_table.loc[:, test_stats] = fitFilterGrouped[test_stats].median()
+    old_test_stats = fitFilterGrouped[test_stats].median()
+    old_test_stats.columns = test_stats_init
+    variant_table.loc[:, test_stats_init] = old_test_stats
     
     # null model is that all the fits are bad. bad fits happen ~15% of the time
     #p = 1-variant_table.loc[(variant_table.numTests>=5)&(variant_table.dG < -10), 'fitFraction'].mean()
     p = 0.25
-    variant_table.loc[:, 'pvalue'] = np.nan
     for n in np.unique(variant_table.loc[:, 'numTests'].dropna()):
         # do one tailed t test
-        x = (variant_table.loc[:, 'fitFraction']*variant_table.loc[:, 'numTests']).loc[variant_table.numTests==n]
+        x = (variant_table.loc[:, 'fitFraction']*
+             variant_table.loc[:, 'numTests']).loc[variant_table.numTests==n].dropna().astype(float)
         variant_table.loc[x.index, 'pvalue'] = st.binom.sf(x-1, n, p)
     
     return variant_table
@@ -715,8 +719,9 @@ def getBootstrappedErrors(table,  parameters, numCores, parameter=None, variants
     concentrations = parameters.concentrations
     concentrationCols = formatConcentrations(concentrations)
     param_names = parameters.fitParameters.dropna(axis=1).columns.tolist()
-    #subtable = filterFitParameters(filterStandardParameters(table)).loc[:, ['variant_number'] + concentrationCols]
-    subtable = filterStandardParameters(table, concentrations).loc[:, ['variant_number'] + concentrationCols + param_names]
+    subtable = filterStandardParameters(table).loc[:, ['variant_number'] +
+                                                   concentrationCols +
+                                                   param_names]
     grouped = subtable.groupby('variant_number')
     
     print '\tDividing table into groups...'
@@ -737,13 +742,10 @@ def getBootstrappedErrors(table,  parameters, numCores, parameter=None, variants
     return results
 
 def matchTogetherResults(variant_table, results):
-    columns = []
-    for col in variant_table:
-        if col in results.columns:
-            columns.append(col+'_init')
-        else:
-            columns.append(col)
-    variant_table.columns = columns
+    columns = results.columns[np.in1d(results.columns, variant_table.columns)]
+    
+
+    variant_table.loc[results.index, columns] = results.loc[:, columns]
     return pd.concat([variant_table, results], axis=1)
 
 def filterStandardParameters(table, concentrations=None):
@@ -752,8 +754,13 @@ def filterStandardParameters(table, concentrations=None):
     #not_nan_binding_points = formatConcentrations(concentrations)
     #nan_filter = ~np.isnan(table.loc[:, not_nan_binding_points]).all(axis=1)
     if 'barcode_good' in table.columns:
-        barcode_filter = table.loc[:, 'barcode_good']
-        barcode_filter.fillna(False, inplace=True)
+        if len(table.barcode_good.dropna()) > 0:
+            
+            barcode_filter = table.loc[:, 'barcode_good']
+            barcode_filter.fillna(False, inplace=True)
+            print ('only using %d (%4.2f%%) clusters with good barcodes'
+                   %(barcode_filter.sum(),
+                   barcode_filter.sum()/float(len(barcode_filter))*100))
         return table.loc[barcode_filter]
     else:
         return table
@@ -768,7 +775,11 @@ def filterFitParameters(table):
 def fitSingleVariant(table, variant, parameters):
     concentrationCols = formatConcentrations(parameters.concentrations)
     param_names = parameters.fitParameters.dropna(axis=1).columns.tolist()
-    subtable = filterStandardParameters(table, parameters.concentrations).loc[:, ['variant_number'] + concentrationCols + param_names]
+    subtable = filterStandardParameters(table,
+                                        parameters.concentrations).loc[:,
+                                                                       ['variant_number'] +
+                                                                       concentrationCols +
+                                                                       param_names]
     grouped = subtable.groupby('variant_number')
     
     initial_points = grouped.median().loc[variant, param_names]
@@ -784,7 +795,8 @@ def perVariantFit(subSeries, concentrations, parameters, initial_points, eps=Non
     fitParameters = parameters.fitParameters.copy()
     
     # set fmax upper and lower bound based on number of measurements
-    fitParameters.loc[fitParameters.index[:3], 'fmax'] = parameters.find_fmax_bounds_given_n(len(subSeries))
+    fitParameters.loc[fitParameters.index[:3], 'fmax'] = (
+        parameters.find_fmax_bounds_given_n(len(subSeries)))
     
     # set intial guesses for fmax and dG. Fmin stays!!
     for param_name in ['fmax', 'dG']:
@@ -794,7 +806,8 @@ def perVariantFit(subSeries, concentrations, parameters, initial_points, eps=Non
             if param_name == 'dG':
                 fitParameters.loc['initial', param_name] = initial_points.loc[param_name]
             if param_name == 'fmax':
-                fitParameters.loc['initial', param_name] = initial_points.loc[param_name] + initial_points.loc['fmin'] - fitParameters.loc['initial', 'fmin'] 
+                fitParameters.loc['initial', param_name] = initial_points.loc[param_name] 
+                                                            
 
     results = fitBindingCurve.bootstrapCurves(subSeries, fitParameters, concentrations,
                                                parameters,
