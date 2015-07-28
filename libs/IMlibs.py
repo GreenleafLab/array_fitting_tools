@@ -128,20 +128,43 @@ def getFluorFileNamesOffrates(directories, tileNames):
     for tile in tileNames:
         filenameDict[tile] = np.array([],dtype=str)
         for i, directory in enumerate(directories):
-            filenameDict[tile] = np.append(filenameDict[tile],
-                                           np.sort(subprocess.check_output('find %s -name "*CPfluor" | grep tile%s'%(directory, tile), shell=True).split()))
+            try:
+                filenameDict[tile] = np.append(filenameDict[tile],
+                                               np.sort(subprocess.check_output(
+                                                ('find %s -name "*CPfluor" | '+
+                                                'grep tile%s')%(directory, tile),
+                                                shell=True).split()))
+            except:
+                pass
+    
     # check time stamps
     timeStampDict = {}
     for tile in tileNames:
-        timeStampDict[tile] = [parseTimeStampFromFilename(filename) for filename in filenameDict[tile]]
-        
-    # modiy such that all have the same length. Add 1 hour to last time stamp of those files that have no data associated
-    maxNumFiles = np.max([len(filenameDict[tile]) for tile in tileNames])
+        timeStampDict[tile] = [parseTimeStampFromFilename(filename)
+                               for filename in filenameDict[tile]]
+    allTimeStamps = []
+    for times in timeStampDict.values():
+        for time in times:
+            allTimeStamps.append(time)
+    allTimeStamps.sort()
+    
+    # add a blank directory for every missing time stamp
+    allFilenameDict = {}
     for tile in tileNames:
-        if len(filenameDict[tile]) < maxNumFiles:
-            filenameDict[tile] = np.append(filenameDict[tile], ['']*(maxNumFiles - len(filenameDict[tile])))
-            timeStampDict[tile] = np.append(timeStampDict[tile], [timeStampDict[tile][-1] +  datetime.timedelta(hours=1)]*(maxNumFiles - len(timeStampDict[tile])))
-    return filenameDict, timeStampDict
+        filenames = filenameDict[tile] 
+        timestamps = timeStampDict[tile]
+        
+        allfilename = ['']*len(allTimeStamps)
+        for i, idx in enumerate(np.searchsorted(allTimeStamps, timestamps)):
+            allfilename[idx] = filenames[i]
+        allFilenameDict[tile] = list(allfilename)
+    
+    # and return list of time deltas
+    timeDelta = []
+    for time in allTimeStamps:
+        timeDelta.append(getTimeDelta(time, allTimeStamps[0]))
+    
+    return allFilenameDict, timeDelta
 
 def calculateSignal(df):
     return 2*np.pi*df['amplitude']*df['sigma']*df['sigma']
@@ -474,26 +497,52 @@ def getTimeDeltaBetweenTiles(timeStampDict, tile):
     return getTimeDelta(timeStampDict[tile][0], timeStampDict[minTile][0])
 
 def getTimeDeltaDict(timeStampDict):
+
+    
     timeDeltas = {}
     for tile, timeStamps in timeStampDict.items():
         timeDeltas[tile] = getTimeDeltas(timeStamps) + getTimeDeltaBetweenTiles(timeStampDict, tile)
     return timeDeltas
 
-def loadBindingCurveFromCPsignal(filename, concentrations, subset=None, index_col=None):
+def splitBindingCurve(table):
+    return table.binding_series.str.split(',', expand=True)
+
+
+def loadBindingCurveFromCPsignal(filename, concentrations=None, subset=None, index_col=None):
     """
     open file after being reduced to the clusters you are interested in.
     find the all cluster signal and the binding series (comma separated),
     then return the binding series, normalized by all cluster image.
     """
-
-    formatted_concentrations = formatConcentrations(concentrations)
-    table = loadCPseqSignal(filename, index_col=index_col)
+    if index_col is None:
+        index_col = 'tileID'
+    if concentrations is not None:
+        formatted_concentrations = formatConcentrations(concentrations)
+    else:
+        formatted_concentrations = None
+    print 'Loading table...' 
+    table = loadCPseqSignal(filename, index_col=index_col, usecols=['tileID', 'binding_series'])
     if subset is not None:
         table = table.loc[subset]
-    binding_series = pd.DataFrame([s.split(',') for s in table.binding_series],
-        dtype=float, index=table.index, columns=formatted_concentrations)
-    all_cluster_signal = pd.Series(table.all_cluster_signal, index=table.index, dtype=float)
-    return binding_series, all_cluster_signal
+        
+    print 'Splitting binding series...'
+    tmpFile = filename+'.tmp'
+    table.to_csv(tmpFile, header=False, index=False, quotechar=' ', )
+    binding_series = pd.read_csv(tmpFile, header=None)
+    for col in binding_series:
+        binding_series.loc[:, col] = binding_series.loc[:, col].astype(float)
+    binding_series.index = table.index
+    
+    
+    #tableSplit = [table.loc[index] for index in np.array_split(table.index,
+    #                                                           np.ceil(len(table)/10000.))]
+    #binding_series = pd.concat([splitBindingCurve(subtable)
+    #                            for subtable in tableSplit])   
+
+    all_cluster_signal = loadCPseqSignal(filename,
+                                                 index_col=index_col,
+                                                 usecols=['tileID', 'all_cluster_signal'])
+    return binding_series, all_cluster_signal.all_cluster_signal
 
 def boundFluorescence(signal, plot=None):
     # take i.e. all cluster signal and bound it 
