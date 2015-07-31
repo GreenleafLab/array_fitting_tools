@@ -111,9 +111,9 @@ def findSeqMap(libCharacterizationFile, cpSignalFile, uniqueBarcodesFile=None,
         # if using the unique barcode map, the unique identifier is the barcode
         identifyingColumn = 'barcode'
     elif cpSignalFile is not None:
-        consensus = IMlibs.loadCPseqSignal(cpSignalFile)
+        consensus = IMlibs.loadCPseqSignal(cpSignalFile, index_col='tileID')
         consensus.loc[:, 'sequence'] = consensus.loc[:, seqCol]
-        
+        consensus.loc[:, 'tileID'] = consensus.index
         # if using the cpsignal, the unique identifier is the cluster Id
         identifyingColumn = 'tileID'
     
@@ -125,7 +125,7 @@ def findSeqMap(libCharacterizationFile, cpSignalFile, uniqueBarcodesFile=None,
     
     # make library sequences unique
     designed_sequences, unique_indices = np.unique(designed_library['sequence'], return_index=True)
-    designed_library_unique = designed_library.iloc[unique_indices]
+    designed_library_unique = designed_library.iloc[unique_indices].copy()
     print "reduced library size from %d to %d after unique filter"%(len(designed_library), len(designed_library_unique))
     
     ## add field in designed_library_unique which gives an int to that sequence
@@ -136,12 +136,15 @@ def findSeqMap(libCharacterizationFile, cpSignalFile, uniqueBarcodesFile=None,
     
     # reformat designed sequences to be reverse complement (as in read 2)
     if reverseComplement:
-        designed_library_unique.loc[:, 'rc_sequence'] = (
+        designed_library_unique.loc[:, 'rc_sequence_trunc'] = (
             [seqfun.reverseComplement(sequence)[:read_length]
              for sequence in designed_library_unique.sequence])
-        compare_to = designed_library_unique.rc_sequence
+        compare_to = designed_library_unique.rc_sequence_trunc
     else:
-        compare_to = designed_library_unique.sequence
+        designed_library_unique.loc[:, 'sequence_trunc'] = (
+            [sequence[:read_length]
+             for sequence in designed_library_unique.sequence])
+        compare_to = designed_library_unique.sequence_trunc
     
     # find number of times each sequence that has at least one representation is in the
     # original block of seqeunces
@@ -158,14 +161,16 @@ def findSeqMap(libCharacterizationFile, cpSignalFile, uniqueBarcodesFile=None,
     
     # return not the barcode map but the seqMap. If mapped di
     print 'Mapping to cluster IDs...'
-    cols = ['variant_number', 'sequence', 'barcode_good']
+    cols = ['variant_number']
     if mapToBarcode:
         identifyingColumn = 'tileID'
-        table = IMlibs.loadCPseqSignal(cpSignalFile, usecols=[identifyingColumn, barcodeCol], index_col=identifyingColumn)
+        table = IMlibs.loadCPseqSignal(cpSignalFile, usecols=[identifyingColumn, barcodeCol],
+                                       index_col=identifyingColumn)
+        
         
         seqMap = pd.DataFrame(index=table.index, columns=cols)
-        index = table.dropna(axis=0).loc[:, barcodeCol]
-        seqMap.loc[index.index] = barcodeMap.loc[index, cols].values
+        index = table.loc[:, barcodeCol].dropna()
+        seqMap.loc[index.index, cols] = barcodeMap.loc[index, cols].values
 
         seqMap.sort('variant_number', inplace=True)
     else:

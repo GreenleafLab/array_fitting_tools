@@ -375,7 +375,6 @@ def bootstrapCurves(subSeries, fitParameters, concentrations, parameters,
     results.loc['fractionOutlier'] = 1 - not_outliers.sum()/float(len(singles))
     results.loc['flag'] = flag
     
-
     if plot:
         if plot_dists:
             # plot histogram of parameters

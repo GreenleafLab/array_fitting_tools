@@ -28,6 +28,7 @@ import time
 import re
 import argparse
 import subprocess
+from joblib import Parallel, delayed
 import multiprocessing
 import shutil
 import uuid
@@ -41,7 +42,8 @@ import datetime
 import glob
 import IMlibs
 import findSeqDistribution
-import fitFun
+import singleClusterFits
+import bootStrapFits
 sns.set_style("white", {'xtick.major.size': 4,  'ytick.major.size': 4})
 
 ### MAIN ###
@@ -94,6 +96,10 @@ group.add_argument('--noReverseComplement', default=False, action="store_true",
 group = parser.add_argument_group('other settings')
 group.add_argument('-n','--num_cores', type=int, default=1,
                     help='maximum number of cores to use. default=1')
+group.add_argument('-off','--off_rates', default=False, action="store_true",
+                    help='flag if you wish to do off rates')
+group.add_argument('-on','--on_rates', default=False, action="store_true",
+                    help='flag if you wish to do on rates')
 
 if not len(sys.argv) > 1:
     parser.print_help()
@@ -101,6 +107,10 @@ if not len(sys.argv) > 1:
 
 #parse command line arguments
 args = parser.parse_args()
+
+if args.off_rates and args.on_rates:
+    print "Error: only one option [-off | -on] can be flagged"
+    sys.exit()
 
 # import CPseq filtered files split by tile
 print 'Finding CPseq files in directory "%s"...'%args.filtered_CPseqs
@@ -111,7 +121,10 @@ tileList = filteredCPseqFilenameDict.keys()
 # import directory names to analyze
 print 'Finding CPfluor files in directories given in "%s"...'%args.map_CPfluors
 fluorDirsAll, fluorDirsSignal, concentrations = IMlibs.loadMapFile(args.map_CPfluors)
-fluorNamesByTileDict = IMlibs.getFluorFileNames(fluorDirsSignal, tileList)
+if args.off_rates or args.on_rates:
+    fluorNamesByTileDict, timeDelta = IMlibs.getFluorFileNamesOffrates(fluorDirsSignal, tileList)
+else:
+    fluorNamesByTileDict = IMlibs.getFluorFileNames(fluorDirsSignal, tileList)
 fluorNamesByTileRedDict = IMlibs.getFluorFileNames(fluorDirsAll, tileList)
 
 # make output base directory
@@ -136,60 +149,52 @@ if os.path.isdir(signalDirectory): #if the CPsignal file is already present
         else: print "   missing tile %s"%tile
 else:
     os.makedirs(signalDirectory) #create a new output directory if it doesn't exist
-    
+  
 if np.sum(already_exist) < len(filteredCPseqFilenameDict):
-    # initiate multiprocessing
-    workerPool = multiprocessing.Pool(processes=numCores) #create a multiprocessing pool that uses at most the specified number of cores
-    for i, tile in enumerate(tileList):
-        if not already_exist[i]:
-            currCPseqfile = filteredCPseqFilenameDict[tile]
-            currGreenCPfluors = fluorNamesByTileDict[tile]
-            currRedCPfluors = fluorNamesByTileRedDict[tile]
-            currCPseqSignalOut = signalNamesByTileDict[tile]
-            print "Making signal file %s from %s"%(currCPseqSignalOut, currCPseqfile)
-            # make CP signal files
-            workerPool.apply_async(IMlibs.findCPsignalFile, args=(currCPseqfile,
-                                                                  currRedCPfluors,
-                                                                  currGreenCPfluors,
-                                                                  currCPseqSignalOut))
-    workerPool.close()
-    workerPool.join()
-
-# check to make sure they are all made
-if np.all([os.path.exists(filename) for filename in signalNamesByTileDict.values()]):
-    print 'All signal files successfully generated'
-else:
-    print 'Error: not all signal files successfully generated'
-    print '\tAre CPfluor files and CPseq files matching?'
-    sys.exit()
     
+    # parallelize making the CPsignal files for each tile
+    (Parallel(n_jobs=numCores, verbose=10)
+        (delayed(IMlibs.findCPsignalFile)(filteredCPseqFilenameDict[tile],
+                                          fluorNamesByTileRedDict[tile],
+                                          fluorNamesByTileDict[tile],
+                                          signalNamesByTileDict[tile],
+                                          tile=tile)
+                 for i, tile in enumerate(tileList) if not already_exist[i]))
+
+    # check to make sure they are all made
+    if np.all([os.path.exists(filename) for filename in signalNamesByTileDict.values()]):
+        print 'All signal files successfully generated'
+    else:
+        print 'Error: not all signal files successfully generated'
+        print '\tAre CPfluor files and CPseq files matching?'
+        sys.exit()
+        
     
 ################ Make concatenated, reduced signal file ########################
 reducedSignalDirectory = os.path.join(args.output_dir, 'CPfitted')
 reducedSignalNamesByTileDict = IMlibs.getReducedCPsignalDict(signalNamesByTileDict,
                                                   directory=reducedSignalDirectory)
 reducedCPsignalFile = IMlibs.getReducedCPsignalFilename(reducedSignalNamesByTileDict)
+pickleCPsignalFilename = reducedCPsignalFile + '.pkl'
+
 print ('Making reduced CPsignal file in directory "%s"'
        %reducedSignalDirectory)
 
 # if file already exists, skip
 if os.path.exists(reducedCPsignalFile):
     print 'Reduced CPsignal file already exists. Skipping... %s'%reducedCPsignalFile
+elif os.path.exists(pickleCPsignalFilename):
+    print 'Pickled reduced CPsignal file already exists. Skipping... %s'%pickleCPsignalFilename
 else:
     if not os.path.exists(reducedSignalDirectory):
         os.mkdir(reducedSignalDirectory)
-    workerPool = multiprocessing.Pool(processes=numCores) 
-    for i, tile in enumerate(tileList):
-        # make temporary reduced signal file
-        cpSignalFilename = signalNamesByTileDict[tile]
-        reducedCPsignalFilename = reducedSignalNamesByTileDict[tile]
-        print ("Making reduced signal file %s from %s with filter set %s"
-               %(reducedCPsignalFilename, cpSignalFilename, args.filterPos))
-        workerPool.apply_async(IMlibs.reduceCPsignalFile,
-                               args=(cpSignalFilename, args.filterPos,
-                                     reducedCPsignalFilename))
-    workerPool.close()
-    workerPool.join()
+    
+    # parallelize making reduced CPsignal files with filterPos
+    (Parallel(n_jobs=numCores, verbose=10)
+        (delayed(IMlibs.reduceCPsignalFile)(signalNamesByTileDict[tile],
+                                            reducedSignalNamesByTileDict[tile],
+                                            args.filterPos)
+                 for i, tile in enumerate(tileList)))
     
     if np.all([os.path.exists(filename) for filename in reducedSignalNamesByTileDict.values()]):
         print 'All temporary reduced signal files successfully generated'
@@ -200,7 +205,9 @@ else:
         
     # concatenate temp files
     try:
-        IMlibs.sortConcatenateCPsignal(reducedSignalNamesByTileDict, reducedCPsignalFile)
+        IMlibs.sortConcatenateCPsignal(reducedSignalNamesByTileDict,
+                                       reducedCPsignalFile,
+                                       pickled_output=pickleCPsignalFilename)
     except:
         print 'Error: Could not concatenate reduced signal files. Exiting.'
         sys.exit()
@@ -208,68 +215,132 @@ else:
     # remove temp files
     for filename in reducedSignalNamesByTileDict.values():
         os.remove(filename)
-    
+        
 
+    
 ################ Fit ################
-fittedBindingFilename = IMlibs.getFittedFilename(reducedCPsignalFile)
-fitParametersFilename = os.path.splitext(fittedBindingFilename)[0] + '.fitParameters'
+fittedBindingFilename = IMlibs.getFittedFilename(reducedCPsignalFile) + '.pkl'
+fitParametersFilename = os.path.splitext(reducedCPsignalFile)[0] + '.fitParameters'
+bindingCurveFilename = os.path.splitext(reducedCPsignalFile)[0] + '.bindingCurve.pkl'
+timesFilename = os.path.splitext(reducedCPsignalFile)[0] + '.times.pkl'
 
-# define background file: i.e CPsignal file that contains some null clusters
-backgroundTileFile = signalNamesByTileDict['tile003']
+if not args.on_rates and not args.off_rates:
+    # only fit single clusters if you are looking at binding curves (i.e. not
+    # on rates or off rates)
+    print 'Fitting single clusters...'
 
-# save figures in dated directory
-figDirectory = os.path.join(os.path.dirname(fittedBindingFilename),
-                            'figs_%s'%str(datetime.date.today()))
-if not os.path.exists(figDirectory):
-    os.mkdir(figDirectory)
     
-if os.path.isfile(fittedBindingFilename):
-    print 'CPfitted file exists "%s". Skipping...'%fittedBindingFilename
+    # define background file: i.e CPsignal file that contains some null clusters
+    backgroundTileFile = signalNamesByTileDict['003']
+    
+    # save figures in dated directory
+    figDirectory = os.path.join(os.path.dirname(fittedBindingFilename),
+                                'figs_%s'%str(datetime.date.today()))
+    if not os.path.exists(figDirectory):
+        os.mkdir(figDirectory)
+        
+    if os.path.isfile(fittedBindingFilename):
+        print 'CPfitted file exists "%s". Skipping...'%fittedBindingFilename
+    else:
+        print 'Fitting single cluster fits "%s"...'%fittedBindingFilename
+        
+        # do single cluster fits on binding curve in reducedCPsignalFile
+        fitConstrained, fitParameters, bindingSeriesNorm = singleClusterFits.bindingSeriesByCluster(
+            pickleCPsignalFilename, concentrations, args.binding_point, numCores=numCores,
+            backgroundTileFile=backgroundTileFile,
+            filterPos=args.filterPos, filterNeg=args.filterNeg, num_clusters=None,
+            subset=True)
+        
+        # try saving Figs
+        try:
+            plt.savefig(os.path.join(figDirectory, 'constrained_fmax.pdf')); plt.close()
+        except: pass
+        try:
+            plt.savefig(os.path.join(figDirectory, 'constrained_fmax.pdf')); plt.close()
+        except: pass
+        try:
+            plt.savefig(os.path.join(figDirectory, 'constrained_fmin.pdf')); plt.close()
+        except: pass
+        try:
+            plt.savefig(os.path.join(figDirectory, 'fluorescence_in_binding_point_column.pdf')); plt.close()
+        except: pass
+        try:
+            plt.savefig(os.path.join(figDirectory, 'all_cluster_signal.pdf')); plt.close()
+        except: pass
+        
+        # save CPfitted
+        #fitConstrained.to_csv(fittedBindingFilename, index=True, header=True, sep='\t')
+        fitConstrained.to_pickle(fittedBindingFilename)
+        
+        # save fitParameters
+        fitParameters.to_csv(fitParametersFilename, index=True, header=True, sep='\t')
+        
+        # save binding series
+        bindingSeriesNorm.to_pickle(bindingCurveFilename) 
 else:
-    print 'Fitting single cluster fits "%s"...'%fittedBindingFilename
+    print 'Skipping fitting single clusters because fitting onrates or offrates'
+    if os.path.exists(bindingCurveFilename):
+        print 'Binding curve file already exists. Skipping...'
+    else:
+        print 'Loading binding curves...'
+        
+        bindingSeries, allClusterSignal = IMlibs.loadBindingCurveFromCPsignal(
+                pickleCPsignalFilename)
+        
+        allClusterSignal = IMlibs.boundFluorescence(allClusterSignal, plot=True)   
+        bindingSeriesNorm = np.divide(bindingSeries, np.vstack(allClusterSignal))
     
-    # do single cluster fits on binding curve in reducedCPsignalFile
-    fitConstrained, fitParameters = fitFun.bindingSeriesByCluster(
-        reducedCPsignalFile, concentrations, args.binding_point, numCores=numCores,
-        backgroundTileFile=backgroundTileFile,
-        filterPos=args.filterPos, filterNeg=args.filterNeg, num_clusters=None)
-    
-    # try saving Figs
-    try:
-        plt.savefig(os.path.join(figDirectory, 'constrained_fmax.pdf')); plt.close()
-    except: pass
-    try:
-        plt.savefig(os.path.join(figDirectory, 'constrained_fmin.pdf')); plt.close()
-    except: pass
-    try:
-        plt.savefig(os.path.join(figDirectory, 'fluorescence_in_binding_point_column.pdf')); plt.close()
-    except: pass
-    try:
-        plt.savefig(os.path.join(figDirectory, 'all_cluster_signal.pdf')); plt.close()
-    except: pass
-    
-    # save CPfitted
-    fitConstrained.to_csv(fittedBindingFilename, index=True, header=True, sep='\t')
-    
-    # save fitParameters
-    fitParameters.to_csv(fitParametersFilename, index=True, header=True, sep='\t')
+        # now find times and do the best you can to bin times and effectively
+        # fill in data from different tiles measured at slightly different times
+        
+        # read tiles
+        tiles = pd.read_pickle(pickleCPsignalFilename).loc[:, 'tile']
+        
+        # make array of universal times: i.e. bins in which you will test binding
+        min_time_delta = np.min([(np.array(times[1:]) - np.array(times[:-1])).min()
+                                 for times in timeDelta.values()])
+        
+        universalTimes = np.arange(0, np.hstack(timeDelta.values()).max()+min_time_delta,
+                                   min_time_delta)
+        
+        # find which times in universal times have variants
+        cols = []
+        for tile, times in timeDelta.items():
+            cols.append(np.searchsorted(universalTimes, times))
+        finalCols = np.unique(np.hstack(cols))
+            
+        # remake binding series file
+        timeSeriesNorm = pd.DataFrame(index=bindingSeriesNorm.index,
+                                      columns=finalCols)
+        for tile, times in timeDelta.items():
+            print 'adding tile %s'%tile
+            index = tiles == tile
+            old_cols = np.arange(len(times))
+            cols = np.searchsorted(universalTimes, times)
+            timeSeriesNorm.loc[index, cols] = bindingSeriesNorm.loc[index,old_cols].values
+        
+        finalTimes = pd.Series(universalTimes[finalCols], index=finalCols)
+        timeSeriesNorm.to_pickle(bindingCurveFilename)
+        finalTimes.to_pickle(timesFilename)
 
+    
 ################ Map to variants ################
 
 # resulting file is a CPannotated file, which contains the clusterID, variant number,
 # and bools for barcode_good if barcode was used
 
 # first check if CPannot already exists
+pickled = True
 if args.annotated_clusters is None:
-    annotatedClusterFile = IMlibs.getAnnotatedFilename(reducedCPsignalFile)
+    annotatedClusterFile = IMlibs.getAnnotatedFilename(reducedCPsignalFile, pickled=pickled)
 else:
     annotatedClusterFile = args.annotated_clusters
-    
+
 if os.path.exists(annotatedClusterFile):
     print 'CPannot file exists "%s". Skipping...'%annotatedClusterFile
 else:
     seqMap = findSeqDistribution.findSeqMap(args.library_characterization,
-                reducedCPsignalFile,
+                pickleCPsignalFilename,
                 uniqueBarcodesFile=args.unique_barcodes,
                 reverseComplement=not args.noReverseComplement,
                 seqCol=args.seqCol,
@@ -278,37 +349,36 @@ else:
         print ('Error: no variants found. Is reverse seq not reverse complemented?'
                ' are barcodeCol and seqCol correct? ')
         sys.exit()
-    seqMap.to_csv(annotatedClusterFile, sep='\t', header=True, index=True)
+
+    # save output
+    if pickled:
+        seqMap.to_pickle(annotatedClusterFile)
+    else:
+        seqMap.to_csv(annotatedClusterFile, sep='\t', header=True, index=True)
+sys.exit()
 
 ################ Reduce into Variant Table ################
-variantFittedFilename = IMlibs.getPerVariantFilename(fittedBindingFilename)
-if os.path.isfile(variantFittedFilename):
-    print 'per variant fitted CPsignal file exists "%s". Skipping...'%variantFittedFilename
-else:
-    print 'Making per variant table from %s...'%fittedBindingFilename
-    table = IMlibs.loadFittedCPsignal(fittedBindingFilename, annotatedClusterFile=annotatedClusterFile)
-    variant_table = IMlibs.findVariantTable(table)
-    IMlibs.saveDataFrame(variant_table, variantFittedFilename, float_format='%4.3f', index=True)
+if not args.on_rates and not args.off_rates:
+    # if doing binding curves, do biding curve method
+    variantFittedFilename = IMlibs.getPerVariantFilename(reducedCPsignalFile)
+    if os.path.isfile(variantFittedFilename):
+        print 'per variant fitted CPsignal file exists "%s". Skipping...'%variantFittedFilename
+    else:
+        print 'Making per variant table from %s...'%fittedBindingFilename
+        variant_table = bootStrapFits.fitBindingCurves(fittedBindingFilename,
+                                                       annotatedClusterFile,
+                                                        bindingCurveFilename,
+                                                        concentrations,
+                                                        pickled=pickled,
+                                                        numCores=numCores,
+                                                       )
+        IMlibs.saveDataFrame(variant_table, variantBootstrappedFilename,
+                             float_format='%4.3f', index=True)
 
-# now generate boostrapped errors
-variantBootstrappedFilename = IMlibs.getPerVariantBootstrappedFilename(variantFittedFilename)
-if os.path.isfile(variantBootstrappedFilename):
-    print 'bootstrapped error file exists "%s". Skipping...'%variantBootstrappedFilename
-else:
-    print 'Making boostrapped errors from %s...'%variantFittedFilename
-    variant_table = pd.read_table(variantFittedFilename, index_col=0)
-    table = IMlibs.loadFittedCPsignal(fittedBindingFilename,
-                                      annotatedClusterFile=annotatedClusterFile)
-    parameters = fitFun.findFinalBoundsParameters(table, concentrations)
-    plt.savefig(os.path.join(figDirectory, 'stde_fmax.at_different_n.pdf'))
+elif args.on_rates:
+    # if doing on rates, do on rate method
     
-    results = IMlibs.getBootstrappedErrors(table, parameters, numCores)
-    variant_table_final = IMlibs.matchTogetherResults(variant_table, results)
-    IMlibs.saveDataFrame(variant_table_final, variantBootstrappedFilename,
-                         float_format='%4.3f', index=True)
-    IMlibs.saveDataFrame(results, os.path.splitext(variantBootstrappedFilename)[0]+
-                         '.fitParameters', float_format='%4.3f', index=True)
-
+    pass
 # do single cluster fits on subset that fit well earlier
 
 
