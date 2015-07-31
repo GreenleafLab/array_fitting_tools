@@ -278,7 +278,6 @@ def bootstrapCurves(subSeries, fitParameters, concentrations, parameters,
         if plot_dists:
             print 'making %d randomly selected (with replacement) bootstrapped median binding curves'%n_samples
         indices = np.random.choice(subSeries.index, size=(n_samples, len(subSeries)), replace=True)
-    numTests = len(indices)
   
     # if last point in binding series is below fmax constraints, do by method B
     median_fluorescence = subSeries.median()
@@ -307,12 +306,13 @@ def bootstrapCurves(subSeries, fitParameters, concentrations, parameters,
         singles = {}
         for i, clusters in enumerate(indices):
             if plot_dists:
-                if i%(numTests/10.)==0: print 'working on %d out of %d, %d%%'%(i, numTests, i/float(numTests)*100)
+                if i%(n_samples/10.)==0:
+                    print 'working on %d out of %d, %d%%'%(i, n_samples, i/float(n_samples)*100)
             fluorescence = subSeries.loc[clusters].median()
             singles[i] = fitSingleBindingCurve(concentrations, fluorescence, fitParameters, errors=[eminus, eplus], plot=False)
             
             # check if after 100 tries, the fmax_ub is railed.
-            if i==min(49, numTests-1):
+            if i==min(49, n_samples-1):
                 current_data = pd.concat(singles, axis=1).transpose()
                 fit_fmaxes = current_data.fmax
                 fit_dG = pd.concat(singles, axis=1).transpose().dG.median()
@@ -343,10 +343,11 @@ def bootstrapCurves(subSeries, fitParameters, concentrations, parameters,
         if 'vary' not in fitParametersNew.index:
             fitParametersNew.loc['vary'] = True
         fitParametersNew.loc['vary', 'fmax'] = False
-        fmaxes = parameters.find_fmax_bounds_given_n(numTests, return_dist=True).rvs(numTests)
+        fmaxes = parameters.find_fmax_bounds_given_n(numTests, return_dist=True).rvs(n_samples)
         for i, (clusters, fmax) in enumerate(itertools.izip(indices, fmaxes)):
             if plot_dists:
-                if i%(numTests/10.)==0: print 'working on %d out of %d, %d%%'%(i, numTests, i/float(numTests)*100)
+                if i%(n_samples/10.)==0:
+                    print 'working on %d out of %d, %d%%'%(i, n_samples, i/float(n_samples)*100)
             fluorescence = subSeries.loc[clusters].median()
             fitParametersNew.loc['initial', 'fmax'] = fmax
             singles[i] = fitSingleBindingCurve(concentrations, fluorescence, fitParametersNew, errors=[eminus, eplus], plot=False)
