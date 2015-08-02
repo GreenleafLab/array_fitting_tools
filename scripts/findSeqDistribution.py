@@ -45,6 +45,10 @@ group.add_argument('--noReverseComplement', default=False, action="store_true",
                    help='when looking for variants, default is to look for the'
                    'reverse complement. Flag if you want to look for forward sequence')
 
+group.add_argument('--save_text', default=False, action="store_true",
+                   help='default is to save output as binary. Flag if you wish to save as text'
+                   ' file instead')
+
 def findSequenceRepresentation(consensus_sequences, compare_to, exact_match=None):
     # initialize
     if exact_match is None:
@@ -210,8 +214,9 @@ if __name__ == '__main__':
                       seqCol=args.seqCol,
                       barcodeCol=args.barcodeCol)
 
-
-    IMlibs.saveDataFrame(seqMap, args.out_file, index=True, float_format='%4.0f')
-
+    if args.save_text:
+        seqMap.to_csv(args.out_file, index=True, float_format='%4.0f', sep='\t')
+    else:
+        seqMap.to_pickle(args.out_file)
 
  

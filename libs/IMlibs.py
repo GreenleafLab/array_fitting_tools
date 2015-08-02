@@ -22,6 +22,7 @@ import scipy.stats as st
 from statsmodels.sandbox.stats.multicomp import multipletests
 from joblib import Parallel, delayed
 import warnings
+import pickle
 import seqfun
 import seaborn as sns
 import itertools
@@ -66,28 +67,24 @@ def getTileNumberFromFilename(inFilename):
     return tileNumber
 
 def loadMapFile(mapFilename):
-    """
-    load map file. first line gives the root directory
-    next line is the all cluster image.
-    The remainder are filenames to compare with associated concentrations
-    """
-    f = open(mapFilename)
-    # first line is the root directory
-    root_dir = f.readline().strip()
+
+    #load map file. first line gives the root directory
+    #next line is the all cluster image.
+    #The remainder are filenames to compare with associated concentrations
+
+    with open(mapFilename) as f:
+        # first line is the root directory
+        root_dir = f.readline().strip()
+            
+        # second line is the all cluster image directory
+        red_dir = [os.path.join(root_dir, f.readline().strip())]
         
-    # second line is the all cluster image directory
-    red_dir = [os.path.join(root_dir, f.readline().strip())]
-    
-    # the rest are the test images and associated concetrnations
-    remainder = f.readlines()
-    num_dirs = len(remainder)
-    directories = ['']*num_dirs
-    concentrations = np.zeros(num_dirs)
-    for i, line in enumerate(remainder):
-        directories[i] = os.path.join(root_dir, line.strip().split('\t')[0])
-        concentrations[i] = line.strip().split()[1]
-    f.close()
-    return red_dir, np.array(directories), concentrations
+        # the rest are the test images and associated concetrnations
+        remainder = f.readlines()
+        num_dirs = len(remainder)
+        directories = [os.path.join(root_dir, line.strip()) for line in remainder]
+
+    return red_dir, np.array(directories)
 
 def makeSignalFileName(directory, fluor_filename):
     return os.path.join(directory, '%s.signal'%os.path.splitext(os.path.basename(fluor_filename))[0])
@@ -275,6 +272,17 @@ def reduceCPsignalFile(cpSignalFilename, reducedCPsignalFilename, filterPos=None
     os.system(to_run)
     return
 
+def saveTimeDeltaDict(filename, timeDeltaDict):
+    with open(filename, "wb") as f:
+        pickle.dump(timeDeltaDict, f, protocol=pickle.HIGHEST_PROTOCOL)
+    return
+
+def loadTimeDeltaDict(filename):
+    with open(filename, "rb") as f:
+        timeDeltaDict = pickle.load(f)
+    return timeDeltaDict
+   
+
 ########## FILENAME CHANGERS ##########
 
 def getAllSortedCPsignalFilename(reducedSignalNamesByTileDict, directory):
@@ -433,17 +441,11 @@ def makeFittedCPsignalFile(fitParameters,annotatedSignalFilename, fittedBindingF
     return table
 
 
-def loadLibraryCharacterization(filename, version=None):
-    if version is None:
-        version = 'v2'
-    
-    if version == 'v1':  # i.e. from september
-        cols = ['sequence', 'topology', 'loop', 'receptor', 'helix_context',
-                'junction_sequence', 'helix_sequence', 'helix_one_length',
-                'helix_two_length', 'junction_length', 'total_length']
-        mydata = pd.read_table(filename, header=0, names=cols, index_col=False, usecols=['sequence'])
-    
-    elif version == 'v2':
+def loadLibraryCharacterization(filename, use_index=None):
+    if use_index is not None:
+        mydata = pd.read_table(filename, index_col=0)
+        mydata = mydata.loc[:, 'sequence']
+    else:
         mydata = pd.read_table(filename, usecols=['sequence'])
     return mydata
 

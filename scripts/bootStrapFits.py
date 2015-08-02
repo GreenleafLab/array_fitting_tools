@@ -20,6 +20,7 @@ import matplotlib.pyplot as plt
 from joblib import Parallel, delayed
 sns.set_style("white", {'xtick.major.size': 4,  'ytick.major.size': 4})
 import lmfit
+import itertools
 import fitFun
 
 ### MAIN ###
@@ -51,6 +52,27 @@ group.add_argument('-n', '--numCores', default=20, type=int,
 
 ##### functions #####
 
+        
+def findInitialBounds():
+    # also include fitParameters
+    fitParameters = pd.DataFrame(index=['lowerbound', 'initial', 'upperbound'],
+                                 columns=['fmax', 'dG', 'fmin'])
+    
+    # find fmin
+    loose_binders = grouped_binders.loc[grouped_binders.dG > parameters.mindG]
+    fitParameters.loc[:, 'fmin'] = getBoundsGivenDistribution(
+            loose_binders.fmin, label='fmin'); plt.close()
+    fitParameters.loc[:, 'fmax'] = getBoundsGivenDistribution(
+            tight_binders.fmax, label='fmax'); plt.close()
+    # find dG
+    fitParameters.loc[:, 'dG'] = parameters.dGparam
+    
+    fitParameters.loc['vary'] = True
+    fitParameters.loc['vary', 'fmin'] = False
+    
+    # also find default errors
+    default_std_dev = grouped.std().loc[:, IMlibs.formatConcentrations(concentrations)].mean()
+        
 def findVariantTable(table, parameter=None, name=None, concentrations=None):
     # define defaults
     if parameter is None: parameter = 'dG'
@@ -145,7 +167,7 @@ def fitSingleVariant(table, variant, parameters):
                   parameters.concentrations, parameters, initial_points, plot=True)
     return results
     
-def perVariantFit(subSeries, concentrations, parameters, initial_points, eps=None,
+def perVariantFitOld(subSeries, concentrations, parameters, initial_points, eps=None,
                   plot=None, n_samples=None):
     # do a single variant bootstrapping
     if eps is None:
@@ -168,10 +190,11 @@ def perVariantFit(subSeries, concentrations, parameters, initial_points, eps=Non
             if param_name == 'fmax':
                 fitParameters.loc['initial', param_name] = initial_points.loc[param_name] 
                                                             
+    fmaxDist = parameters.find_fmax_bounds_given_n(len(subSeries), return_dist=True)
 
-    results = fitFun.bootstrapCurves(subSeries, fitParameters, concentrations,
-                                     parameters, default_errors=parameters.default_errors,
-                                     plot=plot, n_samples=n_samples, eps=None, min_fraction_railed=None)
+    results, singles = fitFun.bootstrapCurves(concentrations, subSeries, fitParameters,
+                                     fmaxDist=fmaxDist, default_errors=parameters.default_errors,
+                                     verbose=plot, n_samples=n_samples)
     variant = initial_points.name
     return pd.DataFrame(results, columns=[variant]).transpose()
 
@@ -181,6 +204,9 @@ def matchTogetherResults(variant_table, results):
     x = variant_table.copy()
     x.loc[results.index, columns] = results.loc[:, columns]
     return x
+
+
+
 
 def plotSingleVariantFits(table, results, variant, concentrations, plot_init=None,
                           annotate=None):
@@ -271,19 +297,81 @@ def plotSingleVariantFits(table, results, variant, concentrations, plot_init=Non
     plt.ylabel('normalized fluorescence')
     plt.tight_layout()
 
+def getInitialParameters(initial_points, concentrations):
+    parameters = fitFun.fittingParameters(concentrations=concentrations)
+    fitParameters = pd.DataFrame(index=['lowerbound', 'initial', 'upperbound'],
+                                 columns=['fmax', 'dG', 'fmin'])
+    # find fmin
+    loose_binders = initial_points.loc[initial_points.dG > parameters.mindG]
+    
+    fitParameters.loc[:, 'fmin'] = fitFun.getBoundsGivenDistribution(
+            loose_binders.fmin, label='fmin'); plt.close()
+
+    # find dG
+    fitParameters.loc[:, 'dG'] = [parameters.find_dG_from_Kd(
+                parameters.find_Kd_from_frac_bound_concentration(frac_bound, concentration))
+                                  for frac_bound, concentration in itertools.izip(
+                                    [0.99, 0.5, 0.01],
+                                    [concentrations[0], concentrations[-1], concentrations[-1]])]
+                                  
+
+    
+    fitParameters.loc['vary'] = True
+    fitParameters.loc['vary', 'fmin'] = False
+    return fitParameters
+
+def perVariant(concentrations, subSeries, fitParameters, initial_points, fmaxDist,
+               plot=None):
+    if plot is None:
+        plot = False
+
+    fitParameters = fitParameters.copy()
+    fitParameters.loc[['lowerbound', 'initial', 'upperbound'],
+        'fmax'] = fmaxDist.find_fmax_bounds_given_n(len(subSeries))
+    fitParameters.loc['initial'] = initial_points.loc[fitParameters.columns]
+    results, singles = fitFun.bootstrapCurves(concentrations, subSeries, fitParameters,
+                                              func=None, enforce_fmax=True,
+                                              fmaxDist=fmaxDist.find_fmax_bounds_given_n(len(subSeries),
+                                                                                         return_dist=True))
+    if plot:
+        fitFun.plotSingleVariantFits(concentrations,
+                                     subSeries,
+                                     results,
+                                     fitParameters,
+                                     log_axis=True)
+    return results
+
 def fitBindingCurves(fittedBindingFilename, annotatedClusterFile,
                      bindingCurveFilename, concentrations, pickled=None,
                      numCores=None, n_samples=None):
     if numCores is None:
         numCores = 20
+        
+    initialPoints = (pd.concat([pd.read_pickle(annotatedClusterFile),
+                                pd.read_pickle(fittedBindingFilename)], axis=1).
+                     groupby('variant_number').median())
+    table = pd.concat([pd.read_pickle(annotatedClusterFile),
+                       pd.read_pickle(bindingCurveFilename)], axis=1).sort('variant_number')
+
     
-    table = IMlibs.loadFittedCPsignal(fittedBindingFilename,
-                                      annotatedClusterFile=annotatedClusterFile,
-                                      bindingCurveFilename=bindingCurveFilename,
-                                      pickled=pickled)
-    variant_table = findVariantTable(table)
+    fmaxDist = fitFun.findFinalBoundsParameters(initialPoints, concentrations)
+    fitParameters = getInitialParameters(initialPoints, concentrations)
     
-    parameters = fitFun.findFinalBoundsParameters(table, concentrations)
+    print '\tDividing table into groups...'
+    groupDict = {}
+    for name, group in table.groupby('variant_number'):
+        groupDict[name] = group.drop('variant_number', axis=1)
+
+    print '\tMultiprocessing bootstrapping...'
+    results = (Parallel(n_jobs=numCores, verbose=10)
+                (delayed(perVariantFit)(concentrations,
+                                        groupDict[variant],
+                                        fitParameters,
+                                        initialPoints.loc[variant],
+                                        fmaxDist)
+                 for variant in variants))
+    results = pd.concat(results)
+    results.index = actual_variants
     
     results = getBootstrappedErrors(table, parameters, numCores, n_samples=n_samples)
     variant_table_final = matchTogetherResults(variant_table, results)
