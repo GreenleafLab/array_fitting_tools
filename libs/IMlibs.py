@@ -227,6 +227,8 @@ def findCPsignalFile(cpSeqFilename, redFluors, greenFluors, cpSignalFilename, ti
                 %filename, shell=True).strip())
             # assume all files have same number of lines. May want to check that here
             break
+        print 'Error: no CPfluor files found! Are directories in map file correct?'
+        return
             
     if os.path.exists(redFluors[0]):        
         signal = getSignalFromCPFluor(redFluors[0]) #just take first red fluor image
@@ -357,62 +359,6 @@ def compressBarcodes(sortedAllCPsignalFile, barcode_col, seq_col, compressedBarc
     os.system(to_run)
     return
 
-
-def splitAndFit(bindingSeries, concentrations, fitParameters, numCores, index=None, mod_fmin=None, split=None):
-    if index is None:
-        index = bindingSeries.index
-    if split is None:
-        split = True
-    
-    if split:  
-        # split into parts
-        print 'Splitting clusters into %d groups:'%numCores
-        # assume that list is sorted somehow
-        indicesSplit = [index[i::numCores] for i in range(numCores)]
-        bindingSeriesSplit = [bindingSeries.loc[indices] for indices in indicesSplit]
-        printBools = [True] + [False]*(numCores-1)
-        print 'Fitting binding curves:'
-        fits = (Parallel(n_jobs=numCores, verbose=10)
-                (delayed(fitSetKds)(subBindingSeries, concentrations, fitParameters, mod_fmin, print_bool) for
-                 subBindingSeries, print_bool in itertools.izip(bindingSeriesSplit, printBools)))
-    else:
-        # fit
-        print 'Fitting binding curves:'
-        fits = (Parallel(n_jobs=numCores, verbose=10, batch_size=4)
-                (delayed(fitKds)(bindingSeries.loc[idx], concentrations, fitParameters, mod_fmin) for idx in index))
-
-
-    return pd.concat(fits)
-
-def fitSetKds(subBindingSeries, concentrations, fitParameters, mod_fmin=None, print_bool=None):
-    if print_bool is None: print_bool = True
-    if mod_fmin is None: mod_fmin = False
-    #print print_bool
-    singles = []
-    for i, idx in enumerate(subBindingSeries.index):
-        if print_bool:
-            num_steps = max(min(100, (int(len(subBindingSeries)/100.))), 1)
-            if (i+1)%num_steps == 0:
-                print 'working on %d out of %d iterations (%d%%)'%(i+1,
-                                                                   len(subBindingSeries.index),
-                                                                   100*(i+1)/float(len(subBindingSeries.index)))
-        fluorescence = subBindingSeries.loc[idx]
-        singles.append(fitKds(fluorescence, concentrations, fitParameters, mod_fmin=mod_fmin))
-
-    return pd.concat(singles)
-
-def fitKds(fluorescence, concentrations, fitParameters, mod_fmin=None):
-    if mod_fmin is None:
-        mod_fmin = False
-    
-    fitParametersNew = fitParameters.copy()
-    if mod_fmin:
-        if not np.isnan(fluorescence.iloc[0]):
-            # as long as the first point is measured, further constrain the fmin
-            fitParametersNew.loc['upperbound', 'fmin'] = 2*fluorescence.min()   
-    return pd.DataFrame(columns=[fluorescence.name], data=fitBindingCurve.fitSingleBindingCurve(concentrations, fluorescence, fitParametersNew, plot=False)).transpose()
-
-
 def saveDataFrame(dataframe, filename, index=None, float_format=None):
     if index is None:
         index = False
@@ -478,52 +424,7 @@ def loadCPseqSignal(filename, concentrations=None, index_col=None, usecols=None)
                             index_col=index_col, usecols=usecols, dtype=dtypes)
     return table
 
-def loadNullScores(backgroundTileFile, filterPos=None, filterNeg=None,
-                   binding_point=None, return_binding_series=None,
-                   concentrations=None):
-    # find one CPsignal file before reduction. Find subset of rows that don't
-    # contain filterSet
-    if return_binding_series is None:
-        return_binding_series = False
-    if binding_point is None:
-        binding_point = -1
-    if filterPos is None:
-        if filterNeg is None:
-            print "Error: need to define either filterPos or filterNeg"
-            return
 
-    # Now load the file, specifically the signal specifed
-    # by index.
-    table = loadCPseqSignal(backgroundTileFile)
-    table.dropna(subset=['filter'], axis=0, inplace=True)
-    
-    # if filterNeg is given, use only this to find background clusters
-    # otherwise, use clusters that don't have any of filterPos
-    if filterNeg is None:
-        # if any of the positive filters are found, don't use these clusters
-        subset = np.logical_not(np.asarray([[str(s).find(filterSet) > -1
-                                             for s in table.loc[:, 'filter']]
-            for filterSet in filterPos]).any(axis=0))
-    else:
-        if filterPos is None:
-            # if any of the negative filters are found, use these clusters
-            subset = np.asarray([[str(s).find(filterSet) > -1
-                                  for s in table.loc[:, 'filter']]
-                for filterSet in filterNeg]).any(axis=0)
-        else:
-            subset = np.asarray([[str(s).find(negOne) > -1 and not(str(s).find(posOne) > -1)
-                                  for s in table.loc[:, 'filter']]
-                for negOne, posOne in itertools.product(filterNeg, filterPos)]).any(axis=0)            
-
-    binding_series = pd.DataFrame([s.split(',') for s in table.loc[subset].binding_series],
-        dtype=float, index=table.loc[subset].index)
-    
-    if concentrations is not None:
-        binding_series.columns = formatConcentrations(concentrations)
-    if return_binding_series:
-        return binding_series.dropna(axis=0)
-    else: 
-        return binding_series.iloc[:, binding_point].dropna()
 
 def tileIntToString(currTile):
     if currTile < 10:
