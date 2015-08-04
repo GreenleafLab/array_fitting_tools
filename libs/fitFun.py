@@ -358,7 +358,7 @@ def bootstrapCurves(concentrations, subSeries, fitParameters, fmaxDist=None,
             singles[i] = fitSingleCurve(concentrations[index.values],
                                         fluorescence.loc[index],
                                         fitParameters,
-                                        errors=[eminus, eplus],
+                                        errors=[eminus[index.values], eplus[index.values]],
                                                plot=False,
                                                func=func)
         else:
@@ -557,40 +557,34 @@ def getBoundsGivenDistribution(values, label=None, saturation_level=None,
         ax.set_xlabel(label)
     return fitParameters
 
-def useSimulatedOrActual(tight_binders):
+def useSimulatedOrActual(variant_table):
     # if at least 20 data points have at least 10 counts in that bin, use actual
     # data. This statistics seem reasonable for fitting
 
-    counts, binedges = np.histogram(tight_binders.number,
-                                    np.arange(1, tight_binders.number.max()))
+    counts, binedges = np.histogram(variant_table.numTests,
+                                    np.arange(1, variant_table.numTests.max()))
     if (counts > 10).sum() >= 20:
         use_actual = True
     else:
         use_actual = False
     return use_actual
 
-def plotSigmaByN(stds_actual, stds, fit, use_actual, min_sigma=None):
-    if use_actual:
-        x = stds_actual.index
-        y = stds_actual.values
-        other_x = stds.index
-        other_y = stds.values
-        labels = ['actual', 'simulated', 'fit']
-        fmt = ['ko', 'r:', 'c']
-    else:
-        other_x = stds_actual.index
-        other_y = stds_actual.values
-        x = stds.index
-        y = stds.values
-        labels = ['simulated', 'actual', 'fit']
-        fmt = ['ko', 'r.', 'c']
-        
+def plotSigmaByN(stds_actual, params, min_sigma=None):
 
-    # plot
+    x = stds_actual.index
+    y = stds_actual.values
+
+    labels = ['actual', 'fit']
+    fmt = ['ko', 'c']
+
+    # plot data
     plt.figure(figsize=(4,3))
     plt.plot(x,       y,       fmt[0], label=labels[0]);
-    plt.plot(other_x, other_y, fmt[1], label=labels[1]);    
-    plt.plot(x,       fit,     fmt[2], label=labels[2]);
+    
+    fmaxDist = fmaxDistAny()
+    x_fit = np.arange(1, x.max())
+    y_fit = fmaxDist.sigma_by_n_fit(params, x_fit)
+    plt.plot(x_fit,       y_fit,     fmt[1], label=labels[1]);
             
     # plot fit
     ax = plt.gca()
@@ -613,54 +607,24 @@ def plotSigmaByN(stds_actual, stds, fit, use_actual, min_sigma=None):
     return
     
 
-def findFinalBoundsParameters(variant_table, concentrations, use_actual=None):
+def findFinalBoundsParameters(variant_table, concentrations):
     parameters = fittingParameters(concentrations=concentrations)
 
     # actual data
-    param_names = ['dG', 'fmax', 'fmin']
-    
-    loose_binders = variant_table.loc[variant_table.dG_init > parameters.mindG]
     tight_binders = variant_table.loc[variant_table.dG_init <= parameters.maxdG]
-    
-    # also do 'simulated' variants
-    other_binders = initial_points.loc[np.in1d(initial_points.variant_number.
-                                               astype(float),
-                                      tight_binders.index),
-                              ['variant_number', 'dG', 'fmax', 'fmin']]
-
-
-    stds_actual = pd.Series(index=np.unique(tight_binders.number))
-    weights = pd.Series(index=np.unique(tight_binders.number))
+    stds_actual = pd.Series(index=np.unique(tight_binders.numTests))
+    weights     = pd.Series(index=np.unique(tight_binders.numTests))
     for n in stds_actual.index:
         stds_actual.loc[n] = seqfun.remove_outlier(
-            tight_binders.loc[tight_binders.number==n, 'fmax']).std()
-        weights.loc[n] = np.sqrt((tight_binders.number==n).sum())
+            tight_binders.loc[tight_binders.numTests==n].fmax_init).std()
+        weights.loc[n] = np.sqrt((tight_binders.numTests==n).sum())
     stds_actual.dropna(inplace=True)
     weights = weights.loc[stds_actual.index]
-    
-    # for each n, choose n variants
-    stds = pd.Series(index=np.arange(1, 101, 4))
-    for n in stds.index:
-        print n
-        n_reps = np.ceil(float(len(other_binders))/n)
-        index = np.random.permutation(np.tile(np.arange(n_reps), n))[:len(other_binders)]
-        other_binders.loc[:, 'faux_variant'] = index
-        stds.loc[n] = seqfun.remove_outlier(other_binders.groupby('faux_variant').
-                                            median().fmax).std()
-    stds.dropna(inplace=True)
-    
-    if use_actual is None:
-        use_actual = useSimulatedOrActual(tight_binders)
-    # fit to curve
-    if use_actual:
-        x = stds_actual.index
-        y = stds_actual.values
-        weights_fit = weights
-    else:
-        x = stds.index
-        y = stds.values
-        weights_fit = None
-    
+
+    x = stds_actual.index
+    y = stds_actual.values
+    weights_fit = weights
+
     fmaxDist = fmaxDistAny()
     params = Parameters()
     params.add('sigma', value=stds_actual.iloc[0], min=0)
@@ -673,17 +637,58 @@ def findFinalBoundsParameters(variant_table, concentrations, use_actual=None):
 
     
     # save fitting parameters
-    params.add('median', value=np.average(tight_binders.fmax,
-                                          weights=np.sqrt(tight_binders.number)))
-    if not use_actual:
-        min_sigma = tight_binders.fmax.std()
-        params.add('min_sigma', value=min_sigma, vary=False)
-    else:
-        min_sigma = None
+    params.add('median', value=np.average(tight_binders.fmax_init,
+                                          weights=np.sqrt(tight_binders.numTests)))
     
-    plotSigmaByN(stds_actual, stds, fmaxDist.sigma_by_n_fit(params, x),
-                 use_actual, min_sigma=tight_binders.fmax.std())
+    plotSigmaByN(stds_actual, params)
         
     fmaxDist = fmaxDistAny(params=params)
     return fmaxDist
 
+def findFinalBoundsParametersSimulated(variant_table, table, concentrations, return_vals=None):
+    if return_vals is None:
+        return_vals = False
+    parameters = fittingParameters(concentrations)
+    good_variants = (variant_table.dG_init < parameters.maxdG)
+    tight_binders = variant_table.loc[good_variants]
+    good_clusters = pd.Series(np.in1d(table.variant_number,
+                                      variant_table.loc[good_variants].index),
+                      index=table.index)
+    other_binders = table.loc[good_clusters, ['fmax']]
+    # for each n, choose n variants
+    stds = pd.Series(index=np.arange(1, 101, 4))
+    for n in stds.index:
+        print n
+        n_reps = np.ceil(float(len(other_binders))/n)
+        index = np.random.permutation(np.tile(np.arange(n_reps), n))[:len(other_binders)]
+        other_binders.loc[:, 'faux_variant'] = index
+        stds.loc[n] = seqfun.remove_outlier(other_binders.groupby('faux_variant').
+                                            median().fmax).std()
+    stds.dropna(inplace=True)
+    
+    
+    x = stds.index
+    y = stds.values
+    if return_vals:
+        return x, y
+    
+    fmaxDist = fmaxDistAny()
+    params = Parameters()
+    params.add('sigma', value=stds.iloc[0], min=0)
+    params.add('c',     value=stds.min(),   min=0)
+    minimize(fmaxDist.sigma_by_n_fit, params,
+                                   args=(x,),
+                                   kws={'y':y,
+                                        'weights':None},
+                                   xtol=1E-6, ftol=1E-6, maxfev=10000)
+
+    # save fitting parameters
+    params.add('median', value=np.average(tight_binders.fmax_init,
+                                          weights=np.sqrt(tight_binders.numTests)))
+    min_sigma = seqfun.remove_outlier(tight_binders.fmax_init).std()
+    params.add('min_sigma', value=min_sigma, vary=False)
+    
+    plotSigmaByN(stds, params, min_sigma=min_sigma)
+        
+    fmaxDist = fmaxDistAny(params=params)
+    return fmaxDist

@@ -1,14 +1,16 @@
 #!/usr/bin/env python
-
+import os
 import numpy as np
 import pandas as pd
 import argparse
 import sys
 import seqfun
+import itertools
 import scipy.stats as st
 import IMlibs
 import seaborn as sns
 import matplotlib.pyplot as plt
+from joblib import Parallel, delayed
 from statsmodels.distributions.empirical_distribution import ECDF               
 sns.set_style("white", {'xtick.major.size': 4,  'ytick.major.size': 4})
 import lmfit
@@ -22,27 +24,33 @@ from fitFun import fittingParameters
 parser = argparse.ArgumentParser(description='fit single clusters to binding curve')
 
 group = parser.add_argument_group('required arguments for fitting single clusters')
-group.add_argument('-cs', '--cpsignal', required=True,
-                    help='reduced CPsignal file')
-group.add_argument('-c', '--concentrations', required=True,
+group.add_argument('-cs', '--cpsignal', metavar="CPsignal.pkl", required=True,
+                    help='reduced CPsignal file.')
+group.add_argument('-c', '--concentrations', required=True, metavar="concentrations.txt",
                     help='text file giving the associated concentrations')
+parser.add_argument('-out', '--out_file', 
+                   help='output filename. default is basename of input filename')
 
-group = parser.add_argument_group('optional arguments for fitting single clusters')
-group.add_argument('-od','--output_dir', default="binding_curves",
-                    help='save output files to here. default = ./binding_curves')
-group.add_argument('-fp','--filterPos', nargs='+', help='set of filters '
-                    'that designate clusters to fit. If not set, use all')                        
-group.add_argument('-fn','--filterNeg',  nargs='+', help='set of filters '
-                     'that designate "background" clusters. If not set, assume '
-                     'complement to filterPos')
+group = parser.add_argument_group('initial constraints')
+group.add_argument('-ft', '--fit_parameters',
+                    help='fitParameters file. If file is given, use these '
+                    'upperbound/lowerbounds')
+
+group = parser.add_argument_group('other ways to find initial constraints')
+group.add_argument('-bg','--background_fluor_file', metavar="fluor.npy",
+                   help='file containing '
+                   'fluorescent values of "background" clusters.') 
 group.add_argument('-bp', '--binding_point', type=int, default=-1,
-                    help='point in binding series to use for null scores (Default is '
+                    help='point in binding series to compare to null scores (Default is '
                     'last concentration. -2 for second to last concentration)', )
+group.add_argument('--n_clusters', type=int,
+                    help='if background file not provided, number of clusters to'
+                    'assume are binders' )
 
 
 group = parser.add_argument_group('other settings')
-group.add_argument('-n','--num_cores', type=int, default=1,
-                    help='maximum number of cores to use. default=1')
+group.add_argument('-n','--numCores', type=int, default=20,
+                    help='maximum number of cores to use. default=20')
 
 
 
@@ -108,35 +116,28 @@ def plotInitialEstimates(bindingSeriesNorm, null_column, indexBinders=None, inde
     
     fig = plt.figure(figsize=(4,4))
     ax1 = fig.add_subplot(111)
-    ax1.hist(yvalues.values, bins=binedges, histtype='stepfilled', color='grey',
+    ax1.hist(yvalues.values, bins=binedges, histtype='stepfilled',
+              normed=True, color='grey',
              alpha=0.5, label='all',)
     
     if indexBinders is not None:
-        ax2 = ax1.twinx()
-        ax2.hist(yvalues.loc[indexBinders].values, bins=binedges, histtype='stepfilled',
+        #ax1 = ax1.twinx()
+        ax1.hist(yvalues.loc[indexBinders].values, bins=binedges,
+                 histtype='stepfilled', normed=True,
                  color='red', alpha=0.5, label='binder',)
     if indexNonBinders is not None:
-        ax1.hist(yvalues.loc[indexNonBinders].values, bins=binedges, histtype='stepfilled',
+        ax1.hist(yvalues.loc[indexNonBinders].values, bins=binedges,
+                 histtype='stepfilled', normed=True,
                  color='blue', alpha=0.5, label='nonbinder',)
     plt.legend(loc='upper right')
     plt.xlabel('fluorescence')
-    plt.ylabel('count')
+    plt.ylabel('probabililty')
     plt.tight_layout()
     ax1.tick_params(right='off', top='off')
     return
 
-def getInitialFitParameters(bindingSeriesNorm, concentrations, indexBinders,
-                            indexNonBinders, assumeSaturation=None, saturationLevel=None):
-    parameters = fittingParameters()
-    if assumeSaturation is None:
-        assumeSaturation = False
+def getInitialFitParameters(concentrations):
 
-    if saturationLevel is None:    
-        if assumeSaturation:
-            saturationLevel = 1
-        else:
-            saturationLevel =  parameters.saturation_level # assume these non binders are at least 50% bound
-        
     parameters = fittingParameters(concentrations=concentrations)
     
     fitParameters = pd.DataFrame(index=['lowerbound', 'initial', 'upperbound'],
@@ -144,56 +145,100 @@ def getInitialFitParameters(bindingSeriesNorm, concentrations, indexBinders,
     
     # find fmin
     param = 'fmin'
-    fitParameters.loc[:, param] = fitFun.getBoundsGivenDistribution(
-        bindingSeriesNorm.loc[indexNonBinders].iloc[:,0], label=param)
+    fitParameters.loc[:, param] = [0, np.nan, np.inf]
 
     # find fmax
     param = 'fmax'
-    fitParameters.loc[:, param] = fitFun.getBoundsGivenDistribution(
-        bindingSeriesNorm.loc[indexBinders].iloc[:,-1], label=param,
-        saturation_level=saturationLevel)
-    fitParameters.loc['upperbound', param] = fitParameters.loc['upperbound', param]
+    fitParameters.loc[:, param] = [0, np.nan, np.inf]
     
     # find dG
-    fitParameters.loc[:, 'dG'] = parameters.dGparam
+    fitParameters.loc[:, 'dG'] = [parameters.find_dG_from_Kd(
+        parameters.find_Kd_from_frac_bound_concentration(frac_bound, concentration))
+             for frac_bound, concentration in itertools.izip(
+                                    [0.99, 0.5, 0.01],
+                                    [concentrations[0], concentrations[-1], concentrations[-1]])]
  
     return fitParameters
 
+
+def splitAndFit(bindingSeries, concentrations, fitParameters, numCores,
+                index=None, change_params=None):
+    
+    if index is None:
+        index = bindingSeries.index
+    
+    # split into parts
+    print 'Splitting clusters into %d groups:'%numCores
+    # assume that list is sorted somehow
+    indicesSplit = [index[i::numCores] for i in range(numCores)]
+    bindingSeriesSplit = [bindingSeries.loc[indices] for indices in indicesSplit]
+    printBools = [True] + [False]*(numCores-1)
+    print 'Fitting binding curves:'
+    fits = (Parallel(n_jobs=numCores, verbose=10)
+            (delayed(fitSetClusters)(concentrations, subBindingSeries,
+                                     fitParameters, print_bool, change_params)
+             for subBindingSeries, print_bool in itertools.izip(bindingSeriesSplit, printBools)))
+
+    return pd.concat(fits)
+
+def fitSetClusters(concentrations, subBindingSeries, fitParameters, print_bool=None,
+                   change_params=None):
+    if print_bool is None: print_bool = True
+
+    #print print_bool
+    singles = []
+    for i, idx in enumerate(subBindingSeries.index):
+        if print_bool:
+            num_steps = max(min(100, (int(len(subBindingSeries)/100.))), 1)
+            if (i+1)%num_steps == 0:
+                print ('working on %d out of %d iterations (%d%%)'
+                       %(i+1, len(subBindingSeries.index), 100*(i+1)/
+                         float(len(subBindingSeries.index))))
+                sys.stdout.flush()
+        fluorescence = subBindingSeries.loc[idx]
+        singles.append(perCluster(concentrations, fluorescence, fitParameters,
+                                  change_params=change_params))
+
+    return pd.concat(singles)
+
+def perCluster(concentrations, fluorescence, fitParameters, plot=None, change_params=None):
+    if plot is None:
+        plot = False
+    if change_params is None:
+        change_params = False
+    try:
+        if change_params:
+            a, b = np.percentile(fluorescence.dropna(), [0, 100])
+            fitParameters = fitParameters.copy()
+            fitParameters.loc['initial', ['fmin', 'fmax']] = [a, b-a]
+        
+        single = fitFun.fitSingleCurve(concentrations,
+                                                       fluorescence,
+                                                       fitParameters)
+    except:
+        print 'Error with %s'%fluorescence.name
+        single = fitFun.fitSingleCurve(concentrations,
+                                                       fluorescence,
+                                                       fitParameters,
+                                                       do_not_fit=True)
+    if plot:
+        fitFun.plotFitCurve(concentrations, fluorescence, single, fitParameters) 
+              
+    return pd.DataFrame(columns=[fluorescence.name],
+                        data=single).transpose()
+
+
 # define functions
-def bindingSeriesByCluster(reducedCPsignalFile, concentrations, binding_point,
-                           numCores=None, backgroundTileFile=None,
-                           filterPos=None, filterNeg=None,
-                           num_clusters=None, subset=None,
-                           ):
+def bindingSeriesByCluster(concentrations, bindingSeries, bindingSeriesNorm, 
+                           numCores=None,  subset=None):
     if subset is None:
         subset = False
 
-    # get binding series
-    print '\tLoading binding series and all RNA signal:'
-    bindingSeries, allClusterSignal = IMlibs.loadBindingCurveFromCPsignal(
-        reducedCPsignalFile, concentrations=concentrations)
+    # find initial parameters
+    fitParameters = getInitialFitParameters(concentrations)
     
-    # make normalized binding series
-    allClusterSignal = IMlibs.boundFluorescence(allClusterSignal, plot=True)   
-    bindingSeriesNorm = np.divide(bindingSeries, np.vstack(allClusterSignal))
-    
-    # get null scores
-    if (filterPos is not None or filterNeg is not None) and backgroundTileFile is not None:
-        null_scores = IMlibs.loadNullScores(backgroundTileFile,
-                                            filterPos=filterPos,
-                                            filterNeg=filterNeg,
-                                            binding_point=binding_point,)
-    else:
-        null_scores=None
 
-    # estimate binders and nonbinders
-    indexBinders = getEstimatedBinders(bindingSeries, binding_point,
-                                       null_scores=null_scores, num_clusters=num_clusters)
-    indexNonBinders = getEstimatedBinders(bindingSeries, binding_point,
-                                       null_scores=null_scores, num_clusters=num_clusters,
-                                       nonBinders=True)
-    # plot
-    plotInitialEstimates(bindingSeriesNorm, binding_point, indexBinders, indexNonBinders)
+
     
     # find initial parameters
     fitParameters = getInitialFitParameters(bindingSeriesNorm, concentrations,
@@ -206,7 +251,7 @@ def bindingSeriesByCluster(reducedCPsignalFile, concentrations, binding_point,
                                          maxInitialBinders).astype(int)]
     else:
         index = indexBinders
-    fitUnconstrained = IMlibs.splitAndFit(bindingSeriesNorm, 
+    fitUnconstrained = IMlibs.splitAndFit(bindingSeries, 
                                           concentrations, fitParameters, numCores,
                                           index=index, mod_fmin=False)
     fitParameters.loc[:, 'fmax'] = fitFun.getBoundsGivenDistribution(fitUnconstrained.fmax)
@@ -223,31 +268,126 @@ def bindingSeriesByCluster(reducedCPsignalFile, concentrations, binding_point,
 
     # sort by fluorescence in null_column to try to get groups of equal
     # distributions of binders/nonbinders
-    fluorescence = bindingSeriesNorm.iloc[:, binding_point].copy()
+    fluorescence = bindingSeries.iloc[:, -1].copy()
     fluorescence.sort()
-    index_all = bindingSeriesNorm.loc[fluorescence.index].dropna(axis=0, thresh=4).index
+    index_all = bindingSeries.loc[fluorescence.index].dropna(axis=0, thresh=4).index
 
     if subset:
         num = 5E3
         index_all = index_all[np.linspace(0, len(index_all)-1, num).astype(int)]
-        
-    fitConstrained = IMlibs.splitAndFit(bindingSeriesNorm, concentrations,
+    
+    fitResults = pd.DataFrame(index=bindingSeries.index,
+                              columns=fitFun.fitSingleCurve(concentrations,
+                                                            None, fitParameters,
+                                                            do_not_fit=True).index)
+    fitResults.loc[index_all] = splitAndFit(bindingSeries, concentrations,
                                         fitParameters, numCores, index=index_all)
-    fitConstrained = pd.concat([fitConstrained,
-                                pd.DataFrame(getQvalue(bindingSeries, binding_point, null_scores),
-                                             columns=['qvalue'])], axis=1)
 
-    return fitConstrained, fitParameters, bindingSeriesNorm
+
+    return fitResults 
     
 
 
 
 if __name__=="__main__":    
     args = parser.parse_args()
-
+    
+    pickleCPsignalFilename = args.cpsignal
+    outFile               = args.out_file
+    numCores = args.numCores
     concentrations = np.loadtxt(args.concentrations)
-    fitConstrained, fitParameters, bindingSeriesNorm = (
-        fitFun.bindingSeriesByCluster(
-            reducedCPsignalFile, concentrations, args.binding_point, numCores=numCores,
-            backgroundTileFile=backgroundTileFile,
-            filterPos=args.filterPos, filterNeg=args.filterNeg, num_clusters=None))
+    fitParametersFilename = args.fit_parameters
+    backgroundFilename = args.background_fluor_file
+    binding_point = args.binding_point
+    #  check proper inputs
+    if outFile is None:
+        
+        # make bindingCurve file 
+        outFile = os.path.splitext(
+                pickleCPsignalFilename[:pickleCPsignalFilename.find('.pkl')])[0]
+        
+    bindingCurveFilename = outFile + '.bindingCurve.pkl'
+    # get binding series
+    print '\tLoading binding series and all RNA signal:'
+    bindingSeries, allClusterSignal = IMlibs.loadBindingCurveFromCPsignal(
+        pickleCPsignalFilename, concentrations=concentrations)
+    
+    # make normalized binding series
+    allClusterSignal = IMlibs.boundFluorescence(allClusterSignal, plot=True)   
+    bindingSeriesNorm = np.divide(bindingSeries, np.vstack(allClusterSignal))
+    
+    # save
+    bindingSeriesNorm.to_pickle(bindingCurveFilename)
+    
+    # load or find fitParameters
+    if fitParametersFilename is not None:
+        print 'Using given fit parameters.. %s'%fitParametersFilename
+        fitParameters = pd.read_table(fitParametersFilename, index_col=0)
+    
+    else:
+        if backgroundFilename is not None:
+            # load null columns
+            null_scores = np.load(backgroundFilename)
+    
+            # estimate binders and nonbinders
+            qvalue_cutoff = 0.005
+            print ('Finding constraints on fmax using null distribution %s,\n'
+                   'binding point %d,\n'
+                   'and qvalue cutoff < %g')%(backgroundFilename, binding_point, qvalue_cutoff)
+    
+            indexBinders = getEstimatedBinders(bindingSeries, binding_point,
+                                                  null_scores=null_scores,
+                                                  qvalue_cutoff=qvalue_cutoff)
+        elif args.n_clusters is not None:
+            print ('Using top %d clusters to estimate fmax cutoff')%args.n_clusters
+            indexBinders = (bindingSeriesNorm.sort(
+                bindingSeriesNorm.columns[args.binding_point]).
+                            iloc[:args.n_clusters].index)
+        else:
+            print ('Error: must define either fitParameters file, background file, '
+                   'or number of clusters')
+            sys.exit()
+        
+        # plot and initiate fit
+        plotInitialEstimates(bindingSeriesNorm, binding_point, indexBinders)
+        fitParameters = getInitialFitParameters(concentrations)
+
+        maxInitialBinders = 1E4
+        if maxInitialBinders < len(indexBinders):
+            index = indexBinders[np.linspace(0, len(indexBinders)-1,
+                                             maxInitialBinders).astype(int)]
+        else:
+            index = indexBinders
+        fitUnconstrained =  splitAndFit(bindingSeriesNorm, concentrations,
+                                        fitParameters, numCores, index=index,
+                                        change_params=True)
+        fitParameters.loc[:, 'fmax'] = fitFun.getBoundsGivenDistribution(
+            fitUnconstrained.fmax)
+        fitParameters.loc[:, 'fmin'] = fitFun.getBoundsGivenDistribution(
+            fitUnconstrained.fmin)        
+        
+    # now refit all remaining clusters
+    print ('Fitting all with constraints on fmax (%4.2f, %4.2f, %4.2f)'
+           %(fitParameters.loc['lowerbound', 'fmax'],
+             fitParameters.loc['initial', 'fmax'],
+             fitParameters.loc['upperbound', 'fmax']))
+    print ('Fitting all with constraints on fmin (%4.4f, %4.4f, %4.4f)'
+           %(fitParameters.loc['lowerbound', 'fmin'],
+             fitParameters.loc['initial', 'fmin'],
+             fitParameters.loc['upperbound', 'fmin']))
+
+    # sort by fluorescence in null_column to try to get groups of equal
+    # distributions of binders/nonbinders
+    fluorescence = bindingSeries.iloc[:, -1].copy()
+    fluorescence.sort()
+    index_all = bindingSeries.loc[fluorescence.index].dropna(axis=0, thresh=4).index
+    
+    fitResults = pd.DataFrame(index=bindingSeriesNorm.index,
+                              columns=fitFun.fitSingleCurve(concentrations,
+                                                            None, fitParameters,
+                                                            do_not_fit=True).index)
+    sys.exit()
+    fitResults.loc[index_all] = splitAndFit(bindingSeries, concentrations,
+                                        fitParameters, numCores, index=index_all)
+    
+    fitParametersFilename = args.fit_parameters
