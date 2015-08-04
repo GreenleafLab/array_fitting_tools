@@ -63,7 +63,7 @@ class fittingParameters():
         if concentrations is not None:
             self.concentrations = concentrations
             self.maxdG = self.find_dG_from_Kd(
-                self.find_Kd_from_frac_bound_concentration(0.9,
+                self.find_Kd_from_frac_bound_concentration(.95,
                                                            concentrations[-1]))
             self.mindG = self.find_dG_from_Kd(
                 self.find_Kd_from_frac_bound_concentration(0.5,
@@ -137,8 +137,9 @@ def bindingCurveObjectiveFunction(params, concentrations, data=None, weights=Non
     fmax = parvals['fmax']
     dG   = parvals['dG']
     fmin = parvals['fmin']
-    fracbound = (fmin + (fmax - fmin)*concentrations/
-                 (concentrations + np.exp(dG/parameters.RT)/parameters.concentration_units))
+    fracbound = (fmin + fmax*concentrations/
+                 (concentrations + np.exp(dG/parameters.RT)/
+                  parameters.concentration_units))
 
     if data is None:
         return fracbound
@@ -216,12 +217,15 @@ def fitSingleCurve(concentrations, fluorescence, fitParameters, func=None,
     return final_params
 
 def plotSingleClusterFit(concentrations, fluorescence, results, func=None,
-                         log_axis=None):
+                         log_axis=None, errors=None):
     if func is None:
         func = bindingCurveObjectiveFunction
     if log_axis is None:
         log_axis = True
-        
+    if errors is None:
+        errors = [np.nan*np.ones(len(concentrations))]*2
+    
+    params = Parameters()
     # plot binding curve
     plt.figure(figsize=(4,4))
     if log_axis:
@@ -234,7 +238,7 @@ def plotSingleClusterFit(concentrations, fluorescence, results, func=None,
         more_concentrations = np.linspace(concentrations.min(),
                                           concentrations.max(), 100)                
 
-    plt.errorbar(concentrations, fluorescence, yerr=[eminus, eplus], fmt='.',
+    plt.errorbar(concentrations, fluorescence, yerr=errors, fmt='.',
                  elinewidth=1, capsize=2, capthick=1, color='k', linewidth=1)
     plt.plot(more_concentrations, func(params, more_concentrations), 'b',
              label='weighted fit')
@@ -409,9 +413,9 @@ def plotFitDistributions(results, singles, fitParameters):
         plt.tight_layout()
     return
 
-def plotSingleVariantFits(concentrations, bindingSeries, results,
+def plotFitCurve(concentrations, bindingSeries, results,
                           fitParameters, log_axis=None, func=None,
-                          fittype=None):
+                          fittype=None, errors=None):
     # default is to log axis
     if log_axis is None:
         log_axis = True
@@ -422,16 +426,23 @@ def plotSingleVariantFits(concentrations, bindingSeries, results,
     
     if fittype is None:
         fittype = 'binding'
+        
+    if len(bindingSeries.shape) == 1:
+        fluorescence = bindingSeries
+    else:
+        fluorescence = bindingSeries.median()
+    
     # get error
-    try:
-        eminus, eplus = findErrorBarsBindingCurve(bindingSeries)
-    except NameError:
-        eminus, eplus = [np.ones(len(concentrations))*np.nan]*2
+    if errors is None:
+        try:
+            errors = findErrorBarsBindingCurve(bindingSeries)
+        except:
+            errors = [np.ones(len(concentrations))*np.nan]*2
     
     # plot binding points
     plt.figure(figsize=(4,4));
-    plt.errorbar(concentrations, bindingSeries.median(),
-                 yerr=[eminus, eplus], fmt='.', elinewidth=1,
+    plt.errorbar(concentrations, fluorescence,
+                 yerr=errors, fmt='.', elinewidth=1,
                  capsize=2, capthick=1, color='k', linewidth=1)
     
     # plot fit
@@ -602,26 +613,27 @@ def plotSigmaByN(stds_actual, stds, fit, use_actual, min_sigma=None):
     return
     
 
-def findFinalBoundsParameters(table, concentrations, use_actual=None):
+def findFinalBoundsParameters(variant_table, concentrations, use_actual=None):
     parameters = fittingParameters(concentrations=concentrations)
 
     # actual data
     param_names = ['dG', 'fmax', 'fmin']
-    grouped = table.groupby('variant_number')
-    grouped_binders = pd.concat([grouped.count().loc[:, 'fmax'],
-                                 grouped.median().loc[:, param_names]], axis=1);
-    grouped_binders.columns = ['number'] + param_names
-    tight_binders = grouped_binders.loc[grouped_binders.dG <= parameters.maxdG]
+    
+    loose_binders = variant_table.loc[variant_table.dG_init > parameters.mindG]
+    tight_binders = variant_table.loc[variant_table.dG_init <= parameters.maxdG]
     
     # also do 'simulated' variants
-    other_binders = table.loc[np.in1d(table.variant_number.astype(float).dropna().values,
+    other_binders = initial_points.loc[np.in1d(initial_points.variant_number.
+                                               astype(float),
                                       tight_binders.index),
                               ['variant_number', 'dG', 'fmax', 'fmin']]
+
 
     stds_actual = pd.Series(index=np.unique(tight_binders.number))
     weights = pd.Series(index=np.unique(tight_binders.number))
     for n in stds_actual.index:
-        stds_actual.loc[n] = tight_binders.loc[tight_binders.number==n, 'fmax'].std()
+        stds_actual.loc[n] = seqfun.remove_outlier(
+            tight_binders.loc[tight_binders.number==n, 'fmax']).std()
         weights.loc[n] = np.sqrt((tight_binders.number==n).sum())
     stds_actual.dropna(inplace=True)
     weights = weights.loc[stds_actual.index]
@@ -633,11 +645,12 @@ def findFinalBoundsParameters(table, concentrations, use_actual=None):
         n_reps = np.ceil(float(len(other_binders))/n)
         index = np.random.permutation(np.tile(np.arange(n_reps), n))[:len(other_binders)]
         other_binders.loc[:, 'faux_variant'] = index
-        stds.loc[n] = other_binders.groupby('faux_variant').median().fmax.std()
+        stds.loc[n] = seqfun.remove_outlier(other_binders.groupby('faux_variant').
+                                            median().fmax).std()
     stds.dropna(inplace=True)
     
     if use_actual is None:
-        use_actual = useSimulatedOrActual
+        use_actual = useSimulatedOrActual(tight_binders)
     # fit to curve
     if use_actual:
         x = stds_actual.index
