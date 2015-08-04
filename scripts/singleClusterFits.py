@@ -236,35 +236,6 @@ def bindingSeriesByCluster(concentrations, bindingSeries, bindingSeriesNorm,
 
     # find initial parameters
     fitParameters = getInitialFitParameters(concentrations)
-    
-
-
-    
-    # find initial parameters
-    fitParameters = getInitialFitParameters(bindingSeriesNorm, concentrations,
-                                            indexBinders, indexNonBinders,
-                                            assumeSaturation=False)
-
-    maxInitialBinders = 1E4
-    if maxInitialBinders < len(indexBinders):
-        index = indexBinders[np.linspace(0, len(indexBinders)-1,
-                                         maxInitialBinders).astype(int)]
-    else:
-        index = indexBinders
-    fitUnconstrained = IMlibs.splitAndFit(bindingSeries, 
-                                          concentrations, fitParameters, numCores,
-                                          index=index, mod_fmin=False)
-    fitParameters.loc[:, 'fmax'] = fitFun.getBoundsGivenDistribution(fitUnconstrained.fmax)
-
-    # now refit all remaining clusters
-    print ('Fitting all with constraints on fmax (%4.2f, %4.2f, %4.2f)'
-           %(fitParameters.loc['lowerbound', 'fmax'],
-             fitParameters.loc['initial', 'fmax'],
-             fitParameters.loc['upperbound', 'fmax']))
-    print ('Fitting all with constraints on fmin (%4.4f, %4.4f, %4.4f)'
-           %(fitParameters.loc['lowerbound', 'fmin'],
-             fitParameters.loc['initial', 'fmin'],
-             fitParameters.loc['upperbound', 'fmin']))
 
     # sort by fluorescence in null_column to try to get groups of equal
     # distributions of binders/nonbinders
@@ -281,7 +252,8 @@ def bindingSeriesByCluster(concentrations, bindingSeries, bindingSeriesNorm,
                                                             None, fitParameters,
                                                             do_not_fit=True).index)
     fitResults.loc[index_all] = splitAndFit(bindingSeries, concentrations,
-                                        fitParameters, numCores, index=index_all)
+                                        fitParameters, numCores, index=index_all,
+                                        change_params=True)
 
 
     return fitResults 
