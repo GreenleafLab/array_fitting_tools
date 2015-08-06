@@ -1,10 +1,9 @@
-"""
-Sarah Denny
-Stanford University
-
-Using the compressed barcode file (from Lauren) and the list of designed variants,
-figure out how many barcodes per designed library variant (d.l.v.), and plot histograms.
-"""
+#!/usr/bin/env python
+#
+# Using the binned times & binding series from binTimes.py,
+# bootstraps the medians to fit the on or off rates.
+#
+# Sarah Denny
 
 ##### IMPORT #####
 import numpy as np
