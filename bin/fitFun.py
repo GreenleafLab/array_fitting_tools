@@ -194,6 +194,13 @@ def fitSingleCurve(concentrations, fluorescence, fitParameters, func=None,
         eminus, eplus = [[np.nan]*len(concentrations)]*2
         weights = None
     
+    # make sure fluorescence doesn't have NaN terms
+    index = np.array(np.isfinite(fluorescence))
+    concentrations = concentrations[index]
+    fluorescence   = fluorescence[index]
+    if weights is not None:
+        weights[index]
+    
     # do the fit
     results = minimize(func, params,
                        args=(concentrations,),
@@ -215,35 +222,6 @@ def fitSingleCurve(concentrations, fluorescence, fitParameters, func=None,
     final_params.loc['rmse'] = rmse
     
     return final_params
-
-def plotSingleClusterFit(concentrations, fluorescence, results, func=None,
-                         log_axis=None, errors=None):
-    if func is None:
-        func = bindingCurveObjectiveFunction
-    if log_axis is None:
-        log_axis = True
-    if errors is None:
-        errors = [np.nan*np.ones(len(concentrations))]*2
-    
-    params = Parameters()
-    # plot binding curve
-    plt.figure(figsize=(4,4))
-    if log_axis:
-        ax = plt.gca()
-        ax.set_xscale('log')
-        more_concentrations = np.logspace(np.log10(concentrations.min()/2),
-                                          np.log10(concentrations.max()*2),
-                                          100)
-    else:
-        more_concentrations = np.linspace(concentrations.min(),
-                                          concentrations.max(), 100)                
-
-    plt.errorbar(concentrations, fluorescence, yerr=errors, fmt='.',
-                 elinewidth=1, capsize=2, capthick=1, color='k', linewidth=1)
-    plt.plot(more_concentrations, func(params, more_concentrations), 'b',
-             label='weighted fit')
-
-    plt.legend(loc='upper left')
 
 def findErrorBarsBindingCurve(subSeries):
     try:
