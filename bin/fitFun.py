@@ -415,7 +415,9 @@ def plotFitCurve(concentrations, bindingSeries, results,
     # get error
     if errors is None:
         try:
-            errors = findErrorBarsBindingCurve(bindingSeries)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                errors = findErrorBarsBindingCurve(bindingSeries)
         except:
             errors = [np.ones(len(concentrations))*np.nan]*2
     
