@@ -935,8 +935,9 @@ def plotSequenceJoe(variant_table, helices=None, mismatches=None):
     
     ax.set_xlim(-12.5, -9.5)
     ax.set_ylim(-1.5, 2)
-    ax.set_xlabel('dG observed (kcal/mol)')
-    ax.set_ylabel('ddG predicted (kcal/mol)')
+    ax.set_xlabel('$\Delta$G observed (kcal/mol)')
+    ax.set_ylabel('$\Delta$$\Delta$G predicted (kcal/mol)')
+    ax.tick_params(top='off', right='off')
     plt.legend(loc='upper left')
     plt.tight_layout()
     

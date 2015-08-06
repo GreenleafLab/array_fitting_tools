@@ -1,569 +1,697 @@
-import sys
-import os
-import time
-import re
-import argparse
-import subprocess
+from lmfit import minimize, Parameters, report_fit, conf_interval
 import numpy as np
 import pandas as pd
-import variantFun
 import matplotlib.pyplot as plt
-import matplotlib.colors as colors
-import matplotlib.cm as cmx
-import itertools
-import collections
+import seaborn as sns
+from scikits.bootstrap import bootstrap
 from statsmodels.stats.weightstats import DescrStatsW
+import warnings
+import itertools
+import seqfun
+import IMlibs
+import scipy.stats as st
 
-class Parameters():
-    def __init__(self):
-        self.chip_receptor_length = [11, 12]
-        self.basePairDict = {'A':'U', 'U':'A', 'G':'C', 'C':'G'}
-        self.nonCanonicalBasePairDict = {'U':'G', 'A':np.nan, 'G':'U', 'C':np.nan}
-        self.indexDict = {'i':'x', 'j':'y'}
-        self.transitionDict   = {'A':'G', 'G':'A', 'C':'U', 'U':'C'}
-        self.max_measurable_dG = -6
-        self.helix_length = 12
-        self.min_helix_length = 8
-        self.goodLoop = 'GGAA'
-        self.numParamsDict = {'insertions_k':3,
-                                'insertions_z':3,
-                                'seq_change_i':2,
-                                'seq_change_x':2,
-                                'seq_insert_k':3,
-                                'seq_insert_z':3,
-                                'loop':1,
-                                'bp_break':1,
-                                'nc':1,
-                                'loop':1,
-                                'intercept':1,
-                                'length':5}
+
+class fittingParameters():
+    
+    """
+    stores some parameters and functions
+    """
+    def __init__(self, concentrations=None, params=None, fitParameters=None,
+                 default_errors=None):
+
         
-    def fractionPur(self, seq):
-        d = collections.defaultdict(int)
-        for c in ['A', 'G', 'T', 'C']:
-            d[c] = 0.0
-        for c in seq:
-            d[c] += 1./len(seq)
-        fracPur = d['A'] + d['G']
-        if fracPur >= 0.33 and fracPur <= 0.67:
-            return 2
-        if fracPur < 0.33:
-            return 1
-        if fracPur > 0.67:
-            return 3
-
-
-def getNumCategories(locations):
-    d = collections.defaultdict(list)
-    for param, cat, loc in locations:
-        d[param].append(cat)
-    for param in d.keys():
-        d[param] = len(np.unique(d[param]))
-    return pd.Series(d)
-    
-
-def getWildtypeDibases(variant_table, indx_wt):
-    parameters = Parameters()
-    seq = variant_table.loc[indx_wt, 'sequence']
-    start = parameters.chip_receptor_length[0]
-    tecto_length = 24
-    newseq = seq[:start] + 'UC' + seq[start:(tecto_length+start)] + 'GA' + seq[tecto_length+start:]
-    # wildtype sequence is the WC cnostruct, plus a UA, CG basepair to have comparable changes in 12 bp constructs
-    dibases, loop_seq, success = parseSecondaryStructure(newseq)
-    return dibases
-    
-def addBaseToDibase(dibases, insertion_point, key, base, max_insertion_point):
-    success = True
-    if insertion_point <= max_insertion_point and insertion_point >= 0:
-        dibases.loc[insertion_point, key] += base
-    else:
-        success = False
-    return dibases, success
-
-def parseSecondaryStructure(seq):
-    parameters = Parameters()
-    columns=['i', 'j', 'k', 'x', 'y', 'z']
-    dibases = pd.DataFrame(index=np.arange(parameters.helix_length-1), columns=columns)
-
-    # initial data storage
-    vec = subprocess.check_output("echo %s | RNAfold --noPS"%seq, shell=True).split()
-    [seq_parsed, dot_bracket] = vec[:2]
-    dot_bracket = dot_bracket[parameters.chip_receptor_length[0]:-parameters.chip_receptor_length[1]]
-    seq_parsed = seq_parsed[parameters.chip_receptor_length[0]:-parameters.chip_receptor_length[1]]
-
-    loopLoc = dot_bracket.find('(....)')
-    loopStart = loopLoc + 1; loopEnd = loopLoc + 5
-    
-    side1, side2 = dot_bracket[:loopStart], dot_bracket[loopEnd:][::-1]
-    side1_seq, side2_seq = seq_parsed[:loopStart], seq_parsed[loopEnd:][::-1]
-    
-    # find helix length
-    estimated_helix_length = min(len(side1), len(side2))
-    offset = 2  # difference between 'loc' of dibase and estimated helix length
-    max_insertion_point = estimated_helix_length - offset
-    success = True
-    i = 0
-    j = 0
-    numBasePairs = 0
-
-    dibases.loc[:,:] = ''
-    try:
-        while numBasePairs < estimated_helix_length-1:
-            if side1[i] == '(' and side2[j] == '.':
-                insertion_point = max_insertion_point-(numBasePairs-1)
-                key = 'z'
-                base = side2_seq[j]
-                dibases, success = addBaseToDibase(dibases, insertion_point, key, base, max_insertion_point)
-                if not success: break
-                j+=1
-    
-            if side1[i] == '.' and side2[j] == ')':
-                insertion_point = max_insertion_point-(numBasePairs-1)
-                key = 'k'
-                base = side1_seq[i]
-                dibases, success = addBaseToDibase(dibases, insertion_point, key, base, max_insertion_point)
-                if not success: break
-                i+=1
-            if (side1[i] == '(' and side2[j] == ')') or (side1[i] == '.' and side2[j] == '.'):
-                insertion_point = max_insertion_point - numBasePairs
-                dibases, success = addBaseToDibase(dibases, insertion_point, 'i', side1_seq[i], max_insertion_point)
-                if not success: break
-                dibases, success = addBaseToDibase(dibases, insertion_point, 'x', side2_seq[j], max_insertion_point)
-                if not success: break
-                i+=1
-                j+=1
-                numBasePairs+=1
-            dibases
-        if success: # if the first part was successful, also parse the other location in each dibase
-            i=1; j=1
-            numBasePairs = 0
-            while numBasePairs < estimated_helix_length-1 :
-                if side1[i] == '(' and side2[j] == '.': j+=1
-                if side1[i] == '.' and side2[j] == ')': i+=1
-                if (side1[i] == '(' and side2[j] == ')') or (side1[i] == '.' and side2[j] == '.'):
-                    insertion_point = max_insertion_point - numBasePairs
-                    dibases, success = addBaseToDibase(dibases, insertion_point, 'j', side1_seq[i], max_insertion_point)
-                    if not success: break
-                    dibases, success = addBaseToDibase(dibases, insertion_point, 'y', side2_seq[j], max_insertion_point)
-                    if not success: break
-                    i+=1
-                    j+=1
-                    numBasePairs+=1
-    except: success = False
-
-    # everything that's blank is Nan
-    dibases.loc[(dibases == '').all(axis=1)] = np.nan
-    loop_seq = seq_parsed[loopStart:loopEnd]
-    return dibases, loop_seq, success
-
-def interpretDibase(dibase, compare_to=None, success=None):
-    if success is None: success = True 
-    parameters = Parameters()
-    params = ['bp_break', 'nc', 'insertions', 'seq_change', 'seq_insert']
-    index  = ['i', 'j', 'k', 'z', 'x', 'y']
-    if success: # i.e. if secondary structure parsing was successful
-        #table = pd.DataFrame(data=np.zeros((len(index), len(params))), index=index, columns=params)
-        table = pd.DataFrame(index=index, columns=params)
-        for idx in ['i', 'j']:
-            if parameters.basePairDict[dibase[idx]] != dibase[parameters.indexDict[idx]]:
-                table.loc[idx, 'bp_break'] = 1
-            else: table.loc[idx, 'bp_break'] = 0
-            if parameters.nonCanonicalBasePairDict[dibase[idx]] == dibase[parameters.indexDict[idx]]:
-                table.loc[idx, 'nc'] = 1
-            else: table.loc[idx, 'nc'] = 0
-        for idx in ['k', 'z']:
-            if dibase[idx] != '':
-                table.loc[idx, 'insertions'] = len(dibase[idx])
-                table.loc[idx, 'seq_insert'] = parameters.fractionPur(dibase[idx])
-            else:
-                table.loc[idx, 'insertions'] = 0
-                table.loc[idx, 'seq_insert'] = 0
-        if compare_to is not None:
-            # compare sequences
-            for idx in ['i', 'j', 'x', 'y']:
-                if dibase[idx] == compare_to[idx]:
-                    table.loc[idx, 'seq_change'] = 0
-                elif dibase[idx] == parameters.transitionDict[compare_to[idx]]:
-                    table.loc[idx, 'seq_change'] = 1
-                else:
-                    table.loc[idx, 'seq_change'] = 2
-    else: # return NaNs
-        table = pd.DataFrame( index=index, columns=params)
-    return table
-
-
-def interpretDibases(dibases, dibases_wt, success=None):
-    if success is None: success = True
-    # don't use rows of dibases that are all nans
-    #dibases.dropna(axis=0, how='all', inplace=True)
-    indexParam = np.arange(len(dibases))
-    pieces = {}
-    for i in indexParam:
-        if dibases.loc[i].dropna().empty:
-            pieces[i] = interpretDibase(dibases.loc[i], compare_to=dibases_wt.loc[i], success=False)
-        else:
-            pieces[i] = interpretDibase(dibases.loc[i], compare_to=dibases_wt.loc[i], success=success)
-    table = pd.concat(pieces, axis=0)
-    return table
-
-def interpretLoop(loop_seq):
-    parameters = Parameters()
-    if loop_seq != parameters.goodLoop:
-        return 1
-    else:
-        return 0
-
-
-def convertParamsToMatrix(diparams, loopSeq):
-    parameters = Parameters()
-    indexParam = diparams.index.levels[0]
-    vec = {}
-    vec_length = len(indexParam) + 1
-    keys = ['bp_break', 'nc', 'insertions_k', 'insertions_z',
-            'seq_change_i', 'seq_change_x', 'seq_insert_k', 'seq_insert_z']
-    for key in keys: vec[key] = pd.Series(index=np.arange(vec_length))
-    
-    # first entry for bp break or nc is the 'i' entry, the rest are 'j'
-    for key in ['bp_break', 'nc']:
-        loc = 0
-        vec[key].loc[loc] = diparams.loc[indexParam[loc], 'j'].loc[key]
+        # save the units of concentration given in the binding series
+        self.concentration_units = 1E-9 # i.e. nM
+        self.RT = 0.582
         
-        # set the rest of them to be the 'j' points, so they are offest by one in indexParam
-        for idx, loc in itertools.izip(indexParam, range(1, vec_length)):
-            vec[key].loc[loc] = diparams.loc[idx, 'i'].loc[key]
-    
-    # insertions 
-    for key in ['insertions_k', 'insertions_z', 'seq_insert_k', 'seq_insert_z']:
-        side = key[-1]
-        old_key = key.strip('kz_')
-        # set the insertions location as the indexParamx, meaning an bp breaking at 0 is immediately to the left of an insertion at 0
-        for idx, loc in itertools.izip(indexParam, range(0, vec_length-1)):
-            vec[key].loc[loc] = diparams.loc[idx, side].loc[old_key]
-    
-    # sequence changes not in insertions
-    whichind = {'i':['j', 'i'], 'x':['y', 'x']}
-    for key in ['seq_change_i', 'seq_change_x']:
-        side = key[-1]
-        old_key = key.strip('ix_')
-        loc = 0
-        vec[key].loc[loc] = diparams.loc[loc, whichind[side][0]].loc[old_key]
-        # set the rest of them to be the 'j' points, so they are offest by one in indexParam
-        for idx, loc in itertools.izip(indexParam, range(1, vec_length)):
-            vec[key].loc[loc] = diparams.loc[idx, whichind[side][1]].loc[old_key]
-    key = 'bp_break'
-    estimated_length = len(vec[key].dropna()) 
-    vec['loop'] = pd.Series(interpretLoop(loopSeq))
-    vec['length'] = pd.Series(estimated_length) - parameters.min_helix_length + 1
+        # if null scores are provided, use them to estimate binders and non-
+        # binders. 'qvalue' is estimated based on the empircal null distribution
+        # of these null scores. Binders are everything with qvalue less than
+        # 'qvalue_cutoff_binders', Nonbinders are clusters with qvalue greater
+        # than 'qvalue_cutoff_nonbinders'. 
+        self.qvalue_cutoff_binders = 0.005
+        self.qvalue_cutoff_nonbinders = 0.8
         
-    return pd.concat(vec)
+        # if null scores is not provided, rank clusters by fluorescence in the
+        # last point (or alternately 'binding point') of the binding series.
+        # take the top and bottom 'num_clusters' as accurately representing
+        # binders and non binders. I've found 100K to be a good number, but
+        # change this value to be smaller if poor separation is seen.
+        self.num_clusters = 1E5
+        
+        # When constraining the upper and lower bounds of dG, say you only think
+        # can fit binding curves if at most it is 99% bound in the first
+        # point of the binding series. This defines 'frac_bound_lowerbound'.
+        # 'frac_bound_upperbound' is the minimum binding at the last point of the
+        # binding series that you think you can still fit.
+        self.frac_bound_upperbound = 0.01
+        self.frac_bound_lowerbound = 0.99
+        self.frac_bound_initial = 0.5
+        
+        # assume that fluorsecnce in last binding point of tightest binders
+        # is on average at least 25% bound. May want to lower if doing
+        # different point for binding point. 
+        self.saturation_level   = 0.25
+        
+        # also add other things
+        self.params = params
+        self.fitParameters = fitParameters
+        self.default_errors = default_errors
 
-def makeCategorical(vec):
-    parameters = Parameters()
-    numParamsDict = parameters.numParamsDict
-    all_keys = vec.index.levels[0].tolist()
-    newvec = {}
-    for key in all_keys:
-        newvec[key] = {}
-        for i in np.arange(numParamsDict[key]):
-            # if categorical, set things equal to category (i+1) to one:
-            if numParamsDict[key] == 1: # i.e. not category
-                cat = 0
-            else:
-                cat = i+1
-            newvec[key][cat] = pd.Series(index = vec[key].index)
-            index = vec[key].dropna().index
-            # set remainder to zero
-            newvec[key][cat].loc[index] = 0
+        # if concentrations are defined, do some more things
+        if concentrations is not None:
+            self.concentrations = concentrations
+            self.maxdG = self.find_dG_from_Kd(
+                self.find_Kd_from_frac_bound_concentration(.95,
+                                                           concentrations[-1]))
+            self.mindG = self.find_dG_from_Kd(
+                self.find_Kd_from_frac_bound_concentration(0.5,
+                                                            concentrations[-1]))
             
-            # set those not equal to zero
-            index = vec[key].loc[(vec[key] == i+1).values].index
-            newvec[key][cat].loc[index] = 1
-        newvec[key] = pd.concat(newvec[key])
+            # get dG upper and lowerbounds
+            self.dGparam = pd.Series(index=['lowerbound', 'initial', 'upperbound'])
+            self.dGparam.loc['lowerbound'] = self.find_dG_from_Kd(
+                self.find_Kd_from_frac_bound_concentration(self.frac_bound_lowerbound,
+                                                           concentrations[0]))
+            self.dGparam.loc['upperbound'] = self.find_dG_from_Kd(
+                self.find_Kd_from_frac_bound_concentration(self.frac_bound_upperbound,
+                                                           concentrations[-1]))
+            self.dGparam.loc['initial'] = self.find_dG_from_Kd(
+                self.find_Kd_from_frac_bound_concentration(self.frac_bound_initial,
+                                                           concentrations[-1]))
 
-    return pd.concat(newvec)
+    def find_dG_from_Kd(self, Kd):
+        return self.RT*np.log(Kd*self.concentration_units)
 
-def flattenedHeader(locator, numCategories):
-    parameters = Parameters()
-    param, cat, loc = locator
-    # check if categorical
-    if numCategories[param] == 1:
-        header = '%s_%d'%(param, loc)
-    else:
-        header = '%s_%d_%d'%(param, cat, loc)
-    return header
+    def find_Kd_from_dG(self, dG):
+        return np.exp(dG/self.RT)/self.concentration_units
+    
+    def find_Kd_from_frac_bound_concentration(self, frac_bound, concentration):
+        return concentration/float(frac_bound) - concentration
+    
+class fmaxDistAny():
+    # for fitting stde of fmaxes
+    def __init__(self, params=None):
+        self.params = params
+        
+    def sigma_by_n_fit(self, params, x, y=None, weights=None):
 
-def unFlattenHeader(header):
-    parameters = Parameters()
-    param = header.strip('1234567890_')
-    try:
-        loc = int(header.split('_')[-1])
-        if parameters.numParamsDict[param] == 1:
-            cat = 0
+        parvals = params.valuesdict()
+        sigma = parvals['sigma']
+        c   = parvals['c']
+        fit = sigma/np.sqrt(x) + c
+        if y is None:
+            return fit
+        elif weights is None:
+            return y-fit
         else:
-            cat = bp_ins_k1
-            cat = int(header.split('_')[-2].lstrip('abcdefghijklmnopqrstuvwxyz'))
+            return (y - fit)*weights
+    
+    def find_fmax_bounds_given_n(self, n, alpha=None, return_dist=None):
+        if alpha is None: alpha = 0.99
+        if return_dist is None: return_dist = False
+        
+        if self.params is None:
+            print 'Error: define popts'
+            return
+        params = self.params
+         
+        sigma = self.sigma_by_n_fit(params, n)
+        mean = params.valuesdict()['median']
+
+        if 'min_sigma' in params.keys():
+            if sigma < params['min_sigma'].value:
+                sigma = params['min_sigma'].value
+
+        if return_dist:
+            return st.norm(loc=mean, scale=sigma)
+        else:
+            interval = st.norm.interval(alpha, loc=mean, scale=sigma)
+            return interval[0], mean, interval[1]
+        
+def bindingCurveObjectiveFunction(params, concentrations, data=None, weights=None):
+    parameters = fittingParameters()
+    
+    parvals = params.valuesdict()
+    fmax = parvals['fmax']
+    dG   = parvals['dG']
+    fmin = parvals['fmin']
+    fracbound = (fmin + fmax*concentrations/
+                 (concentrations + np.exp(dG/parameters.RT)/
+                  parameters.concentration_units))
+
+    if data is None:
+        return fracbound
+    elif weights is None:
+        return fracbound - data
+    else:
+        return (fracbound - data)*weights
+    
+def fitSingleCurve(concentrations, fluorescence, fitParameters, func=None,
+                          errors=None, plot=None, log_axis=None, do_not_fit=None):
+    if do_not_fit is None:
+        do_not_fit = False # i.e. if you don't want to actually fit but still want to return a value
+    if plot is None:
+        plot = False
+    if log_axis is None:
+        log_axis = True
+    if func is None:
+        func = bindingCurveObjectiveFunction
+    
+    # fit parameters
+    param_names = fitParameters.columns.tolist()
+    
+    # initiate output structure  
+    index = (param_names + ['%s_stde'%param for param in param_names] +
+             ['rsq', 'exit_flag', 'rmse'])
+    final_params = pd.Series(index=index)
+
+    # return here if you don't want to actually fit
+    if do_not_fit:
+        final_params.loc['exit_flag'] = -1
+        return final_params
+    
+    # store fit parameters in class for fitting
+    params = Parameters()
+    for param in param_names:
+        if 'vary' in fitParameters.loc[:, param].index:
+            vary = fitParameters.loc['vary', param]
+        else:
+            vary = True
+        params.add(param, value=fitParameters.loc['initial', param],
+                   min = fitParameters.loc['lowerbound', param],
+                   max = fitParameters.loc['upperbound', param],
+                   vary= vary)
+    
+    # weighted fit if errors are given
+    if errors is not None:
+        eminus, eplus = errors
+        weights = 1/(eminus+eplus)
+        if np.isnan(weights).any():
+            weights = None
+    else:
+        eminus, eplus = [[np.nan]*len(concentrations)]*2
+        weights = None
+    
+    # do the fit
+    results = minimize(func, params,
+                       args=(concentrations,),
+                       kws={'data':fluorescence, 'weights':weights},
+                       xtol=1E-6, ftol=1E-6, maxfev=10000)
+    
+    # find rqs
+    ss_total = np.sum((fluorescence - fluorescence.mean())**2)
+    ss_error = np.sum((results.residual)**2)
+    rsq = 1-ss_error/ss_total
+    rmse = np.sqrt(ss_error)
+    
+    # save params in structure
+    for param in param_names:
+        final_params.loc[param] = params[param].value
+        final_params.loc['%s_stde'%param] = params[param].stderr
+    final_params.loc['rsq'] = rsq
+    final_params.loc['exit_flag'] = results.ier
+    final_params.loc['rmse'] = rmse
+    
+    return final_params
+
+def plotSingleClusterFit(concentrations, fluorescence, results, func=None,
+                         log_axis=None, errors=None):
+    if func is None:
+        func = bindingCurveObjectiveFunction
+    if log_axis is None:
+        log_axis = True
+    if errors is None:
+        errors = [np.nan*np.ones(len(concentrations))]*2
+    
+    params = Parameters()
+    # plot binding curve
+    plt.figure(figsize=(4,4))
+    if log_axis:
+        ax = plt.gca()
+        ax.set_xscale('log')
+        more_concentrations = np.logspace(np.log10(concentrations.min()/2),
+                                          np.log10(concentrations.max()*2),
+                                          100)
+    else:
+        more_concentrations = np.linspace(concentrations.min(),
+                                          concentrations.max(), 100)                
+
+    plt.errorbar(concentrations, fluorescence, yerr=errors, fmt='.',
+                 elinewidth=1, capsize=2, capthick=1, color='k', linewidth=1)
+    plt.plot(more_concentrations, func(params, more_concentrations), 'b',
+             label='weighted fit')
+
+    plt.legend(loc='upper left')
+
+def findErrorBarsBindingCurve(subSeries):
+    try:
+        eminus, eplus = np.asarray([np.abs(subSeries.loc[:, i].median() -
+                                           bootstrap.ci(subSeries.loc[:, i].dropna(),
+                                                        np.median, n_samples=1000))
+                                    for i in subSeries]).transpose()
     except:
-        loc = 0; cat = 0
-    return (param, cat, loc)
+        eminus, eplus = [np.ones(subSeries.shape[1])*np.nan]*2
+    return eminus, eplus
 
-def flattenMatrix(table):
-    locations = [name for name in table]
-    newtable = pd.DataFrame(index=table.index)
-    numCats = getNumCategories(table)
-    for locator in locations:
-        newtable[flattenedHeader(locator, numCats)] = table[locator]
-    return newtable
+def enforceFmaxDistribution(median_fluorescence, fitParameters, verbose=None):
+    # decide whether to enforce fmax distribution or let it float
+    # cutoff is whether the last point of the (median) fluorescence is
+    # above the lower bound for fmax.
+    if verbose is None:
+        verbose = False
+    
+    median_fluorescence = median_fluorescence.astype(float).values
+    if median_fluorescence[-1] < fitParameters.loc['lowerbound', 'fmax']:
+        redoFitFmax = True
+        if verbose:
+            print (('last concentration is below lb for fmax (%4.2f out of '
+                   '%4.2f (%d%%). Doing bootstrapped fit with fmax'
+                   'samples from dist')
+                %(median_fluorescence[-1],
+                  fitParameters.loc['lowerbound', 'fmax'],
+                  median_fluorescence[-1]*100/
+                    fitParameters.loc['lowerbound', 'fmax']))
+    else:
+        redoFitFmax = False
+        if verbose:
+            print (('last concentration is above lb for fmax (%4.2f out of %4.2f '+
+                   '(%d%%). Proceeding by varying fmax')
+                %(median_fluorescence[-1],
+                  fitParameters.loc['lowerbound', 'fmax'],
+                  median_fluorescence[-1]*100/
+                    fitParameters.loc['lowerbound', 'fmax']))
+    return redoFitFmax
 
-def getInteractionTerms(categorical_vec, max_offset=None):
-    if max_offset is None: max_offset = 1
-    parameters = Parameters()
-    compare = {'bp_bp':    [('bp_break',0), ('bp_break', 0)],
-               'bp_ins_k1':[('bp_break',0), ('insertions_k', 1)], # 1 insertion
-               'bp_ins_k2':[('bp_break',0), ('insertions_k', 2)], # 2 insertions
-               'bp_ins_z1':[('bp_break', 0),('insertions_z', 1)],
-               'bp_ins_z2':[('bp_break', 0),('insertions_z', 2)],
-                }
-    new_vec = {}
-    offsets = [0, 1] # max distance over which to record interactions
-    for key, values in compare.items():
-        new_vec[key] = {}
-        for offset in offsets:
-            new_vec[key][offset] = pd.Series(index=np.arange(parameters.helix_length))
-            new_vec[key][offset].iloc[offset:] = (categorical_vec[values[1]].iloc[:parameters.helix_length-offset]*
-                                             categorical_vec[values[0]].iloc[offset:].values)
-        new_vec[key] = pd.concat(new_vec[key])
-    return pd.concat([categorical_vec, pd.concat(new_vec)])
+
+def bootstrapCurves(concentrations, subSeries, fitParameters, fmaxDist=None,
+                    default_errors=None, verbose=None, n_samples=None,
+                    enforce_fmax=None, func=None):
+    # set defaults for various parameters
+    if n_samples is None:
+        n_samples = 100
         
-def multiprocessParametrization(variant_table, dibases_wt, indx):
+    if verbose is None:
+        verbose = False
+
+    if enforce_fmax is None:
+        enforce_fmax = True # by default, enfoce fmax etc
+    
+    if enforce_fmax and fmaxDist is None:
+        print ('Error: if you wish to enforce fmax, need to define "fmaxDist"\n'
+               'which is a instance of a normal distribution with mean and sigma\n'
+               'defining the expected distribution of fmax')
+    
+    if func is None:
+        func = bindingCurveObjectiveFunction
+    # estimate weights to use in weighted least squares fitting
+    numTests = len(subSeries)
+    if default_errors is None:
+        default_errors = np.ones(len(concentrations))*np.nan
     try:
-        dibases, loop_seq, success = parseSecondaryStructure(variant_table.loc[indx, 'sequence'])
-        diparams = interpretDibases(dibases, dibases_wt, success)
-        vec = convertParamsToMatrix(diparams, loop_seq)
-        length = np.logical_not(np.isnan(vec['bp_break'])).sum()
-        categorical_vec = makeCategorical(vec)
-        interaction_vec = getInteractionTerms(categorical_vec)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            eminus, eplus = findErrorBarsBindingCurve(subSeries)
     except:
-        print '%d not successful. Skipping'%indx
-        vec = interpretDibases(dibases_wt, dibases_wt, False)
-        categorical_vec = makeCategorical(vec)
-        interaction_vec = getInteractionTerms(categorical_vec)
-    return interaction_vec
+        eminus = eplus = default_errors/np.sqrt(numTests)
 
-def loadFitParams(fitFile, exVec):
-    a = np.loadtxt(fitFile, skiprows=2, dtype=str)
-    a[0,0] = 'intercept'
-    a[:,1] = [0  if est=='.' else est for est in a[:,1]]
-    numparams = a.shape[1]-1
-    cols = ['estimate', 'stderr', 'tvalue', 'p']
-    fit_vec = pd.DataFrame(a[:,1:], index=a[:,0], columns = cols[:numparams], dtype=float)
-    flatToNotDict = {}
-    numCats = getNumCategories(exVec.index.tolist())
-    for locations in exVec.index.tolist():
-        key = flattenedHeader(locations, numCats)
-        flatToNotDict[key] = locations
-    # get intercept which is missing and any others?
-    for key in np.setdiff1d(fit_vec.index.tolist(), flatToNotDict.keys()):
-        flatToNotDict[key] = (key, 0, 0)
     
-    fit_mat = pd.DataFrame(np.nan*np.ones((len(exVec), len(cols))), index=exVec.index, columns=cols)
-    for parameter in fit_vec.index.tolist():
-        locator = flatToNotDict[parameter]
-        if locator in fit_mat.index:
-            fit_mat.loc[locator] = fit_vec.loc[parameter]
+    # find number of samples to bootstrap
+    if numTests <10 and np.power(numTests, numTests) <= n_samples:
+        # then do all possible permutations
+        if verbose:
+            print ('Doing all possible %d product of indices'
+                   %np.power(numTests, numTests))
+        indices = [list(i) for i in itertools.product(*[subSeries.index]*numTests)]
+    else:
+        if verbose:
+            print ('making %d randomly selected (with replacement) '
+                   'bootstrapped median binding curves')%n_samples
+        indices = np.random.choice(subSeries.index,
+                                   size=(n_samples, len(subSeries)), replace=True)
+  
+    # if last point in binding series is below fmax constraints, do by method B
+    median_fluorescence = subSeries.median()
+    if enforce_fmax:
+        enforce_fmax = enforceFmaxDistribution(median_fluorescence, fitParameters, verbose=verbose)
+    
+    # proceed with bootstrapping. Enforce fmax if initially told to and cutoff was not met
+    fitParameters = fitParameters.copy()
+    if enforce_fmax:
+        # make sure fmax does not vary and find random variates
+        # of fmax distribution
+        if 'vary' not in fitParameters.index:
+            fitParameters.loc['vary'] = True
+        fitParameters.loc['vary', 'fmax'] = False
+        fmaxes = fmaxDist.rvs(n_samples)
+
+    singles = {}
+    for i, clusters in enumerate(indices):
+        if verbose:
+            if i%(n_samples/10.)==0:
+                print 'working on %d out of %d, %d%%'%(i, n_samples, i/float(n_samples)*100)
+        if enforce_fmax:
+            fitParameters.loc['initial', 'fmax'] = fmaxes[i]
+        # fit single curve
+        fluorescence = subSeries.loc[clusters].median()
+        index = np.isfinite(fluorescence)
+        if index.sum() > 3:
+            singles[i] = fitSingleCurve(concentrations[index.values],
+                                        fluorescence.loc[index],
+                                        fitParameters,
+                                        errors=[eminus[index.values], eplus[index.values]],
+                                               plot=False,
+                                               func=func)
         else:
-            param, cat, loc = locator
-            df = pd.DataFrame(fit_vec.loc[parameter].values, index=fit_vec.loc[parameter].index, columns=[loc]).transpose()
-            pd.concat([fit_mat, pd.concat({param: pd.concat({cat:df})})])   
-    return fit_mat
+            singles[i] = fitSingleCurve(concentrations[index.values],
+                                        fluorescence.loc[index],
+                                        fitParameters,
+                                        do_not_fit=True)
+    singles = pd.concat(singles, axis=1).transpose()
+    
+    param_names = fitParameters.columns.tolist()
+    
+    # I'm just not sure this is legit
+    #not_outliers = ~seqfun.is_outlier(singles.dG)
 
-def getFitInfo(param, cat):
+    data = np.hstack([np.percentile(singles.loc[:, param], [50, 2.5, 97.5])
+                       for param in param_names])
+    index = np.hstack([['%s%s'%(param_name, s) for s in ['', '_lb', '_ub']]
+                       for param_name in param_names])
+                       
+    results = pd.Series(index = index, data=data)
     
-    markerDict = {  'insertions_k': { 1: 'v', 2: 'D', 3:'8'},
-                'insertions_z': { 1: 'v', 2: 'D', 3:'8'},
-                'bp_break': {0:'o'},
-                'nc': {0: 's'},
-                'seq_change_x': {1:'v', 2:'^'},
-                'seq_change_i': {1:'v', 2:'^'},
-                'loop': {0: '_'},
-                'bp_bp': {1: 's'},
-                'bp_ins_k1': {0: 'v', 1: '^'},    
-                'bp_ins_k2': {0: '<', 1: '>'},
-                'bp_ins_z1': {0:'v', 1: '^'},    
-                'bp_ins_z2': {0: '<', 1: '>'},
-                'seq_insert_k': { 1: 'v', 2: 'D', 3:'8'},
-                'seq_insert_z': { 1: 'v', 2: 'D', 3:'8'},
-              }
-    sideDict = {'insertions_k': 'top',
-                'insertions_z': 'bottom',
-                'bp_break': 'both',
-                'nc': 'both',
-                'seq_change_x': 'top',
-                'seq_change_i': 'bottom',
-                'loop': 'top',
-                'bp_bp': 'both',
-                'bp_ins_k1': 'top',
-                'bp_ins_k2': 'top',
-                'bp_ins_z1': 'bottom',
-                'bp_ins_z2': 'bottom',
-                'seq_insert_k': 'top',
-                'seq_insert_z': 'bottom',
-                    }
-    offsetDict = {'insertions_k': 0.5,
-                  'insertions_z': 0.5,
-                  'seq_insert_k':0.5,
-                  'seq_insert_z':0.5,
-                  'bp_bp': 0.5,
-                  'bp_ins_k1':0.25,
-                  'bp_ins_k2':0.25,
-                  'bp_ins_z1':0.25,
-                  'bp_ins_z2':0.25,
-                  'loop':-0.5
-                  }
-    for params in np.setdiff1d(markerDict.keys(), offsetDict.keys()):
-        offsetDict[params] = 0
-    
-    return   (markerDict[param][cat],  sideDict[param], offsetDict[param])
+    # get rsq
+    params = Parameters()
+    for param in param_names:
+        params.add(param, value=results.loc[param])
+        
+    ss_total = np.sum((median_fluorescence - median_fluorescence.mean())**2)
+    ss_error = np.sum((median_fluorescence - func(params, concentrations))**2)
+    results.loc['rsq']  = 1-ss_error/ss_total
 
-def plotFit(fitParams, paramsToPlot=None):
-    if paramsToPlot is None:
-        # plot all
-        fitParams.index.levels[0].tolist()
-    parameters = Parameters()
-    helix_length = parameters.helix_length
-    numCats = getNumCategories(fitParams.transpose())
+    # save some parameters
+    results.loc['numClusters'] = numTests
+    results.loc['numIter'] = (singles.exit_flag > 0).sum()
+    #results.loc['fractionOutlier'] = 1 - not_outliers.sum()/float(len(singles))
+    results.loc['flag'] = enforce_fmax
     
-    cNorm  = colors.Normalize(vmin=0, vmax=np.sum(numCats[paramsToPlot])-1)
-    scalarMap = cmx.ScalarMappable(norm=cNorm, cmap='coolwarm')
-    plt.figure(figsize=(10,5))
-    ax = plt.gca()
-    count = 0
-    for i, param in enumerate(paramsToPlot):
-    
-        cats = np.unique(fitParams.loc[param].index.labels[0].tolist())
-        for cat in cats:
-            
-            (marker,  side, offset) = getFitInfo(param, cat)
-            color = scalarMap.to_rgba(count); count+=1
-            yvalues = fitParams.loc[param].loc[cat].estimate.values
-            yerr    = fitParams.loc[param].loc[cat].stderr.values
-            
-            if side == 'top':
-                xvalues = helix_length - (fitParams.loc[param].loc[cat].index + offset)
-            if side == 'bottom':
-                xvalues = helix_length + 1 + (fitParams.loc[param].loc[cat].index - offset)[::-1]
-                yvalues = yvalues[::-1]
-                yerr = yerr[::-1]
-            if side == 'both':
-                xvalues = np.hstack([helix_length - (fitParams.loc[param].loc[cat].index + offset), helix_length, helix_length + 1 + (fitParams.loc[param].loc[cat].index - offset)[::-1]])
-                yvalues = np.hstack([yvalues, np.nan, yvalues[::-1]])
-                yerr = np.hstack([yerr, np.nan,  yerr[::-1]])
+    return results, singles
 
-            ax.errorbar(xvalues, yvalues,yerr, fmt=marker+'-', label='%s %d'%(param, cat), color=color, ecolor='k')
+def plotFitDistributions(results, singles, fitParameters):
+    for param in fitParameters.columns.tolist():
     
-    ax.fill_between([helix_length, helix_length+1], -3, 3,  color='0.25', alpha=0.1)
-    ax.plot([0, helix_length*2], [0,0], 'k:')
-    
-    plt.xticks(np.arange(2,helix_length*2), np.hstack([helix_length  - np.arange(2,helix_length + 1), np.arange(helix_length)])) 
-    ax.set_xlim((2, helix_length*2-1))
-    ax.set_ylim((-3, 3))
-    
-    ax.set_xlabel('bp from loop')
-    ax.set_ylabel('dG (kcal/mol)')
-    ax.tick_params(direction='out', top='off', right='off')
-    plt.tight_layout()
-    
-    handles,labels = ax.get_legend_handles_labels()
-    ax.legend(handles, labels, loc='upper right')
-    box = ax.get_position()
-    ax.set_position([box.x0, box.y0, box.width * 0.8, box.height])
-    ax.legend(loc='center left', bbox_to_anchor=(1, 0.5))
-    plt.subplots_adjust(left=0.1, right=0.6)
+        plt.figure(figsize=(4,3))
+        sns.distplot(singles.loc[:, param].dropna().values,
+                     hist_kws={'histtype':'stepfilled'}, color='b')
+        ax = plt.gca()
+        ylim = ax.get_ylim()
+        plt.plot([results.loc[param]]*2, ylim, 'k--', alpha=0.5)
+        plt.plot([results.loc['%s_lb'%param]]*2, ylim, 'k:', alpha=0.5)
+        plt.plot([results.loc['%s_ub'%param]]*2, ylim, 'k:', alpha=0.5)
+        plt.ylabel('prob density')
+        plt.xlabel(param)
+        plt.tight_layout()
     return
 
-def plotInteractions(fitParams, key):
-    newmat = pd.DataFrame(0, index = np.arange(parameters.helix_length), columns = np.arange(parameters.helix_length))
-    for offset in np.unique(fitParams.loc[key].index.labels[0]):
-        for loc in fitParams.loc[key, offset].index:
-            newmat.loc[loc, loc+offset] = fitParams.loc[key, offset, loc].estimate
-            #newmat.loc[loc+offset, loc] = fitParams.loc[key, offset, loc].estimate
+def plotFitCurve(concentrations, bindingSeries, results,
+                          fitParameters, log_axis=None, func=None,
+                          fittype=None, errors=None):
+    # default is to log axis
+    if log_axis is None:
+        log_axis = True
+        
+    # default is binding curve
+    if func is None:
+        func = bindingCurveObjectiveFunction
     
-    fig = plt.figure(figsize = (5,4))
-    ax = fig.add_subplot(111)
-    plt.xticks(np.arange(parameters.helix_length))
-    plt.yticks(np.arange(parameters.helix_length))
-    plt.tick_params(direction='out', top='off', right='off')
-    norm = colors.Normalize(vmin=-1, vmax=1)
-    im = ax.imshow(newmat, interpolation='nearest', cmap='RdBu', norm=norm)
-    plt.colorbar(im)
+    if fittype is None:
+        fittype = 'binding'
+        
+    if len(bindingSeries.shape) == 1:
+        fluorescence = bindingSeries
+    else:
+        fluorescence = bindingSeries.median()
     
-    return
-
-def distanceBetweenVariants(variant_table, variant_set):
-    deltaG = pd.DataFrame(columns=['median', 'plus', 'minus'], index=[8, 9, 10, 11, 12], dtype=float)
-    for length in deltaG.index:
-        index = variant_table.seqinfo.total_length==length
-        variant_subtable = variant_table.loc[index]
-        vs1 = variant_subtable.affinity.loc[variant_set[0]].dropna(axis=0, how='all')
-        vs2 = variant_subtable.affinity.loc[variant_set[1]].dropna(axis=0, how='all')
-        
-        deltaG.loc[length, 'median'] = np.mean(vs2['dG']) - np.mean(vs1['dG'])
-        
-        deltaG.loc[length, 'plus']   = np.sqrt(np.power(np.sqrt(np.sum(np.power(vs1['dG_ub'] - vs1['dG'], 2))), 2) +
-                                               np.power(np.sqrt(np.sum(np.power(vs2['dG_ub'] - vs2['dG'], 2))), 2) )
-        
-        deltaG.loc[length, 'minus']   = np.sqrt(np.power(np.sqrt(np.sum(np.power(vs1['dG'] - vs1['dG_lb'], 2))), 2) +
-                                                np.power(np.sqrt(np.sum(np.power(vs2['dG'] - vs2['dG_lb'], 2))), 2) )    
-    return deltaG
-
-def correlationBetweenVariants(variant_table, variants1, variants2):
-    parameters = Parameters()
-    deltaG = pd.DataFrame(columns=[1, 2, 'weights'], index=[8, 9, 10, 11, 12], dtype=float)
-    for length in deltaG.index:
-        index = variant_table.seqinfo.total_length==length
-        variant_subtable = variant_table.loc[index]
+    # get error
+    if errors is None:
         try:
-            vs1 = variant_subtable.affinity.loc[variants1].dropna(axis=0, how='all')
-            vs2 = variant_subtable.affinity.loc[variants2].dropna(axis=0, how='all')
-        except KeyError:
-            vs1 = pd.DataFrame(columns=[name for name in variant_subtable.affinity])
-            vs2 = pd.DataFrame(columns=[name for name in variant_subtable.affinity])
-        # assuming vs1 and vs2 are only one variant each
-        if not vs1.empty:
-            vs1 = vs1.iloc[0]
-            deltaG.loc[length, 1] = np.min([vs1['dG'], parameters.max_measurable_dG])
-        if not vs2.empty:
-            vs2 = vs2.iloc[0]
-            deltaG.loc[length, 2] = np.min([vs2['dG'], parameters.max_measurable_dG])
-        if not (vs1.empty or vs2.empty):
-            deltaG.loc[length, 'weights'] = 1./np.sqrt(np.power(vs1['dG_ub'] - vs1['dG'], 2) +
-                                                   np.power(vs2['dG_ub'] - vs2['dG'], 2) +
-                                                   np.power(vs1['dG'] - vs1['dG_lb'], 2) +
-                                                   np.power(vs2['dG'] - vs2['dG_lb'], 2))
-    deltaG.dropna(axis=0, how='any', inplace=True)
-    toreturn = np.nan
-    if len(deltaG) >= 3: # must be able to compare at least three lengths
-        dx = DescrStatsW(deltaG.iloc[:,:2].values, weights=deltaG.loc[:,'weights'].values)    
-        toreturn = dx.corrcoef[0,1]
-
-    return toreturn
-
-def plotDeltaDeltaG(deltaG):
-    xvalues = np.array(deltaG.index, dtype=int)
-    yvalues = deltaG['median'].values
-    yerr = [deltaG.minus.values, deltaG.plus.values]
-    fig = plt.figure(figsize=(4,4))
-    ax = fig.add_subplot(111)
-    ax.set_xlim((7.3, 12.7))
-    ax.set_ylim((-3, 3))
-    ax.set_xlabel('length')
-    ax.set_ylabel('ddG (kcal/mol)')
-    ax.plot([7, 13], [0, 0], 'k:')
-    ax.errorbar(xvalues, yvalues, yerr = yerr, fmt='o-', color='r', ecolor='k')
-    ax.tick_params(direction='out', top='off', right='off')
-    plt.tight_layout()
-    return
-
-
-
-
+            errors = findErrorBarsBindingCurve(bindingSeries)
+        except:
+            errors = [np.ones(len(concentrations))*np.nan]*2
     
+    # plot binding points
+    plt.figure(figsize=(4,4));
+    plt.errorbar(concentrations, fluorescence,
+                 yerr=errors, fmt='.', elinewidth=1,
+                 capsize=2, capthick=1, color='k', linewidth=1)
+    
+    # plot fit
+    if log_axis:
+        ax = plt.gca()
+        ax.set_xscale('log')
+        more_concentrations = np.logspace(np.log10(concentrations.min()/2),
+                                          np.log10(concentrations.max()*2),
+                                          100)
+    else:
+        more_concentrations = np.linspace(concentrations.min(),
+                                          concentrations.max(), 100)
+    param_names = fitParameters.columns.tolist()
+    params = Parameters()
+    for param in param_names:
+        params.add(param, value=results.loc[param])
+    fit = func(params, more_concentrations)
+    plt.plot(more_concentrations, fit, 'r')
+
+    try:
+        # find upper bound
+        params_ub = Parameters()
+        if fittype == 'binding' or fittype == 'off':
+            ub_vec = ['_ub', '_lb', '_ub']
+            lb_vec = ['_lb', '_ub', '_lb']
+        elif fittype == 'on':
+            ub_vec = ['_ub', '_ub', '_ub']
+            lb_vec = ['_lb', '_lb', '_lb']
+
+        for param in ['%s%s'%(param, suffix) for param, suffix in
+                      itertools.izip(param_names, ub_vec)]:
+            name = param.split('_')[0]
+            params_ub.add(name, value=results.loc[param])
+        ub = func(params_ub, more_concentrations)
+    
+        # find lower bound
+        params_lb = Parameters()
+        for param in ['%s%s'%(param, suffix) for param, suffix in
+                      itertools.izip(param_names, lb_vec)]:
+            name = param.split('_')[0]
+            params_lb.add(name, value=results.loc[param])
+        lb = func(params_lb, more_concentrations)
+        
+        # plot upper and lower bounds
+        plt.fill_between(more_concentrations, lb, ub, color='0.5',
+                         label='95% conf int', alpha=0.5)
+    except:
+        pass
+    ax = plt.gca()
+    ax.tick_params(right='off', top='off')
+    plt.xlim(more_concentrations[[0, -1]])
+    if fittype=='binding':
+        plt.xlabel('concentration (nM)')
+    else:
+        plt.xlabel('time (s)')
+    plt.ylabel('normalized fluorescence')
+    plt.tight_layout()
+
+def findMaxProbability(x, numBins=None):
+    if numBins is None:
+        numBins = 200
+    counts, binedges = np.histogram(x, bins=np.linspace(x.min(), x.max(), numBins))
+    counts = counts[1:]; binedges=binedges[1:] # ignore first bin
+    idx_max = np.argmax(counts)
+    if idx_max != 0 and idx_max != len(counts)-1:
+        return binedges[idx_max+1]
+    else:
+        return None
+
+def plotFmaxMinDist(fDist, params, ax=None, color=None):
+    fDist.dropna(inplace=True)
+    fmax_lb, fmax_initial, fmax_upperbound = params
+    if ax is None:
+        fig = plt.figure(figsize=(4,3));
+        ax = fig.add_subplot(111)
+    if color is None:
+        color = 'r'
+    sns.distplot(fDist, color=color, hist_kws={'histtype':'stepfilled'}, ax=ax)
+    ylim = [0, ax.get_ylim()[1]*1.1]
+    ax.plot([fmax_lb]*2, ylim, 'k--')
+    ax.plot([fmax_initial]*2, ylim, 'k:')
+    ax.plot([fmax_upperbound]*2, ylim, 'k--')
+    plt.ticklabel_format(style='sci', axis='y', scilimits=(0,0))
+
+    plt.xlim(0, np.percentile(fDist, 100)*1.05)
+    plt.ylim(ylim)
+    plt.tight_layout()
+    ax.tick_params(right='off', top='off')
+    return ax
+
+def getBoundsGivenDistribution(values, label=None, saturation_level=None,
+                               use_max_prob=None):
+    if saturation_level is None:
+        saturation_level = 1 # i.e. assume these binders are 100% bound
+    if use_max_prob is None:
+        use_max_prob = False
+        
+    fitParameters = pd.Series(index=['lowerbound', 'initial', 'upperbound'])
+    fDist = seqfun.remove_outlier(values)
+    fitParameters.loc['lowerbound'] = fDist.min()
+    fitParameters.loc['upperbound'] = fDist.max()/saturation_level
+    if use_max_prob:
+        maxProb = findMaxProbability(fDist)
+        if maxProb is not None:
+            fitParameters.loc['initial'] = maxProb
+        else:
+            fitParameters.loc['initial'] = fDist.median()
+    else:
+        fitParameters.loc['initial'] = fDist.median()
+    ax = plotFmaxMinDist(fDist, fitParameters);
+    if label is not None:
+        ax.set_xlabel(label)
+    return fitParameters
+
+def useSimulatedOrActual(variant_table):
+    # if at least 20 data points have at least 10 counts in that bin, use actual
+    # data. This statistics seem reasonable for fitting
+
+    counts, binedges = np.histogram(variant_table.numTests,
+                                    np.arange(1, variant_table.numTests.max()))
+    if (counts > 10).sum() >= 20:
+        use_actual = True
+    else:
+        use_actual = False
+    return use_actual
+
+def plotSigmaByN(stds_actual, params, min_sigma=None):
+
+    x = stds_actual.index
+    y = stds_actual.values
+
+    labels = ['actual', 'fit']
+    fmt = ['ko', 'c']
+
+    # plot data
+    plt.figure(figsize=(4,3))
+    plt.plot(x,       y,       fmt[0], label=labels[0]);
+    
+    fmaxDist = fmaxDistAny()
+    x_fit = np.arange(1, x.max())
+    y_fit = fmaxDist.sigma_by_n_fit(params, x_fit)
+    plt.plot(x_fit,       y_fit,     fmt[1], label=labels[1]);
+            
+    # plot fit
+    ax = plt.gca()
+    ax.tick_params(right='off', top='off')
+    ax.set_position([0.2, 0.2, 0.5, 0.75])
+    
+    # Put a legend to the right of the current axis
+    ax.legend(loc='center left', bbox_to_anchor=(1, 0.5))
+
+    ylim = ax.get_ylim()
+    xlim = ax.get_xlim()
+    plt.xlim(0, x.max())
+    plt.ylim(0, ylim[-1])
+    if min_sigma is not None:
+        plt.plot(xlim, [min_sigma]*2, 'r:')
+        
+    # fit 1/sqrt(n)
+    plt.xlabel('number of tests')
+    plt.ylabel('std of fit fmaxes in bin')
+    return
+    
+
+def findFinalBoundsParameters(variant_table, concentrations):
+    parameters = fittingParameters(concentrations=concentrations)
+
+    # actual data
+    tight_binders = variant_table.loc[variant_table.dG_init <= parameters.maxdG]
+    stds_actual = pd.Series(index=np.unique(tight_binders.numTests))
+    weights     = pd.Series(index=np.unique(tight_binders.numTests))
+    for n in stds_actual.index:
+        stds_actual.loc[n] = seqfun.remove_outlier(
+            tight_binders.loc[tight_binders.numTests==n].fmax_init).std()
+        weights.loc[n] = np.sqrt((tight_binders.numTests==n).sum())
+    stds_actual.dropna(inplace=True)
+    weights = weights.loc[stds_actual.index]
+
+    x = stds_actual.index
+    y = stds_actual.values
+    weights_fit = weights
+
+    params = fitSigmaDist(x, y, weights=weights_fit)
+    
+    # save fitting parameters
+    params.add('median', value=np.average(tight_binders.fmax_init,
+                                          weights=np.sqrt(tight_binders.numTests)))
+    
+    plotSigmaByN(stds_actual, params)
+        
+    fmaxDist = fmaxDistAny(params=params)
+    return fmaxDist
+
+def findFinalBoundsParametersSimulated(variant_table, table, concentrations, return_vals=None):
+    if return_vals is None:
+        return_vals = False
+    parameters = fittingParameters(concentrations)
+    good_variants = (variant_table.dG_init < parameters.maxdG)
+    tight_binders = variant_table.loc[good_variants]
+    good_clusters = pd.Series(np.in1d(table.variant_number,
+                                      variant_table.loc[good_variants].index),
+                      index=table.index)
+    other_binders = table.loc[good_clusters, ['fmax']]
+    # for each n, choose n variants
+    stds = pd.Series(index=np.arange(1, 101, 4))
+    for n in stds.index:
+        print n
+        n_reps = np.ceil(float(len(other_binders))/n)
+        index = np.random.permutation(np.tile(np.arange(n_reps), n))[:len(other_binders)]
+        other_binders.loc[:, 'faux_variant'] = index
+        stds.loc[n] = seqfun.remove_outlier(other_binders.groupby('faux_variant').
+                                            median().fmax).std()
+    stds.dropna(inplace=True)
+    
+    
+    x = stds.index
+    y = stds.values
+    if return_vals:
+        return x, y
+    
+    params = fitSigmaDist(x, y, weights=None)
+    
+    # save fitting parameters
+    params.add('median', value=np.average(tight_binders.fmax_init,
+                                          weights=np.sqrt(tight_binders.numTests)))
+    min_sigma = seqfun.remove_outlier(tight_binders.fmax_init).std()
+    params.add('min_sigma', value=min_sigma, vary=False)
+    
+    plotSigmaByN(stds, params, min_sigma=min_sigma)
+        
+    fmaxDist = fmaxDistAny(params=params)
+    return fmaxDist
+
+def fitSigmaDist(x, y, weights=None):
+    fmaxDist = fmaxDistAny()
+    params = Parameters()
+    params.add('sigma', value=y.max(), min=0)
+    params.add('c',     value=y.min(),   min=0)
+    minimize(fmaxDist.sigma_by_n_fit, params,
+                                   args=(x,),
+                                   kws={'y':y,
+                                        'weights':weights},
+                                   xtol=1E-6, ftol=1E-6, maxfev=10000)
+    return params
+
+    # save fitting parameters
+    params.add('median', value=np.average(tight_binders.fmax_init,
+                                          weights=np.sqrt(tight_binders.numTests)))
+    min_sigma = seqfun.remove_outlier(tight_binders.fmax_init).std()
+    params.add('min_sigma', value=min_sigma, vary=False)
