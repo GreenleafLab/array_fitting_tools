@@ -59,8 +59,8 @@ group.add_argument('-fp','--filterPos', nargs='+', help='set of filters '
                     'that designate clusters to fit. If not set, use all')                        
 
 group = parser.add_argument_group('other settings')
-group.add_argument('-n','--num_cores', type=int, default=1,
-                    help='maximum number of cores to use. default=1')
+group.add_argument('-n','--num_cores', type=int, default=20,
+                    help='maximum number of cores to use. default=20')
 group.add_argument('-r','--rates', default=False, action="store_true",
                     help='flag if you wish to process rate data instead of binding data')
 
