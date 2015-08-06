@@ -35,24 +35,22 @@ import fitFun
 
 #set up command line argument parser
 parser = argparse.ArgumentParser(description='bootstrap fits')
-parser.add_argument('-t', '--single_cluster_fits', required=True,
+parser.add_argument('-t', '--single_cluster_fits', required=True, metavar=".CPfitted.pkl",
                    help='file with single cluster fits')
-parser.add_argument('-a', '--annotated_clusters', required=True,
+parser.add_argument('-a', '--annotated_clusters', required=True, metavar=".CPannot.pkl",
                    help='file with clusters annotated by variant number')
-parser.add_argument('-b', '--binding_curves', required=True,
+parser.add_argument('-b', '--binding_curves', required=True, metavar=".bindingSeries.pkl",
                    help='file containining the binding curve information')
-parser.add_argument('-c', '--concentrations', required=True,
+parser.add_argument('-c', '--concentrations', required=True, metavar="concentrations.txt",
                     help='text file giving the associated concentrations')
 parser.add_argument('-out', '--out_file', 
                    help='output filename. default is basename of input filename')
 
 
 group = parser.add_argument_group('additional option arguments')
-group.add_argument('--n_samples', default=100, type=int,
+group.add_argument('--n_samples', default=100, type=int, metavar="N",
                    help='number of times to bootstrap samples')
-group.add_argument('--not_pickled', default=False, action="store_true",
-                   help='program assumes inputs are pickled. Flag if text files')
-group.add_argument('-n', '--numCores', default=20, type=int,
+group.add_argument('-n', '--numCores', default=20, type=int, metavar="N",
                    help='number of cores')
 
 
