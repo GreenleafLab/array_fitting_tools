@@ -26,14 +26,14 @@ then
     (6) file of concentrations
     (7) a list of filter names to fit."
     echo "Example:"
-    echo "~/array_image_tools_SKD/run_all.sh \\
+    echo "~/array_image_tools_SKD/bin/run_all_binding_curves.sh \\
     ../seqData/tiles/filtered_tiles_indexed/ \\
     bindingCurves/bindingCurves.map \\
     bindingCurves \\
     ../../150311_library_v2/all_10expts.library_characterization.txt \\
     ../../150608_barcode_mapping_lib2/tecto_lib2.150728.unique_barcodes \\
     concentrations.txt \\
-    anyRNA \\ "
+    anyRNA "
     exit
 fi
 
@@ -86,9 +86,9 @@ else
 fi
 
 # bootstrap variants 
-if [ -f $basename".CPfitted.pkl" ];
+if [ -f $basename".CPvariant" ];
 then
-    echo "CPfitted file exists: "$basename"$.CPfitted.pkl"
+    echo "CPfitted file exists: "$basename".CPvariant"
 else
     python -m bootStrapFits -t $basename".CPfitted.pkl" -c $c -a $basename".CPannot.pkl" -b $basename".bindingSeries.pkl" -n 20
 
