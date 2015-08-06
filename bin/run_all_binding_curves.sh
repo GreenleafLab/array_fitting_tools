@@ -71,7 +71,7 @@ fi
 # fit single clusters 
 if [ -f $basename".CPfitted.pkl" ];
 then
-    echo "CPfitted file exists: "$basename"$.CPfitted.pkl"
+    echo "CPfitted file exists: "$basename".CPfitted.pkl"
 else
     python -m singleClusterFits -cs $basename".CPsignal.pkl" -c $c -n 20
 
