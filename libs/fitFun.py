@@ -188,7 +188,7 @@ def fitSingleCurve(concentrations, fluorescence, fitParameters, func=None,
     if errors is not None:
         eminus, eplus = errors
         weights = 1/(eminus+eplus)
-        if np.isnan(weights).all():
+        if np.isnan(weights).any():
             weights = None
     else:
         eminus, eplus = [[np.nan]*len(concentrations)]*2
@@ -248,7 +248,8 @@ def plotSingleClusterFit(concentrations, fluorescence, results, func=None,
 def findErrorBarsBindingCurve(subSeries):
     try:
         eminus, eplus = np.asarray([np.abs(subSeries.loc[:, i].median() -
-                                           bootstrap.ci(subSeries.loc[:, i], np.median, n_samples=1000))
+                                           bootstrap.ci(subSeries.loc[:, i].dropna(),
+                                                        np.median, n_samples=1000))
                                     for i in subSeries]).transpose()
     except:
         eminus, eplus = [np.ones(subSeries.shape[1])*np.nan]*2
@@ -260,7 +261,8 @@ def enforceFmaxDistribution(median_fluorescence, fitParameters, verbose=None):
     # above the lower bound for fmax.
     if verbose is None:
         verbose = False
-        
+    
+    median_fluorescence = median_fluorescence.astype(float).values
     if median_fluorescence[-1] < fitParameters.loc['lowerbound', 'fmax']:
         redoFitFmax = True
         if verbose:
@@ -390,8 +392,8 @@ def bootstrapCurves(concentrations, subSeries, fitParameters, fmaxDist=None,
     results.loc['rsq']  = 1-ss_error/ss_total
 
     # save some parameters
-    results.loc['numClusters'] = (singles.exit_flag > 0).sum()
-    results.loc['numIter'] = len(singles)
+    results.loc['numClusters'] = numTests
+    results.loc['numIter'] = (singles.exit_flag > 0).sum()
     #results.loc['fractionOutlier'] = 1 - not_outliers.sum()/float(len(singles))
     results.loc['flag'] = enforce_fmax
     
@@ -625,16 +627,7 @@ def findFinalBoundsParameters(variant_table, concentrations):
     y = stds_actual.values
     weights_fit = weights
 
-    fmaxDist = fmaxDistAny()
-    params = Parameters()
-    params.add('sigma', value=stds_actual.iloc[0], min=0)
-    params.add('c',     value=stds_actual.min(),   min=0)
-    minimize(fmaxDist.sigma_by_n_fit, params,
-                                   args=(x,),
-                                   kws={'y':y,
-                                        'weights':weights_fit},
-                                   xtol=1E-6, ftol=1E-6, maxfev=10000)
-
+    params = fitSigmaDist(x, y, weights=weights_fit)
     
     # save fitting parameters
     params.add('median', value=np.average(tight_binders.fmax_init,
@@ -672,16 +665,8 @@ def findFinalBoundsParametersSimulated(variant_table, table, concentrations, ret
     if return_vals:
         return x, y
     
-    fmaxDist = fmaxDistAny()
-    params = Parameters()
-    params.add('sigma', value=stds.iloc[0], min=0)
-    params.add('c',     value=stds.min(),   min=0)
-    minimize(fmaxDist.sigma_by_n_fit, params,
-                                   args=(x,),
-                                   kws={'y':y,
-                                        'weights':None},
-                                   xtol=1E-6, ftol=1E-6, maxfev=10000)
-
+    params = fitSigmaDist(x, y, weights=None)
+    
     # save fitting parameters
     params.add('median', value=np.average(tight_binders.fmax_init,
                                           weights=np.sqrt(tight_binders.numTests)))
@@ -692,3 +677,21 @@ def findFinalBoundsParametersSimulated(variant_table, table, concentrations, ret
         
     fmaxDist = fmaxDistAny(params=params)
     return fmaxDist
+
+def fitSigmaDist(x, y, weights=None):
+    fmaxDist = fmaxDistAny()
+    params = Parameters()
+    params.add('sigma', value=y.max(), min=0)
+    params.add('c',     value=y.min(),   min=0)
+    minimize(fmaxDist.sigma_by_n_fit, params,
+                                   args=(x,),
+                                   kws={'y':y,
+                                        'weights':weights},
+                                   xtol=1E-6, ftol=1E-6, maxfev=10000)
+    return params
+
+    # save fitting parameters
+    params.add('median', value=np.average(tight_binders.fmax_init,
+                                          weights=np.sqrt(tight_binders.numTests)))
+    min_sigma = seqfun.remove_outlier(tight_binders.fmax_init).std()
+    params.add('min_sigma', value=min_sigma, vary=False)

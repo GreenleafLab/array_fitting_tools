@@ -26,9 +26,9 @@ sns.set_style("white", {'xtick.major.size': 4,  'ytick.major.size': 4})
 parser = argparse.ArgumentParser(description='map variants to sequence')
 parser.add_argument('-lc', '--library_characterization', required=True,
                    help='file that lists unique variant sequences')
-parser.add_argument('-out', '--out_file', required=True,
+parser.add_argument('-out', '--out_file', 
                    help='output filename')
-parser.add_argument('-cs', '--cpsignal',
+parser.add_argument('-cs', '--cpsignal', required=True,
                    help='reduced CPsignal file containing sequence information.')
 parser.add_argument('-bar', '--unique_barcodes',
                    help='barcode map file. if given, the variant sequences are '
@@ -207,6 +207,9 @@ if __name__ == '__main__':
     #libraryFile = options.l # i.e. '../../all3x3.all.library'
     #outFile = options.o
     #outDir = os.path.dirname(outFile)
+    if args.out_file is None:
+        args.out_file = os.path.splitext(
+            args.cpsignal[:args.cpsignal.find('.pkl')])[0]
     
     seqMap = findSeqMap(args.library_characterization, args.cpsignal,
                   uniqueBarcodesFile=args.unique_barcodes,
@@ -217,6 +220,6 @@ if __name__ == '__main__':
     if args.save_text:
         seqMap.to_csv(args.out_file, index=True, float_format='%4.0f', sep='\t')
     else:
-        seqMap.to_pickle(args.out_file)
+        seqMap.to_pickle(args.out_file + '.CPannot.pkl')
 
  

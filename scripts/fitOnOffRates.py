@@ -115,7 +115,7 @@ def perVariant(times, subSeries, fitParameters, func=None, plot=None, fittype=No
     results, singles = fitFun.bootstrapCurves(times, subSeries, fitParameters,
                                               func=func, enforce_fmax=False)
     if plot:
-        fitFun.plotSingleVariantFits(times,
+        fitFun.plotFitCurve(times,
                                      subSeries,
                                      results,
                                      fitParameters,
@@ -189,7 +189,7 @@ if __name__ == '__main__':
     
     if bindingCurveFilename is None:
         bindingCurveFilename = outFile + '.bindingCurve.pkl'
-    sys.exit()
+
     # fit curves
     results = fitRates(bindingCurveFilename, timesFilename, annotatedClusterFile,
                 fittype=fittype)

@@ -144,17 +144,7 @@ def getFluorFileNamesOffrates(directories, tileNames):
         for time in times:
             allTimeStamps.append(time)
     allTimeStamps.sort()
-    
-    ## add a blank directory for every missing time stamp
-    #allFilenameDict = {}
-    #for tile in tileNames:
-    #    filenames = filenameDict[tile] 
-    #    timestamps = timeStampDict[tile]
-    #    
-    #    allfilename = ['']*len(allTimeStamps)
-    #    for i, idx in enumerate(np.searchsorted(allTimeStamps, timestamps)):
-    #        allfilename[idx] = filenames[i]
-    #    allFilenameDict[tile] = list(allfilename)
+
     
     # and return list of time deltas
     timeDeltaDict = {}
@@ -268,7 +258,10 @@ def reduceCPsignalFile(cpSignalFilename, reducedCPsignalFilename, filterPos=None
         # filterPos is list of filters to keep
         awkFilterText = ' || '.join(['(a[i]==\"%s\")'%s for s in filterPos])  
         # take only lines that contain the filterSet
-        to_run = "awk '{n=split($2, a,\":\"); b=0; for (i=1; i<=n; i++) if (%s) b=1; if (b==1) print $0}' %s > %s"%(awkFilterText, cpSignalFilename, reducedCPsignalFilename)
+        to_run = ("awk '{n=split($2, a,\":\"); b=0; for (i=1; i<=n; i++) "
+                  "if (%s) b=1; if (b==1) print $0}' %s > %s")%(awkFilterText,
+                                                                cpSignalFilename,
+                                                                reducedCPsignalFilename)
         
     print to_run
     os.system(to_run)
@@ -424,15 +417,12 @@ def loadCPseqSignal(filename, concentrations=None, index_col=None, usecols=None)
                             index_col=index_col, usecols=usecols, dtype=dtypes)
     return table
 
-
-
 def tileIntToString(currTile):
     if currTile < 10:
         tile = '00%d'%currTile
     else:
         tile = '0%d'%currTile
     return tile
-    
 
 def getTile(clusterID):
     flowcellSN,currSide,currSwath,currTile=CPlibs.parseClusterID(clusterID)
@@ -440,23 +430,6 @@ def getTile(clusterID):
 
 def getTimeDelta(timestamp_final, timestamp_initial):
     return (timestamp_final - timestamp_initial).seconds + (timestamp_final - timestamp_initial).microseconds/1E6 
-
-def getTimeDeltas(timestamps):
-    maxNumFiles = len(timestamps)
-    return np.array([getTimeDelta(timestamps[i], timestamps[0]) for i in range(maxNumFiles)])
-    
-def getTimeDeltaBetweenTiles(timeStampDict, tile):
-    allTiles = np.array(timeStampDict.keys(), dtype=int)
-    minTile = tileIntToString(np.min(allTiles))
-    return getTimeDelta(timeStampDict[tile][0], timeStampDict[minTile][0])
-
-def getTimeDeltaDict(timeStampDict):
-
-    
-    timeDeltas = {}
-    for tile, timeStamps in timeStampDict.items():
-        timeDeltas[tile] = getTimeDeltas(timeStamps) + getTimeDeltaBetweenTiles(timeStampDict, tile)
-    return timeDeltas
 
 def splitBindingCurve(table):
     return table.binding_series.str.split(',', expand=True)
@@ -536,30 +509,6 @@ def boundFluorescence(signal, plot=None):
         signal.loc[:] = 1
     return signal
     
-def loadOffRatesCurveFromCPsignal(filename, timeStampDict, numCores=None):
-    """
-    open file after being reduced to the clusters you are interested in.
-    find the all cluster signal and the binding series (comma separated),
-    then return the binding series, normalized by all cluster image.
-    """
-    if numCores is None: numCores = 20
-    print 'loading annotated signal..'
-    table = pd.read_table(filename, usecols=(0,10,11))
-    binding_series = np.array([np.array(series.split(','), dtype=float) for series in table['binding_series']])
-    
-    # get tile ids
-    workerPool = multiprocessing.Pool(processes=numCores) #create a multiprocessing pool that uses at most the specified number of cores
-    tiles = np.array(workerPool.map(getTile, np.array(table.loc[:, 'tileID'])))
-    workerPool.close(); workerPool.join()
-
-    # make an array of timeStamps   
-    timeDeltas = getTimeDeltaDict(timeStampDict)
-    maxNumFiles = np.max([len(timeStamp) for timeStamp in timeStampDict.values()])
-    xvalues = np.ones((len(table), maxNumFiles))*np.nan
-    for tile, timeDelta in timeDeltas.items():
-        xvalues[tiles==tile] = timeDelta
-    return binding_series, np.array(table['all_cluster_signal']), xvalues, tiles  
-
 def loadFittedCPsignal(fittedBindingFilename, annotatedClusterFile=None,
                        bindingCurveFilename=None, pickled=None):
     if pickled is None:
@@ -592,106 +541,8 @@ def loadFittedCPsignal(fittedBindingFilename, annotatedClusterFile=None,
             pass
     return table
 
-def bindingCurve(concentrations, kd=None, dG=None, fmax=None, fmin=None):
-    if fmax is None:
-        fmax = 1
-    if fmin is None:
-        fmin = 0
-    if kd is None and dG is None:
-        print "Error: must define either Kd or dG"
-        sys.exit()
-    if kd is not None:
-        return (fmax - fmin)*concentrations/(concentrations + kd)+fmin
-
-    else:
-        return (fmax - fmin)*concentrations/(concentrations + np.exp(dG / 0.582)/1e-9)+fmin
-
 def formatConcentrations(concentrations):
-    return [('%.2E'%x) for x in concentrations]
-
-def plotSingleClusterfit(bindingSeries, fitConstrained, cluster, concentrations):
-    
-    params = lmfit.Parameters()
-    for param in ['dG', 'fmax', 'fmin']:
-        params.add(param, value=fitConstrained.loc[cluster, param])
-        
-        
-    plt.figure(figsize=(4,4));
-    plt.plot(concentrations, bindingSeries.loc[cluster], 'ko', )
-    more_concentrations =  np.logspace(-2, 4, 50)  
-    fit = fitFun.bindingCurveObjectiveFunction(params, more_concentrations)
-    plt.plot(more_concentrations, fit, 'r')
-    ax = plt.gca()
-    ax.set_xscale('log')
-    ax.tick_params(right='off', top='off')
-    plt.xlabel('concentration (nM)')
-    plt.ylabel('normalized fluorescence')
-    plt.tight_layout()
-    
-    
-def plotSingleVariantFits(table, results, variant, concentrations, plot_init=None ):
-    if plot_init is None:
-        plot_init = False
-
-    params = lmfit.Parameters()
-    for param in ['dG', 'fmax', 'fmin']:
-        params.add(param, value=results.loc[variant, param])
-    
-    concentrationCols = formatConcentrations(concentrations)
-    filteredTable = filterStandardParameters(table, concentrations)
-    bindingSeries = filteredTable.loc[table.variant_number==variant,
-                                      concentrationCols]
-    # get error
-    try:
-        eminus, eplus = fitFun.findErrorBarsBindingCurve(bindingSeries)
-    except NameError:
-        eminus, eplus = [np.ones(len(concentrations))*np.nan]*2
-
-    plt.figure(figsize=(4,4));
-    plt.errorbar(concentrations, bindingSeries.median(),
-                 yerr=[eminus, eplus], fmt='.', elinewidth=1,
-                 capsize=2, capthick=1, color='k', linewidth=1)
-    
-    # plot fit
-    more_concentrations =  np.logspace(-2, 4, 50)
-    fit = fitFun.bindingCurveObjectiveFunction(params, more_concentrations)
-    plt.plot(more_concentrations, fit, 'r')
-    
-    
-    try:
-        # find upper bound
-        params_ub = lmfit.Parameters()
-        for param in ['dG_lb', 'fmax_ub', 'fmin']:
-            name = param.split('_')[0]
-            params_ub.add(name, value=results.loc[variant, param])
-        ub = fitFun.bindingCurveObjectiveFunction(params_ub, more_concentrations)
-    
-        # find lower bound
-        params_lb = lmfit.Parameters()
-        for param in ['dG_ub', 'fmax_lb', 'fmin']:
-            name = param.split('_')[0]
-            params_lb.add(name, value=results.loc[variant, param])
-        lb = fitFun.bindingCurveObjectiveFunction(params_lb, more_concentrations)
-
-        plt.fill_between(more_concentrations, lb, ub, color='0.5', label='95% conf int', alpha=0.5)
-    except:
-        pass
-    if plot_init:
-        params_init = lmfit.Parameters()
-        for param in ['dG_init', 'fmax_init', 'fmin_init']:
-            name = param.split('_')[0]
-            params_init.add(name, value=results.loc[variant, param])
-        init = fitFun.bindingCurveObjectiveFunction(params_init, more_concentrations)
-        plt.plot(more_concentrations, init, sns.xkcd_rgb['purplish'], linestyle=':')
-        
-    ax = plt.gca()
-    ax.set_xscale('log')
-    ax.tick_params(right='off', top='off')
-    plt.xlabel('concentration (nM)')
-    plt.ylabel('normalized fluorescence')
-    plt.tight_layout()
-
-
+    return [('%.2E'%x) for x in concentrations]  
 
 def getPvalueFitFilter(variant_table, p):
     variant_table.loc[:, 'pvalue'] = np.nan
@@ -726,8 +577,6 @@ def filterFitParameters(table):
     return table.loc[index]
 
 
-    
-
 def perVariantError(measurements):
     # find subset of table that has variant number equal to variant
     try:
@@ -738,168 +587,9 @@ def perVariantError(measurements):
         bounds = [np.nan]*2           
     return bounds
 
-def plotFractionFit(variant_table, binedges=None):
-    # plot
-    binwidth=0.01
-    bins=np.arange(0,1+binwidth, binwidth)
-    plt.figure(figsize=(4, 3.5))
-    plt.hist(variant_table.loc[variant_table.pvalue <= 0.05].fitFraction.values, alpha=0.5, color='red', bins=bins)
-    plt.hist(variant_table.loc[variant_table.pvalue > 0.05].fitFraction.values, alpha=0.5, color='grey', bins=bins)
-    plt.ylabel('number of variants')
-    plt.xlabel('fraction fit')
-    plt.tight_layout()
-    
-    if binedges is None:
-        binedges = np.arange(-12, -6, 0.5)
-    subtable = pd.DataFrame(index=variant_table.index,
-                            columns=['binned_dGs', 'pvalueFilter'],
-                            data=np.column_stack([np.digitize(variant_table.dG, binedges),
-                                                  variant_table.pvalue <= 0.05]))
-    g = sns.factorplot(x="binned_dGs", y="pvalueFilter", data=subtable,
-                order=np.unique(subtable.binned_dGs),
-                color="r", kind='bar');
-    g.set(ylim=(0, 1.1), );
-    g.set_xticklabels(['%3.1f:%3.1f'%(i, j) for i, j in itertools.izip(binedges[:-1], binedges[1:])]+['>%4.1f'%binedges[-1]], rotation=90)
-    g.set(xticks=np.arange(len(binedges)))
-    g.fig.subplots_adjust(hspace=.2, bottom=0.35)
-    
-    
-    
-def plotNumber(variant_table, binedges=None):
-    # plot
-    if binedges is None:
-        binedges = np.arange(-12, -6, 0.5)
-    
-    plt.figure(figsize=(4,3.5));
-    plt.hist((variant_table.numTests*
-              variant_table.fitFraction).values, np.arange(0, 150),
-            facecolor='r', edgecolor='w', histtype='stepfilled')
-    plt.xlabel('number of good clusters per variant')
-    plt.ylabel('number of variants')
-    plt.tight_layout()
-    return
-    
-    
-def plotErrorInBins(variant_table, binedges=None, count_binedges=None):
-    if binedges is None:
-        binedges = np.arange(-12, -4, 0.5)
-    subtable = pd.DataFrame(index=variant_table.index,
-                            columns=['binned_dGs', 'confInt', 'numTests'],
-                            data=np.column_stack([np.digitize(variant_table.dG.astype(float), binedges),
-                                                  (variant_table.dG_ub - variant_table.dG_lb).astype(float),
-                                                  np.around(variant_table.numClusters.astype(float))]))
-    subtable.loc[:, 'dG (kcal/mol)'] = ['%3.1f:%3.1f'%(binedges[bins-1], binedges[bins]-1) if bins!=len(binedges) else '>%3.1f'%binedges[-1] for bins in subtable.binned_dGs.astype(int)]
-    order = ['%3.1f:%3.1f'%(binedges[bins-1], binedges[bins]-1) if bins!=len(binedges) else '>%3.1f'%binedges[-1] for bins in np.arange(1, len(binedges)+1)]
-    
-    
-    if count_binedges is None:
-        count_binedges = [0, 5, 10, 20, 40, 80]
-    count_order = ['%d-%d'%(count_binedges[bins-1], count_binedges[bins]-1) if bins!=len(count_binedges) else '>%d'%count_binedges[-1] for bins in np.arange(1, len(count_binedges)+1)]
-    subtable.loc[:, 'binned_counts'] = np.digitize(subtable.numTests, count_binedges) 
-    subtable.loc[:, '# tests'] = ['%d-%d'%(count_binedges[bins-1], count_binedges[bins]-1) if bins!=len(count_binedges) else '>%d'%count_binedges[-1] for bins in subtable.binned_counts.astype(int)]
-    with sns.axes_style('darkgrid'):
-        g = sns.FacetGrid(subtable, size=2.5, aspect=1.5, col="# tests", col_wrap=3,
-                          col_order=count_order )
-        g.map(sns.barplot, "dG (kcal/mol)", "confInt",
-                    order=order,
-                    color="r")
-        g.set(ylim=(0, 2), );
-        g.set_xticklabels(rotation=90)
-        g.fig.subplots_adjust(hspace=.2, bottom=0.25)
-    
-def plotFitFmaxs(fitUnconstrained, remove_outliers=None, maxdG=None, index=None, param=None):
-    if param is None: param='fmax'
-    if remove_outliers is None:
-        remove_outliers=True
-    if maxdG is None:
-        maxdG = -9
-    if index is None:
-        index = ((fitUnconstrained.dG < maxdG)&
-                 (fitUnconstrained.dG_stde < 1)&
-                 (fitUnconstrained.fmax_stde < fitUnconstrained.fmax))
 
-    fmaxUnconstrainedBest = fitUnconstrained.loc[index, param]
-    if remove_outliers:
-        subset = pd.Series(index=fmaxUnconstrainedBest.index, data=np.logical_not(seqfun.is_outlier(fmaxUnconstrainedBest)))
-        
-        print 'removed %d out of %d fit fmaxes (%4.2f%%)'%(len(subset)-subset.sum(), len(subset), (len(subset)-subset.sum())/float(len(subset)))
-        fmaxUnconstrainedBest = fmaxUnconstrainedBest.loc[subset]
-        
-    fmax_lb, fmax_initial, fmax_upperbound = np.percentile(fmaxUnconstrainedBest, [0, 50, 100])
     
-    # find maximum of probability distribution
-    counts, binedges = np.histogram(fmaxUnconstrainedBest, bins=np.linspace(fmaxUnconstrainedBest.min(), fmaxUnconstrainedBest.max(), 50))
-    counts = counts[1:]; binedges=binedges[1:] # ignore first bin
-    idx_max = np.argmax(counts)
-    if idx_max != 0 and idx_max != len(counts)-1:
-        fmax_initial = binedges[idx_max+1]
-        
-    with sns.axes_style('white'):
-        fig = plt.figure(figsize=(4,3));
-        ax = fig.add_subplot(111)
-        sns.distplot(fmaxUnconstrainedBest, color='r', hist_kws={'histtype':'stepfilled'}, ax=ax)
-        ylim = [0, ax.get_ylim()[1]*1.1]
-        ax.plot([fmax_lb]*2, ylim, 'k--')
-        ax.plot([fmax_initial]*2, ylim, 'k:')
-        ax.plot([fmax_upperbound]*2, ylim, 'k--')
-        plt.ticklabel_format(style='sci', axis='y', scilimits=(0,0))
-        plt.annotate('sigma/mu=%4.2f\n(95th-5th)/50th=%4.2f'%(
-            fmaxUnconstrainedBest.std()/fmaxUnconstrainedBest.mean(),
-            (np.percentile(fmaxUnconstrainedBest, 95) - np.percentile(fmaxUnconstrainedBest, 5))/np.percentile(fmaxUnconstrainedBest, 50)),
-            xy=(0.90, 0.95),
-                        xycoords='axes fraction',
-                        horizontalalignment='right', verticalalignment='top',
-                        fontsize=12)
-        plt.xlim(0, np.percentile(fmaxUnconstrainedBest, 100)*1.05)
-        plt.ylim(ylim)
-        plt.tight_layout()
-    return [fmax_lb, fmax_initial, fmax_upperbound]
-
-def findProbableFmin(bindingSeriesNorm, qvalues, remove_outliers=None, min_q=None):
-
-    if remove_outliers is None:
-        remove_outliers=True
-    if min_q is None:
-        min_q = 0.75
-    fminProbable = bindingSeriesNorm.loc[qvalues.index].loc[qvalues>min_q].iloc[:, 0].dropna()
-    if remove_outliers:
-        subset = pd.Series(index=fminProbable.index, data=np.logical_not(seqfun.is_outlier(fminProbable)))
-        print 'removed %d out of %d fit fmins (%4.2f%%)'%(len(subset)-subset.sum(), len(subset), (len(subset)-subset.sum())/float(len(subset)))
-        fminProbable = fminProbable.loc[subset]
     
-    # initial bounds by percentile    
-    fmax_lb, fmax_initial, fmax_upperbound = np.percentile(fminProbable, [0, 50, 100])
     
-    # find maximum of probability distribution
-    counts, binedges = np.histogram(fminProbable, bins=np.linspace(fminProbable.min(), fminProbable.max(), 50))
-    counts = counts[1:]; binedges=binedges[1:] # ignore first bin
-    idx_max = np.argmax(counts)
-    if idx_max != 0 and idx_max != len(counts)-1:
-        fmax_initial = binedges[idx_max+1]
 
-    # only let fmin go up to ~2 std devs from initial
-    #std = fminProbable.loc[fminProbable>binedges[0]].std()
-    #fmax_upperbound = fmax_initial + std*2
-
-    # plot
-    with sns.axes_style('white'):
-        fig = plt.figure(figsize=(4,3));
-        ax = fig.add_subplot(111)
-        sns.distplot(fminProbable, color='r', hist_kws={'histtype':'stepfilled'}, ax=ax)
-        ylim = [0, ax.get_ylim()[1]*1.1]
-        ax.plot([fmax_lb]*2, ylim, 'k--')
-        ax.plot([fmax_initial]*2, ylim, 'k:')
-        ax.plot([fmax_upperbound]*2, ylim, 'k--')
-        plt.ticklabel_format(style='sci', axis='y', scilimits=(0,0))
-        plt.annotate('sigma/mu=%4.2f\n(95th-5th)/50th=%4.2f'%(
-            fminProbable.std()/fminProbable.mean(),
-            (np.percentile(fminProbable, 95) - np.percentile(fminProbable, 5))/np.percentile(fminProbable, 50)),
-            xy=(0.90, 0.95),
-                        xycoords='axes fraction',
-                        horizontalalignment='right', verticalalignment='top',
-                        fontsize=12)
-        plt.xlim(0, np.percentile(fminProbable, 100)*1.05)
-        plt.ylim(ylim)
-        plt.tight_layout()
-
-    return [fmax_lb, fmax_initial, fmax_upperbound]
+  
