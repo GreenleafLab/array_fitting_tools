@@ -1,10 +1,9 @@
-"""
-Sarah Denny
-Stanford University
-
-Using the compressed barcode file (from Lauren) and the list of designed variants,
-figure out how many barcodes per designed library variant (d.l.v.), and plot histograms.
-"""
+#!/usr/bin/env python
+#
+# bin times into time bins with time delta equal to
+# minimum time between measurements on any single tile.
+#
+# Sarah Denny
 
 ##### IMPORT #####
 import numpy as np
