@@ -43,8 +43,11 @@ group.add_argument('-out', '--out_file',
 group.add_argument('-ft', '--fit_parameters',
                     help='fitParameters file. If file is given, use these '
                     'upperbound/lowerbounds')
-group.add_argument('-n','--numCores', type=int, default=20,
+group.add_argument('-n','--numCores', type=int, default=20, metavar="N",
                     help='maximum number of cores to use. default=20')
+group.add_argument('--subset',action="store_true", default=False,
+                    help='if flagged, will only do a subset of the data for test purposes')
+
 
 def getInitialFitParameters(concentrations):
 
@@ -122,8 +125,9 @@ def perCluster(concentrations, fluorescence, fitParameters, plot=None, change_pa
             fitParameters = fitParameters.copy()
             fitParameters.loc['initial', ['fmin', 'fmax']] = [a, b-a]
         
-        single = fitFun.fitSingleCurve(concentrations,
-                                                       fluorescence,
+        index = np.isfinite(fluorescence)
+        single = fitFun.fitSingleCurve(concentrations[index.values],
+                                                       fluorescence.loc[index],
                                                        fitParameters)
     except:
         print 'Error with %s'%fluorescence.name
@@ -209,7 +213,7 @@ if __name__=="__main__":
     bindingSeriesNorm.to_pickle(bindingCurveFilename)
     
     fitResults = bindingSeriesByCluster(concentrations, bindingSeriesNorm, 
-                           numCores=numCores,
+                           numCores=numCores, subset=args.subset,
                            fitParameters=fitParameters)
     
     fitResults.to_pickle(outFile+'.CPfitted.pkl')
