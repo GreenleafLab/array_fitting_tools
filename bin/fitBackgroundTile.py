@@ -38,21 +38,28 @@ parser.add_argument('-csb', '--cpsignal_background', metavar="CPsignal",
                     help='CPsignal file with all clusters')
 parser.add_argument('-cs', '--cpsignal', metavar="CPsignal.pkl", required=True,
                     help='reduced CPsignal file of good clusters')
-parser.add_argument('-t', '--single_cluster_fits', required=True,
-                   help='file with single cluster fits of good clusters')
-parser.add_argument('-a', '--annotated_clusters', required=True,
-                   help='file with clusters annotated by variant number')
 parser.add_argument('-c', '--concentrations', metavar="concentrations.txt", required=True,
                     help='text file giving the associated concentrations')
 
-parser.add_argument('-out', '--out_file', 
+group = parser.add_argument_group('optional arguments for plotting')
+group.add_argument('-out', '--out_file', 
                    help='output filename. default is basename of input filename')
 
-parser.add_argument('-fn','--filterNeg',  nargs='+', help='set of filters '
+group.add_argument('-fn','--filterNeg',  nargs='+', help='set of filters '
                      'that designate "background" clusters. If not set, assume '
                      'complement to filterPos')
-parser.add_argument('-fp','--filterPos', nargs='+', help='set of filters '
+group.add_argument('-fp','--filterPos', nargs='+', help='set of filters '
                     'that designate not background clusters.') 
+
+group = parser.add_argument_group('optional arguments for fitting')
+group.add_argument('-fit', '--fit', action="store_true", default=False,
+                    help='whether to actually fit') 
+group.add_argument('-t', '--single_cluster_fits', 
+                   help='file with single cluster fits of good clusters')
+group.add_argument('-a', '--annotated_clusters',
+                   help='file with clusters annotated by variant number')
+
+
 
 
 def loadNullScores(backgroundTileFile, filterPos=None, filterNeg=None,
@@ -97,7 +104,7 @@ def loadNullScores(backgroundTileFile, filterPos=None, filterNeg=None,
         dtype=float, index=table.loc[subset].index)
     
     if return_binding_series:
-        return binding_series.dropna(axis=0)
+        return binding_series.dropna(axis=0, how='all')
     else: 
         return binding_series.iloc[:, binding_point].dropna()
 
@@ -121,6 +128,11 @@ if __name__=="__main__":
                 backgroundTileFile[:backgroundTileFile.find('.pkl')])[0]
     backgroundFilename = outFile + '.bindingSeries.pkl'
 
+    figDirectory = os.path.join(os.path.dirname(pickleCPsignalFilename),
+                                'figs_%s'%str(datetime.date.today()))
+    if not os.path.exists(figDirectory):
+        os.mkdir(figDirectory)
+
     print '\tLoading binding series and all RNA signal:'
     bindingSeries, allClusterSignal = IMlibs.loadBindingCurveFromCPsignal(
         pickleCPsignalFilename, concentrations=concentrations)
@@ -132,46 +144,45 @@ if __name__=="__main__":
                                         filterPos=filterPos,
                                         filterNeg=filterNeg,
                                         return_binding_series=True,)
+    plotFun.plotDeltaAbsFluorescence(bindingSeries, bindingSeriesBackground,
+                                     concentrations)
+    plt.savefig(os.path.join(figDirectory, os.path.basename(outFile)+'_vs_clusters.pdf'))
     
+    if args.fit:
+        annotations = pd.read_pickle(annotatedClusterFile).sort('variant_number')
+        
+        # get rid of clusters that would be NaN
+        annotations = (pd.concat([annotations,
+                                 bindingSeries], axis=1).dropna(axis=0, thresh=5).
+                       loc[:, 'variant_number']).dropna().copy()
+        annotations.sort('variant_number', inplace=True)
+        
+        # choose subset of clusters
+        numClusters = len(bindingSeriesBackground)
+        numVariants = int(numClusters/annotations.value_counts().median())
+        variants = np.random.permutation(np.unique(annotations))[:numVariants]
+        index = np.in1d(annotations, variants)
     
-    annotations = pd.read_pickle(annotatedClusterFile).sort('variant_number')
-    
-    # get rid of clusters that would be NaN
-    annotations = (pd.concat([annotations,
-                             bindingSeries], axis=1).dropna(axis=0, thresh=5).
-                   loc[:, 'variant_number']).dropna().copy()
-    annotations.sort('variant_number', inplace=True)
-    
-    # choose subset of clusters
-    numClusters = len(bindingSeriesBackground)
-    numVariants = int(numClusters/annotations.value_counts().median())
-    variants = np.random.permutation(np.unique(annotations))[:numVariants]
-    index = np.in1d(annotations, variants)
-
-    # assign cluster ids from annotations file to background binding series
-    bindingSeriesNorm = pd.DataFrame(index  =annotations.loc[index].index,
-                                     columns=bindingSeriesBackground.columns)
-    bindingSeriesNorm.iloc[:numClusters] = np.random.permutation(
-        np.divide(bindingSeriesBackground, allClusterSignal.median()))
-    
-    bindingSeriesNorm.to_pickle(backgroundFilename)
-    
-    # now fit
-    variant_table = bootStrapFits.fitBindingCurves(fittedBindingFilename, annotatedClusterFile,
-                     backgroundFilename, concentrations,
-                     numCores=20, n_samples=None, variants=variants,
-                     use_initial=False)
-    
-    # remove all irrelevant data
-    variant_table.dropna(axis=0, inplace=True)
-    variant_table.loc[:, 'fmax_init':'fitFraction'] = np.nan
-    variant_table.to_csv(outFile + '.CPvariant', sep='\t', index=True)
-    
-    
-    plotFun.histogramKds(variant_table.loc[variant_table.numClusters>=5])
-    figDirectory = os.path.join(os.path.dirname(annotatedClusterFile),
-                                'figs_%s'%str(datetime.date.today()))
-    if not os.path.exists(figDirectory):
-        os.mkdir(figDirectory)
-    plt.savefig(os.path.join(figDirectory, os.path.basename(outFile)+'.histogram_kds.pdf'))
+        # assign cluster ids from annotations file to background binding series
+        bindingSeriesNorm = pd.DataFrame(index  =annotations.loc[index].index,
+                                         columns=bindingSeriesBackground.columns)
+        bindingSeriesNorm.iloc[:numClusters] = np.random.permutation(
+            np.divide(bindingSeriesBackground, allClusterSignal.median()))
+        
+        bindingSeriesNorm.to_pickle(backgroundFilename)
+        
+        # now fit
+        variant_table = bootStrapFits.fitBindingCurves(fittedBindingFilename, annotatedClusterFile,
+                         backgroundFilename, concentrations,
+                         numCores=20, n_samples=None, variants=variants,
+                         use_initial=False)
+        
+        # remove all irrelevant data
+        variant_table.dropna(axis=0, inplace=True)
+        variant_table.loc[:, 'fmax_init':'fitFraction'] = np.nan
+        variant_table.to_csv(outFile + '.CPvariant', sep='\t', index=True)
+        
+        
+        plotFun.histogramKds(variant_table.loc[variant_table.numClusters>=5])
+        plt.savefig(os.path.join(figDirectory, os.path.basename(outFile)+'.histogram_kds.pdf'))
     

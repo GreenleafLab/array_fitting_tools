@@ -10,21 +10,22 @@ import pandas as pd
 import sys
 import os
 import argparse
-import seqfun
-import IMlibs
+import itertools  
 import seaborn as sns
 import scipy.stats as st
 import matplotlib.pyplot as plt
+import matplotlib.cm as cmx
+import matplotlib as mpl
+from matplotlib import gridspec
 from joblib import Parallel, delayed
 sns.set_style("white", {'xtick.major.size': 4,  'ytick.major.size': 4,
                         'xtick.minor.size': 2,  'ytick.minor.size': 2,
                         'lines.linewidth': 1})
 
-import lmfit
 import fitFun
-import itertools    
-import matplotlib as mpl
-from matplotlib import gridspec
+import seqfun
+  
+
 
 def plotFmaxInit(variant_table):
     parameters = fitFun.fittingParameters()
@@ -232,5 +233,71 @@ def histogramKds(variant_table):
                  fontsize=10)
     plt.tight_layout()
     
+
+def plotDeltaAbsFluorescence(bindingSeries, bindingSeriesBackground, concentrations=None):
     
+
+
+    if concentrations is None:
+        concentrations = ['%4.2fnM'%d for d in 2000*np.power(3., np.arange(0, -8, -1))][::-1]
+    numconcentrations = len(concentrations)
+    
+    cNorm = mpl.colors.Normalize(vmin=0, vmax=numconcentrations-1)
+    scalarMap = cmx.ScalarMappable(norm=cNorm, cmap=sns.cubehelix_palette(start=.5, rot=-.75, as_cmap=True, reverse=False))
+    
+    
+    fig = plt.figure(figsize=(5,8))
+    gs = gridspec.GridSpec(numconcentrations, 1)
+    bins = np.arange(0, 4000, 10)
+    for i in range(numconcentrations):
+        ax = fig.add_subplot(gs[i])
+        # plot actual
+        try:
+            counts, xbins, patches = ax.hist(bindingSeries.iloc[:, i].dropna().values,
+                                             bins=bins,
+                                             histtype='stepfilled', alpha=0.1,
+                                             color=scalarMap.to_rgba(i))
+            if (counts == 0).sum() > 0:
+                index2 = np.arange(0, np.ravel(np.where(counts == 0))[0])
+            else:
+                index2 = np.arange(len(counts))
+            ax.plot(((xbins[:-1] + xbins[1:])*0.5)[index2], counts[index2],
+                color=scalarMap.to_rgba(i), label=concentrations[i])
+            
+            # plot background
+            counts, xbins, patches = ax.hist(bindingSeriesBackground.iloc[:, i].dropna().values,
+                                             bins=bins,
+                                             histtype='stepfilled', alpha=0.1,
+                                             color='0.5')
+            if (counts == 0).sum() > 0:
+                index2 = np.arange(0, np.ravel(np.where(counts == 0))[0])
+            else:
+                index2 = np.arange(len(counts))
+            ax.plot(((xbins[:-1] + xbins[1:])*0.5)[index2], counts[index2],
+                color='0.5', label=concentrations[i])
+        except:
+            pass
+        # set labels
+        ax.set_yscale('log')
+        ax.set_ylim(1, 10**5)
+        ax.set_yticks(np.power(10, range(0, 5)))
+        ax.tick_params(top='off', right='off')
+        ax.tick_params(which="minor", top='off', right='off')
+        #ax.set_ylabel('number of clusters')
+        if i == numconcentrations-1:
+            ax.set_xlabel('absolute fluorescence')
+        else:
+            ax.set_xticklabels([])
+        ax.annotate('%4.1f nM'%(concentrations[i]),
+                    xy=(0.95, 0.90),
+                    xycoords='axes fraction',
+                    horizontalalignment='right', verticalalignment='top',
+                    fontsize=12)
+    plt.subplots_adjust(left=0.15, right=0.95, top=0.95, bottom=0.15)
+    plt.annotate('number of clusters', rotation=90,
+                 xy=(0.05, 0.5),
+                 xycoords='figure fraction',
+                 horizontalalignment='left', verticalalignment='center',
+                 fontsize=12)
+    pass
     
