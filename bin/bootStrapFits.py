@@ -1,10 +1,16 @@
-"""
-Sarah Denny
-Stanford University
-
-Using the compressed barcode file (from Lauren) and the list of designed variants,
-figure out how many barcodes per designed library variant (d.l.v.), and plot histograms.
-"""
+#!/usr/bin/env python
+#
+# will find fmax distribution given the single cluster fits on 
+# good binders and good fitters.
+#
+# fmax distribtuion is then enforced for weak binders, allowing
+# good measurements even when no reaching saturation.
+# 
+# Median of cluster fits are bootstrapped to obtain errors on
+# fit parameters.
+#
+# Sarah Denny
+# July 2015
 
 ##### IMPORT #####
 import numpy as np
