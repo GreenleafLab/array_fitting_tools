@@ -66,8 +66,8 @@ def findVariantTable(table, parameter=None, name=None, concentrations=None):
     # define columns as all the ones between variant number and fraction consensus
     test_stats = ['fmax', parameter, 'fmin']
     test_stats_init = ['%s_init'%param for param in ['fmax', parameter, 'fmin']]
-    other_cols = ['numTests', 'fitFraction', 'numClusters',
-                  'pvalue', 'fmax_lb','fmax', 'fmax_ub',
+    other_cols = ['numTests', 'fitFraction', 'pvalue', 'numClusters',
+                  'fmax_lb','fmax', 'fmax_ub',
                   '%s_lb'%parameter, parameter, '%s_ub'%parameter,
                   'fmin', 'rsq', 'numIter', 'flag']
     

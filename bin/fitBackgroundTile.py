@@ -179,7 +179,7 @@ if __name__=="__main__":
         
         # remove all irrelevant data
         variant_table.dropna(axis=0, inplace=True)
-        variant_table.loc[:, 'fmax_init':'fitFraction'] = np.nan
+        variant_table.loc[:, 'fmax_init':'pvalue'] = np.nan
         variant_table.to_csv(outFile + '.CPvariant', sep='\t', index=True)
         
         
