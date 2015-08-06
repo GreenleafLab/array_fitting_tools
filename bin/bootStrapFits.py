@@ -19,6 +19,7 @@ import sys
 import os
 import argparse
 import seqfun
+import datetime
 import IMlibs
 import seaborn as sns
 import scipy.stats as st
@@ -199,6 +200,8 @@ def fitBindingCurves(fittedBindingFilename, annotatedClusterFile,
     
     # only use those clusters corresponding to variants that pass fit fraction cutff
     index = variant_table.pvalue < 0.01
+    plotFun.plotFmaxVsKd(variant_table, concentrations)
+    
     if fitFun.useSimulatedOrActual(variant_table):
         print 'Using median fmaxes of variants to measure stderr'
         fmaxDist = fitFun.findFinalBoundsParameters(
@@ -294,7 +297,7 @@ if __name__ == '__main__':
     if outFile is None:
         outFile = os.path.splitext(
             annotatedClusterFile[:annotatedClusterFile.find('.pkl')])[0]
-
+    sys.exit()
     variant_table = fitBindingCurves(fittedBindingFilename, annotatedClusterFile,
                      bindingCurveFilename, concentrations,
                      numCores=numCores, n_samples=n_samples,
@@ -310,38 +313,17 @@ if __name__ == '__main__':
         
     # make plots
     plt.savefig(os.path.join(figDirectory, 'fmax_stde_vs_n.pdf'))
+    
     plotFun.plotFmaxInit(variant_table)
     plt.savefig(os.path.join(figDirectory, 'initial_Kd_vs_final.colored_by_fmax.pdf'))
+    
     plotFun.plotErrorInBins(variant_table)
     plt.savefig(os.path.join(figDirectory, 'error_in_bins.dG.pdf'))
+    
     plotFun.plotPercentErrorInBins(variant_table)
     plt.savefig(os.path.join(figDirectory, 'error_in_bins.Kd.pdf'))
+    
     plotFun.plotNumberInBins(variant_table)
     plt.savefig(os.path.join(figDirectory, 'number_in_bins.Kd.pdf'))
     sys.exit()
     
-    # plot
-    figDirectory = ps.path.join(os.path.dirname(args.out_file), 'figs_%s'%str(datetime.date.today()))
-    if not os.path.exists(figDirectory):
-        os.mkdir(figDirectory)
-    
-    subFigDirectory = os.path.join(figDirectory, 'binding_curves')
-    if not os.path.exists(subFigDirectory):
-        os.mkdir(subFigDirectory)
-        
-    for variant in variant_table.index:
-        bootStrapFits.plotSingleVariantFits(table, variant_table, variant, concentrations)
-        plt.savefig(os.path.join(subFigDirectory, 'binding_curve.variant_%d.pdf'%variant))
-        plt.close()
-        
-    # plot error
-    plt.figure(figsize=(4,3));
-    sns.distplot(error.loc[(variant_table.dG < -7)&(variant_table.flag=='0')],
-                 bins=np.arange(0, 2, 0.1), kde=False, label='method A');
-    sns.distplot(error.loc[(variant_table.dG < -7)&(variant_table.flag=='1')],
-                 bins=np.arange(0, 2, 0.1), label='method B', kde=False);
-    plt.xlabel('width of confidence interval (kcal/mol)');
-    plt.ylabel('count');
-    plt.tight_layout();
-    ax=plt.gca(); ax.tick_params(right='off', top='off');
-    plt.legend()
