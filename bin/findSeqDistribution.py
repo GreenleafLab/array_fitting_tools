@@ -1,10 +1,14 @@
-"""
-Sarah Denny
-Stanford University
-
-Using the compressed barcode file (from Lauren) and the list of designed variants,
-figure out how many barcodes per designed library variant (d.l.v.), and plot histograms.
-"""
+#!/usr/bin/env python
+# 
+# Given a list of designed variants, and a CPsignal file you wish to fit,
+# annotate each of the clusters in cPsignal file with variant information.
+#
+# Uses either unique_barcode file (from compressBarcodes.py), or looks
+# within the sequence directly for the variant
+# If using the unique_barcodes file, you should already have filtered for
+# 'good' barcodes.
+#
+# Sarah Denny
 
 ##### IMPORT #####
 import numpy as np
