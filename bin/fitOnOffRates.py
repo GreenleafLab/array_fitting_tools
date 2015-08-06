@@ -193,21 +193,21 @@ if __name__ == '__main__':
     results = fitRates(bindingCurveFilename, timesFilename, annotatedClusterFile,
                 fittype=fittype)
 
-    results.to_csv(outFile+'.CPvariant', sep='\t')
+    results.to_csv(outFile+'.CPresults', sep='\t')
     
     sys.exit()
     
     
     # plot all variants
-    figDirectory = 'PUF4/onRates/11.1nM/CPfitted/figs_2015-07-31/on_rate_curves'
+    figDirectory = 'offRates/figs_2015-08-06/off_rate_curves'
     for variant in results.index:
         try:
-            fitFun.plotSingleVariantFits(times.values, groupDict[variant],
+            fitFun.plotFitCurve(times, groupDict[variant],
                                          results.loc[variant],
                                  fitParameters, log_axis=False,
-                                 func=objectiveFunctionOnRates, fittype='on')
+                                 func=objectiveFunctionOffRates, fittype='off')
             plt.ylim([0, 1.5])
-            plt.savefig(os.path.join(figDirectory, 'on_rate_curve.variant_%d.pdf'%variant))
+            plt.savefig(os.path.join(figDirectory, 'off_rate_curve.variant_%d.pdf'%variant))
         except:
             print 'issue with variant %d'%variant
         plt.close()
