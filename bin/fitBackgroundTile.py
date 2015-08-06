@@ -1,4 +1,11 @@
 #!/usr/bin/env python
+#
+# after bootstrapping binding curves, this does the same procedure for
+# a set of background clusters. First finds background clusters with 
+# filter sets (filterNeg = background set or filterPos is opposite of
+# background set). Then fits using same constraints on fmax.
+#
+# Sarah Denny
 import os
 import numpy as np
 import pandas as pd
