@@ -1,35 +1,17 @@
-"""
-useful functions for analyzig CP fluor files
-"""
-
 import os
 import sys
 import time
 import re
-import uuid
 import subprocess
-import multiprocessing
-from multiprocessing import Pool
 import numpy as np
 import pandas as pd
-import scipy.io as sio
 import matplotlib.pyplot as plt
-from scikits.bootstrap import bootstrap
-import functools
 import datetime
-import lmfit
 import scipy.stats as st
-from statsmodels.sandbox.stats.multicomp import multipletests
-from joblib import Parallel, delayed
 import warnings
 import pickle
-import seqfun
 import seaborn as sns
 import itertools
-import fitFun
-import fitBindingCurve
-import findSeqDistribution
-
 
 def filenameMatchesAListOfExtensions(filename, extensionList=None):
     # from CPlibs
@@ -576,16 +558,6 @@ def filterFitParameters(table):
     index = (table.rsq > 0.5)&(table.dG_stde.astype(float) < 1)&(table.fmax_stde.astype(float)<table.fmax.astype(float))
     return table.loc[index]
 
-
-def perVariantError(measurements):
-    # find subset of table that has variant number equal to variant
-    try:
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            bounds = bootstrap.ci(data=measurements, statfunction=np.median)
-    except IndexError:
-        bounds = [np.nan]*2           
-    return bounds
 
 
     

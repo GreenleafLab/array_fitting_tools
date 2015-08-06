@@ -1,25 +1,19 @@
 #!/usr/bin/env python
 
-# Main Pipeline for Doing Analysis of Images
-# ---------------------------------------------
+# Processing data into CPsignal file
 #
 # This script requires you to already have quantified images with another pipeline.
 #
 # Inputs:
 #   Sequence data (.CPseq files)
-#   Parameters (globalvars.py file; used to define fitting parameters,
-#                             which column in CPseq is the barcode,
-#                             which column in CPseq is the sequence data,
-#                             whether it is reverse complemented,
-#                             and what images correspond to what binding concentration, offrate, etc)
 #   CPfluor files (.CPfluor files or directories)
-#   Classifier files (.characterization)
+#   filter for which clusters you wish to further analyze
 #
 # Outputs:
-#   CPsignal files labeled with classifiers and fits
+#   CPsignal files 
 #
 # Sarah Denny
-# November 2014
+
 
 
 import sys
