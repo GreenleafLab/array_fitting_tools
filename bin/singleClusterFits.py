@@ -1,4 +1,10 @@
 #!/usr/bin/env python
+#
+# Uses CPsignal file to normalize data (if allRNA image has data)
+# and fit all single clusters with minimal constraints.
+#
+# Sarah Denny
+
 import os
 import numpy as np
 import pandas as pd
