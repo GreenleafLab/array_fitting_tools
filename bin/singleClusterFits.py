@@ -161,7 +161,7 @@ def bindingSeriesByCluster(concentrations, bindingSeries,
                                         change_params=True)
 
 
-    return fitResults, fitParameters
+    return fitResults
     
 
 
