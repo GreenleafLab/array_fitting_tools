@@ -29,6 +29,7 @@ sns.set_style("white", {'xtick.major.size': 4,  'ytick.major.size': 4})
 import lmfit
 import itertools
 import fitFun
+import plotFun
 
 ### MAIN ###
 
@@ -121,27 +122,25 @@ def plotSingleVariantFits(table, results, variant, concentrations, plot_init=Non
                     fontsize=12)
                 
         
-def getInitialParameters(initial_points, concentrations):
+def getInitialFitParameters(concentrations, initial_points):
     parameters = fitFun.fittingParameters(concentrations=concentrations)
     fitParameters = pd.DataFrame(index=['lowerbound', 'initial', 'upperbound'],
                                  columns=['fmax', 'dG', 'fmin'])
-    # find fmin
-    loose_binders = initial_points.loc[initial_points.dG > parameters.mindG]
-    
-    fitParameters.loc[:, 'fmin'] = fitFun.getBoundsGivenDistribution(
-            loose_binders.fmin, label='fmin'); plt.close()
-
     # find dG
     fitParameters.loc[:, 'dG'] = [parameters.find_dG_from_Kd(
                 parameters.find_Kd_from_frac_bound_concentration(frac_bound, concentration))
                                   for frac_bound, concentration in itertools.izip(
                                     [0.99, 0.5, 0.01],
                                     [concentrations[0], concentrations[-1], concentrations[-1]])]
-                                  
+    if initial_points is not None:
+        # find fmin
+        loose_binders = initial_points.loc[initial_points.dG > parameters.mindG]
+        
+        fitParameters.loc[:, 'fmin'] = fitFun.getBoundsGivenDistribution(
+                loose_binders.fmin, label='fmin'); plt.close()
 
-    
-    fitParameters.loc['vary'] = True
-    fitParameters.loc['vary', 'fmin'] = False
+        fitParameters.loc['vary'] = True
+        fitParameters.loc['vary', 'fmin'] = False
     return fitParameters
 
 def perVariant(concentrations, subSeries, fitParameters, fmaxDist, initial_points=None,
@@ -186,13 +185,8 @@ def fitBindingCurves(fittedBindingFilename, annotatedClusterFile,
                                 pd.read_pickle(fittedBindingFilename)], axis=1).astype(float)
     
     # find constraints on fmin and delta G
-    fitParameters = getInitialParameters(initialPointsAll, concentrations)
-    
-    # correct fmax measuremenets by fmin because likely variants that went to
-    # saturation had artifactually high fit fmins.
-    initialPointsAll.loc[:, 'fmax'] = (initialPointsAll.fmax + initialPointsAll.fmin -
-                                        fitParameters.loc['initial', 'fmin'])
-    
+    fitParameters = getInitialFitParameters(concentrations, initialPointsAll)
+        
     # find constraints on fmax 
     variant_table = findVariantTable(initialPointsAll).astype(float)
     initialPoints = variant_table.loc[:, ['fmax_init', 'dG_init', 'fmin_init', 'numTests']]
@@ -200,9 +194,9 @@ def fitBindingCurves(fittedBindingFilename, annotatedClusterFile,
     
     # only use those clusters corresponding to variants that pass fit fraction cutff
     index = variant_table.pvalue < 0.01
-    plotFun.plotFmaxVsKd(variant_table, concentrations)
+    plotFun.plotFmaxVsKd(variant_table, concentrations, index)
     
-    if fitFun.useSimulatedOrActual(variant_table):
+    if fitFun.useSimulatedOrActual(variant_table.loc[index], concentrations):
         print 'Using median fmaxes of variants to measure stderr'
         fmaxDist = fitFun.findFinalBoundsParameters(
             variant_table.loc[index], concentrations)
@@ -297,7 +291,6 @@ if __name__ == '__main__':
     if outFile is None:
         outFile = os.path.splitext(
             annotatedClusterFile[:annotatedClusterFile.find('.pkl')])[0]
-    sys.exit()
     variant_table = fitBindingCurves(fittedBindingFilename, annotatedClusterFile,
                      bindingCurveFilename, concentrations,
                      numCores=numCores, n_samples=n_samples,
@@ -312,6 +305,7 @@ if __name__ == '__main__':
         os.mkdir(figDirectory)
         
     # make plots
+    plt.savefig(os.path.join(figDirectory, 'fmax_vs_Kd_init.pdf')); plt.close()
     plt.savefig(os.path.join(figDirectory, 'fmax_stde_vs_n.pdf'))
     
     plotFun.plotFmaxInit(variant_table)
@@ -327,3 +321,23 @@ if __name__ == '__main__':
     plt.savefig(os.path.join(figDirectory, 'number_in_bins.Kd.pdf'))
     sys.exit()
     
+    # plot single variants
+
+    # load binding series information with variant numbers
+    table = (pd.concat([pd.read_pickle(annotatedClusterFile),
+                       pd.read_pickle(bindingCurveFilename).astype(float)], axis=1).
+                sort('variant_number'))
+    
+    subSeries = table.loc[table.variant_number==variant].iloc[:, 1:]
+    
+
+    # fit all labeled variants
+    table.dropna(axis=0, subset=['variant_number'], inplace=True)
+
+    # fit only clusters that are not all NaN
+    table.dropna(axis=0, subset=table.columns[1:], how='all',inplace=True)
+    
+    print '\tDividing table into groups...'
+    groupDict = {}
+    for name, group in table.groupby('variant_number'):
+        groupDict[name] = group.iloc[:, 1:]
