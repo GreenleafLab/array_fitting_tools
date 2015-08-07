@@ -297,7 +297,7 @@ if __name__ == '__main__':
     if outFile is None:
         outFile = os.path.splitext(
             annotatedClusterFile[:annotatedClusterFile.find('.pkl')])[0]
-    sys.exit()
+            
     variant_table = fitBindingCurves(fittedBindingFilename, annotatedClusterFile,
                      bindingCurveFilename, concentrations,
                      numCores=numCores, n_samples=n_samples,
