@@ -29,6 +29,7 @@ sns.set_style("white", {'xtick.major.size': 4,  'ytick.major.size': 4})
 import lmfit
 import itertools
 import fitFun
+import plotFun
 
 ### MAIN ###
 
