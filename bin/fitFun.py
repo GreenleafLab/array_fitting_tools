@@ -447,7 +447,10 @@ def plotFitCurve(concentrations, bindingSeries, results,
     try:
         # find upper bound
         params_ub = Parameters()
-        if fittype == 'binding' or fittype == 'off':
+        if fittype == 'binding':
+            ub_vec = ['_ub', '_lb', '']
+            lb_vec = ['_lb', '_ub', '']
+        elif fittype == 'off':
             ub_vec = ['_ub', '_lb', '_ub']
             lb_vec = ['_lb', '_ub', '_lb']
         elif fittype == 'on':
@@ -539,11 +542,12 @@ def getBoundsGivenDistribution(values, label=None, saturation_level=None,
         ax.set_xlabel(label)
     return fitParameters
 
-def useSimulatedOrActual(variant_table):
+def useSimulatedOrActual(variant_table, concentrations):
     # if at least 20 data points have at least 10 counts in that bin, use actual
     # data. This statistics seem reasonable for fitting
-
-    counts, binedges = np.histogram(variant_table.numTests,
+    parameters = fittingParameters(concentrations=concentrations)
+    index = variant_table.dG_init < parameters.maxdG
+    counts, binedges = np.histogram(variant_table.loc[index].numTests,
                                     np.arange(1, variant_table.numTests.max()))
     if (counts > 10).sum() >= 20:
         use_actual = True
