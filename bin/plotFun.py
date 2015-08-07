@@ -25,36 +25,28 @@ sns.set_style("white", {'xtick.major.size': 4,  'ytick.major.size': 4,
 import fitFun
 import seqfun
   
-def plotFmaxVsKd(variant_table, concentrations):
+def plotFmaxVsKd(variant_table, concentrations, index, subset=None):
+    if subset is None: subset=True
     parameters = fitFun.fittingParameters(concentrations=concentrations)
     cutoff = np.log10(parameters.find_Kd_from_dG(parameters.maxdG))
-    index = variant_table.loc[variant_table.pvalue < 0.01].index
+    index = index.loc[index].index
     
     kds = parameters.find_Kd_from_dG(variant_table.dG_init)
     fmax = variant_table.fmax_init
     kds_bounds = np.percentile(seqfun.remove_outlier(np.log10(kds.loc[index])), [0, 100])
     fmax_bounds = [0, np.percentile(seqfun.remove_outlier(fmax.loc[index]), 100)]
 
-    
     plt.figure(figsize=(3,3))
     ax = plt.gca()
-    sns.kdeplot(np.log10(kds.iloc[::100]),
-                fmax.iloc[::100],
-                shade=True, shade_lowest=False, n_levels=20, clip=[kds_bounds, fmax_bounds],
-                cmap="binary", ax=ax)
-    xticks = ax.get_xticks()
-    ax.set_xticklabels(['$10^%d$'%x for x in xticks])
-    ax.tick_params(top='off', right='off')
-    plt.xlabel('$K_d$ (nM)')
-    plt.ylabel('initial $f_{max}$')
-    ylim=ax.get_ylim()
-    plt.plot([cutoff]*2, ylim, 'r:', label='cutoff for 95% bound')
-    plt.tight_layout()
-    
-    plt.figure(figsize=(3,3))
-    ax = plt.gca()
-    sns.kdeplot(np.log10(kds.loc[index[::100]]),
-                fmax.loc[index[::100]],
+    if subset:
+        x = np.log10(kds.loc[index[::100]])
+        y = fmax.loc[index[::100]]
+    else:
+        x = np.log10(kds.loc[index])
+        y = fmax.loc[index]
+                     
+    sns.kdeplot(x,
+                y,
                 shade=True, shade_lowest=False, n_levels=20, clip=[kds_bounds, fmax_bounds],
                 cmap="binary")
     xticks = ax.get_xticks()
@@ -91,6 +83,7 @@ def plotFmaxInit(variant_table):
     ax.set_xscale('log')
     ax.set_yscale('log')
     plt.tight_layout()
+    return
 
 def plotErrorInBins(variant_table):
     parameters = fitFun.fittingParameters()
