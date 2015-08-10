@@ -55,7 +55,7 @@ if __name__ == '__main__':
     
     # process output filenames
     timesFilename = outFile + '.times.txt'
-    bindingCurveFilename = outFile + '.bindingCurve.pkl'
+    bindingCurveFilename = outFile + '.bindingSeries.pkl'
 
     # laod timing info and fluorescence info
 
