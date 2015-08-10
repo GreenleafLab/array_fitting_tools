@@ -264,7 +264,7 @@ def enforceFmaxDistribution(median_fluorescence, fitParameters, verbose=None):
 
 
 def bootstrapCurves(concentrations, subSeries, fitParameters, fmaxDist=None,
-                    default_errors=None, verbose=None, n_samples=None,
+                    default_errors=None, use_default=None, verbose=None, n_samples=None,
                     enforce_fmax=None, func=None):
     # set defaults for various parameters
     if n_samples is None:
@@ -280,23 +280,30 @@ def bootstrapCurves(concentrations, subSeries, fitParameters, fmaxDist=None,
         print ('Error: if you wish to enforce fmax, need to define "fmaxDist"\n'
                'which is a instance of a normal distribution with mean and sigma\n'
                'defining the expected distribution of fmax')
+    if use_default is None:
+        use_default = False # if flagged, use only default errors
     
     if func is None:
         func = bindingCurveObjectiveFunction
+        
     # estimate weights to use in weighted least squares fitting
-    numTests = len(subSeries)
     if default_errors is None:
         default_errors = np.ones(len(concentrations))*np.nan
-    try:
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            eminus, eplus = findErrorBarsBindingCurve(subSeries)
-    except:
+    if not use_default:
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                eminus, eplus = findErrorBarsBindingCurve(subSeries)
+        except:
+            use_default=True
+    # option to use only default errors provdided for quicker runtime
+    if use_default:
         numTestsAny = np.array([len(subSeries.loc[:, col].dropna()) for col in subSeries])
         eminus = eplus = default_errors/np.sqrt(numTestsAny)
 
     
     # find number of samples to bootstrap
+    numTests = len(subSeries)
     if numTests <10 and np.power(numTests, numTests) <= n_samples:
         # then do all possible permutations
         if verbose:
@@ -394,8 +401,8 @@ def plotFitDistributions(results, singles, fitParameters):
         plt.tight_layout()
     return
 
-def plotFitCurve(concentrations, bindingSeries, results,
-                          fitParameters, log_axis=None, func=None,
+def plotFitCurve(concentrations, subSeries, results,
+                          fitParameters, log_axis=None, func=None, use_default=None,
                           fittype=None, errors=None, default_errors=None):
     # default is to log axis
     if log_axis is None:
@@ -407,21 +414,41 @@ def plotFitCurve(concentrations, bindingSeries, results,
     
     if fittype is None:
         fittype = 'binding'
-        
-    if len(bindingSeries.shape) == 1:
-        fluorescence = bindingSeries
-    else:
-        fluorescence = bindingSeries.median()
     
+    if use_default is None:
+        use_default = False
+        
+    if len(subSeries.shape) == 1:
+        fluorescence = subSeries
+    else:
+        fluorescence = subSeries.median()
+    
+    #
+    if default_errors is None:
+        default_errors = np.ones(len(concentrations))*np.nan
+    if not use_default:
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                eminus, eplus = findErrorBarsBindingCurve(subSeries)
+        except:
+            use_default=True
+        if np.all(np.isnan(eminus)) or np.all(np.isnan(eplus)):
+            use_default=True
+    # option to use only default errors provdided for quicker runtime
+    if use_default:
+        numTestsAny = np.array([len(subSeries.loc[:, col].dropna()) for col in subSeries])
+        eminus = eplus = default_errors/np.sqrt(numTestsAny)
+        
     # get error
-    numTests = np.array([len(bindingSeries.loc[:, col].dropna()) for col in bindingSeries])
+    numTests = np.array([len(subSeries.loc[:, col].dropna()) for col in subSeries])
     if errors is None:
         if default_errors is None:
             default_errors = np.ones(len(concentrations))*np.nan
         try:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
-                eminus, eplus = findErrorBarsBindingCurve(bindingSeries)
+                eminus, eplus = findErrorBarsBindingCurve(subSeries)
         except:
             eminus = eplus = default_errors/np.sqrt(numTests)
         if np.all(np.isnan(eminus)) or np.all(np.isnan(eplus)):
