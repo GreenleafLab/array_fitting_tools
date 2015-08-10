@@ -53,7 +53,9 @@ group.add_argument('-fp','--filterPos', nargs='+', help='set of filters '
 
 group = parser.add_argument_group('optional arguments for fitting')
 group.add_argument('-fit', '--fit', action="store_true", default=False,
-                    help='whether to actually fit') 
+                    help='whether to actually fit')
+group.add_argument('-s', '--subsample', type=int, default=100, metavar="N",
+                    help='subsampling amount. Default it to take 1 in 100 (-s 100)') 
 group.add_argument('-t', '--single_cluster_fits', 
                    help='file with single cluster fits of good clusters')
 group.add_argument('-a', '--annotated_clusters',
@@ -172,6 +174,8 @@ if __name__=="__main__":
         bindingSeriesNorm.to_pickle(backgroundFilename)
         
         # now fit
+        if not args.all:
+            variants = variants[::100]
         variant_table = bootStrapFits.fitBindingCurves(fittedBindingFilename, annotatedClusterFile,
                          backgroundFilename, concentrations,
                          numCores=20, n_samples=None, variants=variants,
