@@ -54,6 +54,8 @@ group.add_argument('--n_samples', default=100, type=int, metavar="N",
                    help='number of times to bootstrap samples')
 group.add_argument('-n', '--numCores', default=20, type=int, metavar="N",
                    help='number of cores')
+group.add_argument('--init', action="store_true", default=False,
+                   help="flag if you just want to initiate fitting, not actually fit")
 
 
 ##### functions #####
@@ -162,7 +164,8 @@ def perVariant(concentrations, subSeries, fitParameters, fmaxDist, initial_point
                                               fmaxDist=
                                               fmaxDist.find_fmax_bounds_given_n(len(subSeries),
                                                        return_dist=True),
-                                              n_samples=n_samples)
+                                              n_samples=n_samples,
+                                              verbose=plot)
     if plot:
         fitFun.plotFitCurve(concentrations,
                                      subSeries,
@@ -171,15 +174,9 @@ def perVariant(concentrations, subSeries, fitParameters, fmaxDist, initial_point
                                      log_axis=True)
     return results
 
-def fitBindingCurves(fittedBindingFilename, annotatedClusterFile,
-                     bindingCurveFilename, concentrations,
-                     numCores=None, n_samples=None, variants=None,
-                     use_initial=None):
-    if numCores is None:
-        numCores = 20
-    if use_initial is None:
-        use_initial = False
-    
+def initiateFitting(fittedBindingFilename, annotatedClusterFile,
+                     bindingCurveFilename, concentrations ):
+
     # load initial points and find fitParameters
     initialPointsAll = pd.concat([pd.read_pickle(annotatedClusterFile),
                                 pd.read_pickle(fittedBindingFilename)], axis=1).astype(float)
@@ -208,7 +205,7 @@ def fitBindingCurves(fittedBindingFilename, annotatedClusterFile,
         plt.plot(x, y, 'r:', label='simulated')
         plt.legend()
     else:
-        print ('Using median fmaxes of subsampled clusters to measure stderr'
+        print ('Using median fmaxes of subsampled clusters to measure stderr.\n'
                'Assuming stde is maximum of [fit std, std of all variants]')
         # simulate relationship as well
         fmaxDist = fitFun.findFinalBoundsParametersSimulated(
@@ -237,6 +234,19 @@ def fitBindingCurves(fittedBindingFilename, annotatedClusterFile,
                         [np.logical_not(np.in1d(groupDict.keys(), initialPoints.index))])
     initialPoints = pd.concat([initialPoints, pd.DataFrame(index=missing_variants,
                                                            columns=initialPoints.columns)])
+    return groupDict, initialPoints, variant_table, fmaxDist, fitParameters
+
+def fitBindingCurves(fittedBindingFilename, annotatedClusterFile,
+                     bindingCurveFilename, concentrations,
+                     numCores=None, n_samples=None, variants=None,
+                     use_initial=None):
+    if numCores is None:
+        numCores = 20
+    if use_initial is None:
+        use_initial = False
+    
+    groupDict, initialPoints, variant_table, fmaxDist, fitParameters = initiateFitting(
+        fittedBindingFilename, annotatedClusterFile, bindingCurveFilename, concentrations)
     
     if variants is None:
         variants = groupDict.keys()
@@ -291,53 +301,80 @@ if __name__ == '__main__':
     if outFile is None:
         outFile = os.path.splitext(
             annotatedClusterFile[:annotatedClusterFile.find('.pkl')])[0]
-    variant_table = fitBindingCurves(fittedBindingFilename, annotatedClusterFile,
-                     bindingCurveFilename, concentrations,
-                     numCores=numCores, n_samples=n_samples,
-                     use_initial=True)
-
-
-    variant_table.to_csv(outFile + '.CPvariant', sep='\t', index=True)
     
+    # make fig directory    
     figDirectory = os.path.join(os.path.dirname(annotatedClusterFile),
                                 'figs_%s'%str(datetime.date.today()))
     if not os.path.exists(figDirectory):
         os.mkdir(figDirectory)
+    
+    # fit
+    if not args.init:
+        variant_table = fitBindingCurves(fittedBindingFilename, annotatedClusterFile,
+                         bindingCurveFilename, concentrations,
+                         numCores=numCores, n_samples=n_samples,
+                         use_initial=True)
+    
+    
+        variant_table.to_csv(outFile + '.CPvariant', sep='\t', index=True)
+            
+        # make plots
+        plt.savefig(os.path.join(figDirectory, 'fmax_vs_Kd_init.pdf')); plt.close()
+        plt.savefig(os.path.join(figDirectory, 'fmax_stde_vs_n.pdf'))
         
-    # make plots
-    plt.savefig(os.path.join(figDirectory, 'fmax_vs_Kd_init.pdf')); plt.close()
-    plt.savefig(os.path.join(figDirectory, 'fmax_stde_vs_n.pdf'))
+        plotFun.plotFmaxInit(variant_table)
+        plt.savefig(os.path.join(figDirectory, 'initial_Kd_vs_final.colored_by_fmax.pdf'))
+        
+        plotFun.plotErrorInBins(variant_table, xdelta=10)
+        plt.savefig(os.path.join(figDirectory, 'error_in_bins.dG.pdf'))
+        
+        plotFun.plotPercentErrorInBins(variant_table, xdelta=10)
+        plt.savefig(os.path.join(figDirectory, 'error_in_bins.Kd.pdf'))
+        
+        plotFun.plotNumberInBins(variant_table, xdelta=10)
+        plt.savefig(os.path.join(figDirectory, 'number_in_bins.Kd.pdf'))
+        sys.exit()
     
-    plotFun.plotFmaxInit(variant_table)
-    plt.savefig(os.path.join(figDirectory, 'initial_Kd_vs_final.colored_by_fmax.pdf'))
+    else:
+        # subtract binding points
+        groupDict, initialPoints, variant_table, fmaxDist, fitParameters = initiateFitting(
+            fittedBindingFilename, annotatedClusterFile, bindingCurveFilename, concentrations)
+        
+        variant_table = pd.read_table(outFile + '.CPvariant', index_col=0)
+        sys.exit()
     
-    plotFun.plotErrorInBins(variant_table)
-    plt.savefig(os.path.join(figDirectory, 'error_in_bins.dG.pdf'))
+    # other stuff you can do
+    parameters = fitFun.fittingParameters()
+    numPointsLost = 3
+    maxdG = parameters.find_dG_from_Kd(concentrations[-3])
+    variants = variant_table.loc[(variant_table.numTests >= 5)&
+                                 (variant_table.dG <= maxdG)].sort('dG').index[::30]
     
-    plotFun.plotPercentErrorInBins(variant_table)
-    plt.savefig(os.path.join(figDirectory, 'error_in_bins.Kd.pdf'))
-    
-    plotFun.plotNumberInBins(variant_table)
-    plt.savefig(os.path.join(figDirectory, 'number_in_bins.Kd.pdf'))
-    sys.exit()
+    results = pd.concat((Parallel(n_jobs=numCores, verbose=10)
+                        (delayed(perVariant)(concentrations[:-numPointsLost],
+                                                groupDict[variant].iloc[:,:-numPointsLost],
+                                                fitParameters,
+                                                fmaxDist,
+                                                initialPoints.loc[variant],
+                                                n_samples=n_samples)
+                         for variant in variants if variant in groupDict.keys())), axis=1).transpose();
+    results.index = [variant for variant in variants if variant in groupDict.keys()]
+    plotFun.plotScatterPlotColoredByFlag(variant_table.loc[results.index], results,
+                                         concentrations, numPointsLost)
+    plt.savefig(os.path.join(figDirectory, ('correlation_Kd_%dconcentrations.pdf')
+                             %(len(concentrations)-numPointsLost)))
     
     # plot single variants
-
-    # load binding series information with variant numbers
-    table = (pd.concat([pd.read_pickle(annotatedClusterFile),
-                       pd.read_pickle(bindingCurveFilename).astype(float)], axis=1).
-                sort('variant_number'))
+    index = ((results2.loc[variants].flag == 1)&(variant_table.loc[variants].flag==0))
+    i=0
+    variant = variants[index.values][i]
+    fitFun.plotFitCurve(concentrations,
+                        groupDict[variant],
+                        variant_table.loc[variant],
+                        fitParameters)
+    fitFun.plotFitCurve(concentrations[:-numPointsLost],
+                        groupDict[variant].iloc[:, :-numPointsLost],
+                        results2.loc[variant],
+                        fitParameters)
     
-    subSeries = table.loc[table.variant_number==variant].iloc[:, 1:]
     
-
-    # fit all labeled variants
-    table.dropna(axis=0, subset=['variant_number'], inplace=True)
-
-    # fit only clusters that are not all NaN
-    table.dropna(axis=0, subset=table.columns[1:], how='all',inplace=True)
-    
-    print '\tDividing table into groups...'
-    groupDict = {}
-    for name, group in table.groupby('variant_number'):
-        groupDict[name] = group.iloc[:, 1:]
