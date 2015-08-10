@@ -85,15 +85,15 @@ def plotFmaxInit(variant_table):
     plt.tight_layout()
     return
 
-def plotErrorInBins(variant_table):
+def plotErrorInBins(variant_table, xdelta=None):
     parameters = fitFun.fittingParameters()
     variant_table = variant_table.astype(float)
     errors = variant_table.dG_ub - variant_table.dG_lb
     plotErrorBars(parameters.find_Kd_from_dG(variant_table.dG),
-                  variant_table.numTests, errors)
+                  variant_table.numTests, errors, xdelta=xdelta)
     return
 
-def plotPercentErrorInBins(variant_table):
+def plotPercentErrorInBins(variant_table, xdelta=None):
     parameters = fitFun.fittingParameters()
     variant_table = variant_table.astype(float)
     errors = ((parameters.find_Kd_from_dG(variant_table.dG_ub) -
@@ -105,16 +105,14 @@ def plotPercentErrorInBins(variant_table):
     plotErrorBars(parameters.find_Kd_from_dG(variant_table.dG),
                   variant_table.numTests, errors,
                   ylim=ylim, yticks=yticks,
-                  ylabel=ylabel)
+                  ylabel=ylabel, xdelta=xdelta)
 
-def plotErrorBars(kds, numTests, errors, ylim=None, yticks=None, ylabel=None):
+def plotErrorBars(kds, numTests, errors, ylim=None, yticks=None, ylabel=None, xdelta=None):
 
     binedges = np.power(10., [0, 1, 2, 3, 4, 5])
     binned_Kds = np.digitize(kds, binedges)
 
-    numbers = np.unique(numTests)
-    xticks = np.arange(0, len(numbers), 5)[1:]
-    xticklabels = ['%d'%n  for n in xticks ]
+
     
     if ylim is None:
         ylim = [0, 1.5]
@@ -122,7 +120,13 @@ def plotErrorBars(kds, numTests, errors, ylim=None, yticks=None, ylabel=None):
         yticks = np.arange(0, 1.5, 0.25)
     if ylabel is None:
         ylabel = 'confidence interval width (kcal/mol)'
-        
+    if xdelta is None:
+        xdelta = 5
+
+    numbers = np.unique(numTests)
+    xticks = np.arange(0, len(numbers), xdelta)[1:]
+    xticklabels = ['%d'%n  for n in xticks ]
+
     fig = plt.figure(figsize=(6, 5))
     gs = gridspec.GridSpec(len(binedges)-1, 1)
     for i, bin_idx in enumerate(np.arange(1, len(binedges))):
@@ -163,7 +167,9 @@ def plotErrorBars(kds, numTests, errors, ylim=None, yticks=None, ylabel=None):
 
 
         
-def plotNumberInBins(variant_table):
+def plotNumberInBins(variant_table, xdelta=None):
+    if xdelta is None:
+        xdelta=5
     parameters = fitFun.fittingParameters()
     kds = parameters.find_Kd_from_dG(variant_table.dG.astype(float))
     numTests = variant_table.numTests
@@ -172,7 +178,7 @@ def plotNumberInBins(variant_table):
     binned_Kds = np.digitize(kds, binedges)
 
     numbers = np.unique(numTests)
-    xticks = np.arange(0, len(numbers), 5)[1:]
+    xticks = np.arange(0, len(numbers), xdelta)[1:]
     xticklabels = ['%d'%n  for n in xticks ]
     ylabel = 'number of variants'
         
@@ -187,18 +193,18 @@ def plotNumberInBins(variant_table):
                  rwidth=0.8,
                  alpha=0.5)
         ax.set_xticks(xticks)
-        ax.set_xlim(xticks[0]-1, xticks[-1]+1)
+        ax.set_xlim(0, xticks[-1]+1)
         if bin_idx == len(binedges)-1:
             ax.set_xticklabels(xticklabels)
             ax.set_xlabel('number of tests')
         else:
             ax.set_xticklabels('')
             ax.set_ylabel('')
-        
-        ylim = ax.get_ylim()
-        #ax.set_ylim(ylim)
-        delta = np.ceil(ylim[1]/100.)
-        ax.set_yticks(np.arange(0, delta*100, np.around(delta/4.)*100))
+        #
+        #ylim = ax.get_ylim()
+        ##ax.set_ylim(ylim)
+        #delta = np.ceil(ylim[1]/100.)
+        #ax.set_yticks(np.arange(0, delta*100, np.around(delta/4.)*100))
 
         ax.tick_params(top='off', right='off')
         ax.annotate('$10^%d \leq K_d \leq 10^%d$ nM'%(np.log10(binedges[i]),
@@ -266,6 +272,43 @@ def histogramKds(variant_table):
                  fontsize=10)
     plt.tight_layout()
     
+def plotScatterPlotColoredByFlag(results, results_dropped, concentrations, numPointsLost):
+    parameters = fitFun.fittingParameters()
+    # use the flag to determine the color
+    c = results_dropped.flag
+    c.loc[results.flag == 1] = -1
+    
+    kd_original = parameters.find_Kd_from_dG(results.dG.astype(float))
+    kd_dropped  = parameters.find_Kd_from_dG(results_dropped.dG.astype(float))
+    
+    cmap = sns.diverging_palette(20, 220, center="dark", as_cmap=True, )
+
+    fig = plt.figure(figsize=(3, 3))
+    ax = fig.add_subplot(111, aspect='equal')
+    xlim = [1E0, 5E2]
+    
+    plt.scatter(kd_original, kd_dropped, marker='.', alpha=0.5, s=20,
+                c=c.astype(float), vmin=-1, vmax=1, cmap=cmap, linewidth=0)
+    
+    #plt.xticks(np.arange(xlim[0], xlim[1]))
+    plt.xlim(xlim); plt.xlabel('$K_d$ (nM) all')
+    plt.ylim(xlim); plt.ylabel('$K_d$ (nM) dropped')
+    plt.plot(xlim, xlim, 'r', linewidth=0.5)
+    #plt.plot([concentrations[-1]]*2, xlim, 'k:', linewidth=0.5)
+    plt.plot(xlim, [concentrations[-numPointsLost]]*2, 'k:', linewidth=0.5)
+
+    ax.tick_params(top='off', right='off')
+    ax.tick_params(which="minor", top='off', right='off')
+    ax.set_xscale('log')
+    ax.set_yscale('log')
+    plt.annotate('$R^2$=%4.2f'%(st.pearsonr(np.log10(kd_original), np.log10(kd_dropped))[0]**2),
+                 xy=(0.95, 0.05),
+                 xycoords='axes fraction',
+                 horizontalalignment='right', verticalalignment='bottom',
+                 fontsize=10)
+    plt.tight_layout()
+    return
+
 
 def plotDeltaAbsFluorescence(bindingSeries, bindingSeriesBackground, concentrations=None):
     
