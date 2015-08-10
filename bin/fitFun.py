@@ -225,7 +225,7 @@ def fitSingleCurve(concentrations, fluorescence, fitParameters, func=None,
 
 def findErrorBarsBindingCurve(subSeries):
     try:
-        eminus, eplus = np.asarray([np.abs(subSeries.loc[:, i].median() -
+        eminus, eplus = np.asarray([np.abs(subSeries.loc[:, i].dropna().median() -
                                            bootstrap.ci(subSeries.loc[:, i].dropna(),
                                                         np.median, n_samples=1000))
                                     for i in subSeries]).transpose()
@@ -292,7 +292,8 @@ def bootstrapCurves(concentrations, subSeries, fitParameters, fmaxDist=None,
             warnings.simplefilter("ignore")
             eminus, eplus = findErrorBarsBindingCurve(subSeries)
     except:
-        eminus = eplus = default_errors/np.sqrt(numTests)
+        numTestsAny = np.array([len(subSeries.loc[:, col].dropna()) for col in subSeries])
+        eminus = eplus = default_errors/np.sqrt(numTestsAny)
 
     
     # find number of samples to bootstrap
@@ -395,7 +396,7 @@ def plotFitDistributions(results, singles, fitParameters):
 
 def plotFitCurve(concentrations, bindingSeries, results,
                           fitParameters, log_axis=None, func=None,
-                          fittype=None, errors=None):
+                          fittype=None, errors=None, default_errors=None):
     # default is to log axis
     if log_axis is None:
         log_axis = True
@@ -413,18 +414,23 @@ def plotFitCurve(concentrations, bindingSeries, results,
         fluorescence = bindingSeries.median()
     
     # get error
+    numTests = np.array([len(bindingSeries.loc[:, col].dropna()) for col in bindingSeries])
     if errors is None:
+        if default_errors is None:
+            default_errors = np.ones(len(concentrations))*np.nan
         try:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
-                errors = findErrorBarsBindingCurve(bindingSeries)
+                eminus, eplus = findErrorBarsBindingCurve(bindingSeries)
         except:
-            errors = [np.ones(len(concentrations))*np.nan]*2
+            eminus = eplus = default_errors/np.sqrt(numTests)
+        if np.all(np.isnan(eminus)) or np.all(np.isnan(eplus)):
+            eminus = eplus = default_errors/np.sqrt(numTests)
     
     # plot binding points
     plt.figure(figsize=(4,4));
     plt.errorbar(concentrations, fluorescence,
-                 yerr=errors, fmt='.', elinewidth=1,
+                 yerr=[eminus, eplus], fmt='.', elinewidth=1,
                  capsize=2, capthick=1, color='k', linewidth=1)
     
     # plot fit
