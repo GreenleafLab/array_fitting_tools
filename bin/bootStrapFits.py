@@ -124,7 +124,7 @@ def plotSingleVariantFits(table, results, variant, concentrations, plot_init=Non
                     fontsize=12)
                 
         
-def getInitialFitParameters(concentrations, initial_points):
+def getInitialFitParameters(concentrations, initial_points=None):
     parameters = fitFun.fittingParameters(concentrations=concentrations)
     fitParameters = pd.DataFrame(index=['lowerbound', 'initial', 'upperbound'],
                                  columns=['fmax', 'dG', 'fmin'])
