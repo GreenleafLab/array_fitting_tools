@@ -301,7 +301,7 @@ if __name__ == '__main__':
     if outFile is None:
         outFile = os.path.splitext(
             annotatedClusterFile[:annotatedClusterFile.find('.pkl')])[0]
-    
+
     # make fig directory    
     figDirectory = os.path.join(os.path.dirname(annotatedClusterFile),
                                 'figs_%s'%str(datetime.date.today()))
