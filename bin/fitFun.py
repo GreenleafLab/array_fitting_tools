@@ -55,9 +55,8 @@ class fittingParameters():
         self.saturation_level   = 0.25
         
         # also add other things
-        self.params = params
-        self.fitParameters = fitParameters
-        self.default_errors = default_errors
+        self.cutoff_kd = 5000
+        self.cutoff_dG = self.find_dG_from_Kd(self.cutoff_kd)
 
         # if concentrations are defined, do some more things
         if concentrations is not None:
@@ -712,3 +711,20 @@ def fitSigmaDist(x, y, weights=None):
                                           weights=np.sqrt(tight_binders.numTests)))
     min_sigma = seqfun.remove_outlier(tight_binders.fmax_init).std()
     params.add('min_sigma', value=min_sigma, vary=False)
+    
+def errorPropagationKdFromKoffKobs(koff, kobs, c, sigma_koff, sigma_kobs):
+    koff = koff.astype(float)
+    kobs = kobs.astype(float)
+    sigma_koff = sigma_koff.astype(float)
+    sigma_kobs = sigma_kobs.astype(float)
+    sigma_kd = np.sqrt(
+        (( c*kobs/(kobs-koff)**2)*sigma_koff)**2 +
+        ((-c*koff/(kobs-koff)**2)*sigma_kobs)**2)
+    return sigma_kd
+
+def errorProgagationKdFromdG(dG, sigma_dG):
+    dG = dG.astype(float)
+    sigma_dG = sigma_dG.astype(float)
+    parameters = fittingParameters()
+    sigma_kd = parameters.find_Kd_from_dG(dG)/parameters.RT*sigma_dG
+    return sigma_kd
