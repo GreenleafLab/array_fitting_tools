@@ -174,19 +174,31 @@ def fitRates(bindingCurveFilename, timesFilename, annotatedClusterFile,
     results = (Parallel(n_jobs=numCores, verbose=10)
                 (delayed(perVariant)(times, groupDict[name], fitParameters,
                                      func=func, n_samples=n_samples,
-                                     default_errors=default_errors)
+                                     default_errors=default_errors, fittype=fittype)
                  for name in variants))
     results = pd.concat(results, keys=variants, axis=1).transpose()
     return results
 
-def checkFits(results):
-    goodFit = ((results.fmax > results.fmin)&
-               (results.fmax_lb > 3*results.fmin_ub)&
-               (results.fmin > 1E-2)&
-               (results.fmax > 2E-1)&
-               ((results.koff_ub - results.koff_lb)/results.koff < 2))
+def checkFits(results, fittype=None):
+    if fittype is None:
+        fittype = 'off'
     
+    if fittype == 'off':
+        goodFit = ((results.fmax > results.fmin)&
+                   (results.fmax_lb > 3*results.fmin_ub)&
+                   (results.fmin > 1E-2)&
+                   (results.fmax > 2E-1)&
+                   ((results.koff_ub - results.koff_lb)/results.koff < 2))
+    elif fittype == 'on':
+        goodFit = ((results.fmax > 0)&
+                   (results.fmin > 7.5E-2)&
+                   (results.fmax > 5E-2)&
+                   (results.kobs > 0.000002)&
+                   ((results.kobs_ub - results.kobs_lb)/results.kobs < 2))
     return goodFit
+
+
+
 
 ##### SCRIPT #####
 if __name__ == '__main__':
