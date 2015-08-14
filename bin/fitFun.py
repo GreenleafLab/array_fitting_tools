@@ -55,9 +55,8 @@ class fittingParameters():
         self.saturation_level   = 0.25
         
         # also add other things
-        self.params = params
-        self.fitParameters = fitParameters
-        self.default_errors = default_errors
+        self.cutoff_kd = 5000
+        self.cutoff_dG = self.find_dG_from_Kd(self.cutoff_kd)
 
         # if concentrations are defined, do some more things
         if concentrations is not None:
@@ -225,7 +224,7 @@ def fitSingleCurve(concentrations, fluorescence, fitParameters, func=None,
 
 def findErrorBarsBindingCurve(subSeries):
     try:
-        eminus, eplus = np.asarray([np.abs(subSeries.loc[:, i].median() -
+        eminus, eplus = np.asarray([np.abs(subSeries.loc[:, i].dropna().median() -
                                            bootstrap.ci(subSeries.loc[:, i].dropna(),
                                                         np.median, n_samples=1000))
                                     for i in subSeries]).transpose()
@@ -264,7 +263,7 @@ def enforceFmaxDistribution(median_fluorescence, fitParameters, verbose=None):
 
 
 def bootstrapCurves(concentrations, subSeries, fitParameters, fmaxDist=None,
-                    default_errors=None, verbose=None, n_samples=None,
+                    default_errors=None, use_default=None, verbose=None, n_samples=None,
                     enforce_fmax=None, func=None):
     # set defaults for various parameters
     if n_samples is None:
@@ -280,22 +279,30 @@ def bootstrapCurves(concentrations, subSeries, fitParameters, fmaxDist=None,
         print ('Error: if you wish to enforce fmax, need to define "fmaxDist"\n'
                'which is a instance of a normal distribution with mean and sigma\n'
                'defining the expected distribution of fmax')
+    if use_default is None:
+        use_default = False # if flagged, use only default errors
     
     if func is None:
         func = bindingCurveObjectiveFunction
+        
     # estimate weights to use in weighted least squares fitting
-    numTests = len(subSeries)
     if default_errors is None:
         default_errors = np.ones(len(concentrations))*np.nan
-    try:
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            eminus, eplus = findErrorBarsBindingCurve(subSeries)
-    except:
-        eminus = eplus = default_errors/np.sqrt(numTests)
+    if not use_default:
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                eminus, eplus = findErrorBarsBindingCurve(subSeries)
+        except:
+            use_default=True
+    # option to use only default errors provdided for quicker runtime
+    if use_default:
+        numTestsAny = np.array([len(subSeries.loc[:, col].dropna()) for col in subSeries])
+        eminus = eplus = default_errors/np.sqrt(numTestsAny)
 
     
     # find number of samples to bootstrap
+    numTests = len(subSeries)
     if numTests <10 and np.power(numTests, numTests) <= n_samples:
         # then do all possible permutations
         if verbose:
@@ -393,9 +400,9 @@ def plotFitDistributions(results, singles, fitParameters):
         plt.tight_layout()
     return
 
-def plotFitCurve(concentrations, bindingSeries, results,
-                          fitParameters, log_axis=None, func=None,
-                          fittype=None, errors=None):
+def plotFitCurve(concentrations, subSeries, results,
+                          fitParameters, log_axis=None, func=None, use_default=None,
+                          fittype=None, errors=None, default_errors=None):
     # default is to log axis
     if log_axis is None:
         log_axis = True
@@ -406,25 +413,50 @@ def plotFitCurve(concentrations, bindingSeries, results,
     
     if fittype is None:
         fittype = 'binding'
-        
-    if len(bindingSeries.shape) == 1:
-        fluorescence = bindingSeries
-    else:
-        fluorescence = bindingSeries.median()
     
-    # get error
-    if errors is None:
+    if use_default is None:
+        use_default = False
+        
+    if len(subSeries.shape) == 1:
+        fluorescence = subSeries
+    else:
+        fluorescence = subSeries.median()
+    
+    #
+    if default_errors is None:
+        default_errors = np.ones(len(concentrations))*np.nan
+    if not use_default:
         try:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
-                errors = findErrorBarsBindingCurve(bindingSeries)
+                eminus, eplus = findErrorBarsBindingCurve(subSeries)
         except:
-            errors = [np.ones(len(concentrations))*np.nan]*2
+            use_default=True
+        if np.all(np.isnan(eminus)) or np.all(np.isnan(eplus)):
+            use_default=True
+    # option to use only default errors provdided for quicker runtime
+    if use_default:
+        numTestsAny = np.array([len(subSeries.loc[:, col].dropna()) for col in subSeries])
+        eminus = eplus = default_errors/np.sqrt(numTestsAny)
+        
+    # get error
+    numTests = np.array([len(subSeries.loc[:, col].dropna()) for col in subSeries])
+    if errors is None:
+        if default_errors is None:
+            default_errors = np.ones(len(concentrations))*np.nan
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                eminus, eplus = findErrorBarsBindingCurve(subSeries)
+        except:
+            eminus = eplus = default_errors/np.sqrt(numTests)
+        if np.all(np.isnan(eminus)) or np.all(np.isnan(eplus)):
+            eminus = eplus = default_errors/np.sqrt(numTests)
     
     # plot binding points
     plt.figure(figsize=(4,4));
     plt.errorbar(concentrations, fluorescence,
-                 yerr=errors, fmt='.', elinewidth=1,
+                 yerr=[eminus, eplus], fmt='.', elinewidth=1,
                  capsize=2, capthick=1, color='k', linewidth=1)
     
     # plot fit
@@ -447,7 +479,10 @@ def plotFitCurve(concentrations, bindingSeries, results,
     try:
         # find upper bound
         params_ub = Parameters()
-        if fittype == 'binding' or fittype == 'off':
+        if fittype == 'binding':
+            ub_vec = ['_ub', '_lb', '']
+            lb_vec = ['_lb', '_ub', '']
+        elif fittype == 'off':
             ub_vec = ['_ub', '_lb', '_ub']
             lb_vec = ['_lb', '_ub', '_lb']
         elif fittype == 'on':
@@ -539,11 +574,12 @@ def getBoundsGivenDistribution(values, label=None, saturation_level=None,
         ax.set_xlabel(label)
     return fitParameters
 
-def useSimulatedOrActual(variant_table):
+def useSimulatedOrActual(variant_table, concentrations):
     # if at least 20 data points have at least 10 counts in that bin, use actual
     # data. This statistics seem reasonable for fitting
-
-    counts, binedges = np.histogram(variant_table.numTests,
+    parameters = fittingParameters(concentrations=concentrations)
+    index = variant_table.dG_init < parameters.maxdG
+    counts, binedges = np.histogram(variant_table.loc[index].numTests,
                                     np.arange(1, variant_table.numTests.max()))
     if (counts > 10).sum() >= 20:
         use_actual = True
@@ -675,3 +711,20 @@ def fitSigmaDist(x, y, weights=None):
                                           weights=np.sqrt(tight_binders.numTests)))
     min_sigma = seqfun.remove_outlier(tight_binders.fmax_init).std()
     params.add('min_sigma', value=min_sigma, vary=False)
+    
+def errorPropagationKdFromKoffKobs(koff, kobs, c, sigma_koff, sigma_kobs):
+    koff = koff.astype(float)
+    kobs = kobs.astype(float)
+    sigma_koff = sigma_koff.astype(float)
+    sigma_kobs = sigma_kobs.astype(float)
+    sigma_kd = np.sqrt(
+        (( c*kobs/(kobs-koff)**2)*sigma_koff)**2 +
+        ((-c*koff/(kobs-koff)**2)*sigma_kobs)**2)
+    return sigma_kd
+
+def errorProgagationKdFromdG(dG, sigma_dG):
+    dG = dG.astype(float)
+    sigma_dG = sigma_dG.astype(float)
+    parameters = fittingParameters()
+    sigma_kd = parameters.find_Kd_from_dG(dG)/parameters.RT*sigma_dG
+    return sigma_kd

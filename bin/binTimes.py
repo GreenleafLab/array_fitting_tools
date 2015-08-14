@@ -38,6 +38,12 @@ parser.add_argument('-td', '--timeDeltaDict', metavar="timeDict.pkl",
 parser.add_argument('-o', '--out_file', 
                    help='output basename')
 
+group = parser.add_argument_group('optional arguments for binning')
+group.add_argument('--n_tiles', type=int, default=2, metavar="N",
+                    help='minimum number of tiles to include time point. Default is 2. '
+                    'Set to 1 if you wish to include a time point even if only 1 tile is fit')
+
+
 
 ##### SCRIPT #####
 if __name__ == '__main__':
@@ -55,7 +61,7 @@ if __name__ == '__main__':
     
     # process output filenames
     timesFilename = outFile + '.times.txt'
-    bindingCurveFilename = outFile + '.bindingCurve.pkl'
+    bindingCurveFilename = outFile + '.bindingSeries.pkl'
 
     # laod timing info and fluorescence info
 
@@ -80,20 +86,27 @@ if __name__ == '__main__':
                                min_time_delta)
     
     # find which times in universal times have variants
-    cols = []
+    cols = {}
     for tile, times in timeDelta.items():
-        cols.append(np.searchsorted(universalTimes, times))
-    finalCols = np.unique(np.hstack(cols))
-        
+        cols[tile] = np.searchsorted(universalTimes, times, side='right')
+    finalCols = np.unique(np.hstack(cols.values()))
+           
     # remake binding series file
+    tileMap = pd.DataFrame(data=0, index=np.sort(cols.keys()), columns=finalCols)
     timeSeriesNorm = pd.DataFrame(index=bindingSeriesNorm.index,
                                   columns=finalCols)
     for tile, times in timeDelta.items():
         print 'adding tile %s'%tile
         index = tiles == tile
         old_cols = np.arange(len(times))
-        cols = np.searchsorted(universalTimes, times)
-        timeSeriesNorm.loc[index, cols] = bindingSeriesNorm.loc[index,old_cols].values
+        timeSeriesNorm.loc[index, cols[tile]] = bindingSeriesNorm.loc[index,old_cols].values
+        tileMap.loc[tile, cols[tile]] = 1
+        
+    # how many tiles do you want to include data point?
+    min_num_tiles = args.n_tiles
+    index = (tileMap.sum() >= min_num_tiles)
+    finalCols = finalCols[index.values]
+    timeSeriesNorm = timeSeriesNorm.loc[:, index]
     
     # save times and 
     finalTimes = pd.Series(universalTimes[finalCols], index=finalCols)

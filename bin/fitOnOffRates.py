@@ -37,7 +37,7 @@ parser.add_argument('-ft', '--fittype', default='off', metavar="[off | on]",
                    help='fittype ["off" | "on"]. Default is "off" for off rates')
 
 group = parser.add_argument_group('inputs starting from time-binned binding series file') 
-group.add_argument('-b', '--binding_curves', metavar="bindingCurve.pkl",
+group.add_argument('-b', '--binding_curves', metavar=".bindingSeries.pkl",
                    help='file containining the binding curve information'
                    ' binned over time.')
 group.add_argument('-t', '--times', metavar="times.txt",
@@ -47,7 +47,9 @@ group = parser.add_argument_group('additional option arguments')
 group.add_argument('--n_samples', default=100, type=int, metavar="N",
                    help='number of times to bootstrap samples')
 group.add_argument('-n', '--numCores', default=20, type=int, metavar="N",
-                   help='number of cores')
+                   help='number of cores. default = 20')
+group.add_argument('--init', action="store_true", default=False, 
+                   help='flag if you wish to simply initiate fitting, not actually fit')
 
 def objectiveFunctionOffRates(params, times, data=None, weights=None):
     parvals = params.valuesdict()
@@ -104,7 +106,8 @@ def getInitialParameters(times, fittype=None):
     return fitParameters
 
 
-def perVariant(times, subSeries, fitParameters, func=None, plot=None, fittype=None):
+def perVariant(times, subSeries, fitParameters, func=None, plot=None,
+               fittype=None, default_errors=None, n_samples=None):
     if plot is None:
         plot = False
     a, b = np.percentile(subSeries.median().dropna(), [1, 99])
@@ -112,28 +115,22 @@ def perVariant(times, subSeries, fitParameters, func=None, plot=None, fittype=No
     fitParameters.loc['initial', ['fmin', 'fmax']] = [a, b-a]
 
     results, singles = fitFun.bootstrapCurves(times, subSeries, fitParameters,
-                                              func=func, enforce_fmax=False)
+                                              func=func, enforce_fmax=False,
+                                              default_errors=default_errors,
+                                              n_samples=n_samples,
+                                              use_default=True)
     if plot:
         fitFun.plotFitCurve(times,
                                      subSeries,
                                      results,
                                      fitParameters,
-                                     log_axis=False, func=func, fittype=fittype)
+                                     log_axis=False, func=func, fittype=fittype,
+                                     default_errors=default_errors,
+                                     use_default=True)
     return results
 
-
-
-def fitRates(bindingCurveFilename, timesFilename, annotatedClusterFile,
-                fittype=None):
-    if fittype is None: fittype = 'off'
-    if fittype == 'off':
-        func = objectiveFunctionOffRates
-    elif fittype == 'on':
-        func = objectiveFunctionOnRates
-    else:
-        print ('Error: fittype "%s" not recognized. Valid options are '
-               '"on" or "off".')%fittype
-
+def initiateFits(bindingCurveFilename, timesFilename, annotatedClusterFile):
+    print "Loading time series and splitting by variants..."
     table = (pd.concat([pd.read_pickle(annotatedClusterFile),
                         pd.read_pickle(bindingCurveFilename)], axis=1).
              sort('variant_number'))
@@ -144,6 +141,9 @@ def fitRates(bindingCurveFilename, timesFilename, annotatedClusterFile,
     # fit only clusters that are not all NaN
     table.dropna(axis=0, subset=table.columns[1:], how='all',inplace=True)
     
+    # get deafult errors
+    default_errors = table.astype(float).groupby('variant_number').std().mean()
+    
     # load times
     times = np.loadtxt(timesFilename)
     fitParameters = getInitialParameters(times,
@@ -153,17 +153,51 @@ def fitRates(bindingCurveFilename, timesFilename, annotatedClusterFile,
     groupDict = {}
     for name, group in grouped:
         groupDict[name] = group.iloc[:, 1:].astype(float)
+    return times, groupDict, fitParameters, table, default_errors
 
+def fitRates(bindingCurveFilename, timesFilename, annotatedClusterFile,
+                fittype=None, n_samples=None, variants=None):
+    if fittype is None: fittype = 'off'
+    if fittype == 'off':
+        func = objectiveFunctionOffRates
+    elif fittype == 'on':
+        func = objectiveFunctionOnRates
+    else:
+        print ('Error: fittype "%s" not recognized. Valid options are '
+               '"on" or "off".')%fittype
 
+    times, groupDict, fitParameters, table, default_errors = (
+        initiateFits(bindingCurveFilename, timesFilename, annotatedClusterFile))
     print '\tMultiprocessing bootstrapping...'
+    if variants is None:
+        variants = groupDict.keys()
     results = (Parallel(n_jobs=numCores, verbose=10)
                 (delayed(perVariant)(times, groupDict[name], fitParameters,
-                                     func=func)
-                 for name in groupDict.keys()))
-    results = pd.concat(results, keys=[name for name in groupDict.iterkeys()], axis=1).transpose()
+                                     func=func, n_samples=n_samples,
+                                     default_errors=default_errors, fittype=fittype)
+                 for name in variants))
+    results = pd.concat(results, keys=variants, axis=1).transpose()
     return results
 
+def checkFits(results, fittype=None):
+    if fittype is None:
+        fittype = 'off'
     
+    if fittype == 'off':
+        goodFit = ((results.fmax > results.fmin)&
+                   (results.fmax_lb > 3*results.fmin_ub)&
+                   (results.fmin > 1E-2)&
+                   (results.fmax > 2E-1)&
+                   ((results.koff_ub - results.koff_lb)/results.koff < 2))
+    elif fittype == 'on':
+        goodFit = ((results.fmax > 0)&
+                   (results.fmin > 7.5E-2)&
+                   (results.fmax > 5E-2)&
+                   (results.kobs > 0.000002)&
+                   ((results.kobs_ub - results.kobs_lb)/results.kobs < 2))
+    return goodFit
+
+
 
 
 ##### SCRIPT #####
@@ -176,7 +210,7 @@ if __name__ == '__main__':
     timesFilename        = args.times
     fittype              = args.fittype
     numCores             = args.numCores
-    
+    n_samples            = args.n_samples
     # find out file
     if outFile is None:
         outFile = os.path.splitext(
@@ -190,13 +224,17 @@ if __name__ == '__main__':
         bindingCurveFilename = outFile + '.bindingCurve.pkl'
 
     # fit curves
-    results = fitRates(bindingCurveFilename, timesFilename, annotatedClusterFile,
-                fittype=fittype)
-
-    results.to_csv(outFile+'.CPresults', sep='\t')
+    if not args.init:
+        results = fitRates(bindingCurveFilename, timesFilename, annotatedClusterFile,
+                    fittype=fittype, n_samples=n_samples)
     
+        results.to_csv(outFile+'.CPresults', sep='\t')
+        sys.exit()
+    else:
+        times, groupDict, fitParameters, table, default_errors = initiateFits(bindingCurveFilename,
+                                                       timesFilename,
+                                                       annotatedClusterFile)    
     sys.exit()
-    
     
     # plot all variants
     figDirectory = 'offRates/figs_2015-08-06/off_rate_curves'
@@ -205,7 +243,8 @@ if __name__ == '__main__':
             fitFun.plotFitCurve(times, groupDict[variant],
                                          results.loc[variant],
                                  fitParameters, log_axis=False,
-                                 func=objectiveFunctionOffRates, fittype='off')
+                                 func=objectiveFunctionOffRates, fittype='off',
+                                 default_errors=default_errors,use_default=True)
             plt.ylim([0, 1.5])
             plt.savefig(os.path.join(figDirectory, 'off_rate_curve.variant_%d.pdf'%variant))
         except:

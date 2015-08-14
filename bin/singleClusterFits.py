@@ -123,7 +123,7 @@ def perCluster(concentrations, fluorescence, fitParameters, plot=None, change_pa
         if change_params:
             a, b = np.percentile(fluorescence.dropna(), [0, 100])
             fitParameters = fitParameters.copy()
-            fitParameters.loc['initial', ['fmin', 'fmax']] = [a, b-a]
+            fitParameters.loc['initial', ['fmin', 'fmax']] = [a, b]
         
         index = np.isfinite(fluorescence)
         single = fitFun.fitSingleCurve(concentrations[index.values],

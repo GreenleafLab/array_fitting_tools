@@ -8,14 +8,13 @@ mf=$2
 od=$3
 lc=$4
 bar=$5
-c=$6
-f=$(echo $@ | awk '{for (i=7; i<=NF; i++) print $i}')
+f=$(echo $@ | awk '{for (i=6; i<=NF; i++) print $i}')
 
 set -e -o nounset
 # help
 if [ -z "$ftd" ]
 then
-    echo "Script to process data, annotate sequences, fit single clusters,
+    echo "Script to process data, annotate sequences, bin times,
     and bootstrap the fits."
     echo "Arguments:
     (1) a directory of CPseq files,
@@ -23,26 +22,23 @@ then
     (3) an output directory,
     (4) a library characterization file,
     (5) a unique barcodes file,
-    (6) file of concentrations
-    (7) a list of filter names to fit."
+    (6) a list of filter names to fit."
     echo "Example:"
-    echo "run_all_binding_curves.sh \\
+    echo "run_all_onrates.sh \\
     ../seqData/tiles/filtered_tiles_indexed/ \\
-    bindingCurves/bindingCurves.map \\
-    bindingCurves \\
+    onRates/onrates.map \\
+    onRates \\
     ../../150311_library_v2/all_10expts.library_characterization.txt \\
     ../../150608_barcode_mapping_lib2/tecto_lib2.150728.unique_barcodes \\
-    concentrations.txt \\
     anyRNA "
     exit
 fi
 
 # process data
-python -m processData -fs $ftd -mf $mf -od $od -fp $f
-output=$(find $od -maxdepth 1  -name "*CPsignal" -type f)
+python -m processData -fs $ftd -mf $mf -od $od -fp $f -r
 
 # check success
-if [ $? -eq 0 -a -f $output ];
+if [ $? -eq 0 ]
 then
     echo "Successfully processed data"
 else
@@ -50,7 +46,7 @@ else
     exit
 fi
 
-basename=$(echo $output | awk '{print substr($1, 1, length($1)-9)}')
+basename=$(find $od -maxdepth 1  -name "*CPsignal" -type f | awk '{print substr($1, 1, length($1)-9)}')
 
 # annotate data
 if [ -f $basename".CPannot.pkl" ];
@@ -69,39 +65,36 @@ else
     fi
 fi
 
-# fit single clusters 
-if [ -f $basename".CPfitted.pkl" ];
+# bin the times
+if [ -f $basename".bindingSeries.pkl" ];
 then
-    echo "CPfitted file exists: "$basename".CPfitted.pkl"
+    echo "Time series file exists: "$basename".bindingSeries.pkl"
 else
-    python -m singleClusterFits -cs $basename".CPsignal.pkl" -c $c -n 20
-
+    python -m binTimes -cs $basename".CPsignal.pkl" -td $od"/rates.timeDict.pkl"
+    
     # check success
     if [ $? -eq 0 ]
     then
-        echo "Successfully fit single clusters."
+        echo "Successfully binned times"
     else
-        echo "Error fitting single clusters"
+        echo "Error binning times"
         exit
     fi
 fi
 
-# bootstrap variants 
-if [ -f $basename".CPvariant" ];
+# fit on rates
+if [ -f $basename".CPresults" ];
 then
-    echo "CPfitted file exists: "$basename".CPvariant"
+    echo "Fit results file exists: "$basename".CPresults"
 else
-    python -m bootStrapFits -t $basename".CPfitted.pkl" -c $c -a $basename".CPannot.pkl" -b $basename".bindingSeries.pkl" -n 20
-
+    python -m fitOnOffRates -a $basename".CPannot.pkl" -t $basename".times.txt" -b $basename".bindingSeries.pkl" -n 20 --n_samples 100 -ft on
+    
     # check success
     if [ $? -eq 0 ]
     then
-        echo "Successfully bootstrapped fits."
+        echo "Successfully binned times"
     else
-        echo "Error fitting bootstrapping fits"
+        echo "Error binning times"
         exit
     fi
 fi
-
-
-
