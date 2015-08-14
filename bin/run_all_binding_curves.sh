@@ -7,7 +7,7 @@ ftd=$1
 mf=$2
 od=$3
 lc=$4
-ub=$5
+bar=$5
 c=$6
 f=$(echo $@ | awk '{for (i=7; i<=NF; i++) print $i}')
 
@@ -26,7 +26,7 @@ then
     (6) file of concentrations
     (7) a list of filter names to fit."
     echo "Example:"
-    echo "~/array_image_tools_SKD/bin/run_all_binding_curves.sh \\
+    echo "run_all_binding_curves.sh \\
     ../seqData/tiles/filtered_tiles_indexed/ \\
     bindingCurves/bindingCurves.map \\
     bindingCurves \\
@@ -39,9 +39,10 @@ fi
 
 # process data
 python -m processData -fs $ftd -mf $mf -od $od -fp $f
+output=$(find $od -maxdepth 1  -name "*CPsignal" -type f)
 
 # check success
-if [ $? -eq 0 ]
+if [ $? -eq 0 -a -f $output ];
 then
     echo "Successfully processed data"
 else
@@ -49,12 +50,12 @@ else
     exit
 fi
 
-basename=$(find $od -maxdepth 1  -name "*CPsignal" -type f | awk '{print substr($1, 1, length($1)-9)}')
+basename=$(echo $output | awk '{print substr($1, 1, length($1)-9)}')
 
 # annotate data
 if [ -f $basename".CPannot.pkl" ];
 then
-    echo "CPannot file exists: "$basename"$.CPannot.pkl"
+    echo "CPannot file exists: "$basename".CPannot.pkl"
 else
     python -m findSeqDistribution -lc $lc -cs $basename".CPsignal.pkl" -bar $bar
     
