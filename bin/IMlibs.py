@@ -439,23 +439,25 @@ def loadBindingCurveFromCPsignal(filename, concentrations=None, subset=None, ind
                             usecols=[index_col, 'binding_series'])
     if subset is not None:
         table = table.loc[subset]
-        
+    
+    
     print 'Splitting binding series...'
-    tmpFile = filename+'.tmp'
-    np.savetxt(tmpFile, table.binding_series.values, fmt='%s')
-    binding_series = pd.read_csv(tmpFile, header=None, names=formatted_concentrations)
-
+    try:
+        # not sure why this error is happeneing and that should probably be fixed.
+        # but hopefully this try/except clause gets around it!
+        tmpFile = filename+'.tmp'
+        np.savetxt(tmpFile, table.binding_series.values, fmt='%s')
+        binding_series = pd.read_csv(tmpFile, header=None, names=formatted_concentrations)
+        os.remove(tmpFile)
+        binding_series.index = table.index
+        
+    except:
+        # this may be slower
+        binding_series = splitBindingCurve(table)
+        
     for col in binding_series:
         binding_series.loc[:, col] = binding_series.loc[:, col].astype(float)
-    binding_series.index = table.index
-
-    os.remove(tmpFile)       
     
-    #tableSplit = [table.loc[index] for index in np.array_split(table.index,
-    #                                                           np.ceil(len(table)/10000.))]
-    #binding_series = pd.concat([splitBindingCurve(subtable)
-    #                            for subtable in tableSplit])   
-
     all_cluster_signal = loadCPseqSignal(filename,
                                          index_col=index_col,
                                          usecols=[index_col, 'all_cluster_signal'])
