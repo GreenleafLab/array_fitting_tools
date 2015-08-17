@@ -20,7 +20,8 @@ from joblib import Parallel, delayed
 sns.set_style("white", {'xtick.major.size': 4,  'ytick.major.size': 4})
 import lmfit
 import fitFun
-import itertools    
+import itertools
+import plotFun
 
 
 ### MAIN ###
@@ -113,4 +114,6 @@ if __name__ == '__main__':
     timeSeriesNorm.to_pickle(bindingCurveFilename)
     np.savetxt(timesFilename, finalTimes.values)
     
+    # plot the number of tiles and times
+    plotFun.plotNumberOfTilesFitRates(tileMap, universalTimes)
     

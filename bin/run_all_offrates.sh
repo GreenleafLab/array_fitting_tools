@@ -34,6 +34,9 @@ then
     exit
 fi
 
+# print command
+echo "run_all_offrates.sh $ftd $mf $od $lc $bar $f"
+
 # process data
 python -m processData -fs $ftd -mf $mf -od $od -fp $f -r
 output=$(find $od -maxdepth 1  -name "*CPsignal" -type f)
@@ -54,8 +57,15 @@ if [ -f $basename".CPannot.pkl" ];
 then
     echo "CPannot file exists: "$basename".CPannot.pkl"
 else
-    echo "python -m findSeqDistribution -lc $lc -cs $basename".CPsignal.pkl" -bar $bar"
-    python -m findSeqDistribution -lc $lc -cs $basename".CPsignal.pkl" -bar $bar
+    if [ -f $bar ];
+    then
+        echo "python -m findSeqDistribution -lc $lc -cs $basename".CPsignal.pkl" -bar $bar"
+        python -m findSeqDistribution -lc $lc -cs $basename".CPsignal.pkl" -bar $bar
+    else
+        echo "Warning! Unique barcodes file doesn't exist! Proceeding without it!"
+        echo "python -m findSeqDistribution -lc $lc -cs $basename".CPsignal.pkl""
+        python -m findSeqDistribution -lc $lc -cs $basename".CPsignal.pkl"
+    fi
     
     # check success
     if [ $? -eq 0 ]
@@ -72,6 +82,7 @@ if [ -f $basename".bindingSeries.pkl" ];
 then
     echo "Time series file exists: "$basename".bindingSeries.pkl"
 else
+    echo "python -m binTimes -cs $basename".CPsignal.pkl" -td $od"/rates.timeDict.pkl""
     python -m binTimes -cs $basename".CPsignal.pkl" -td $od"/rates.timeDict.pkl"
     
     # check success
@@ -95,9 +106,9 @@ else
     # check success
     if [ $? -eq 0 ]
     then
-        echo "Successfully binned times"
+        echo "Successfully fit off rates"
     else
-        echo "Error binning times"
+        echo "Error fitting off rates"
         exit
     fi
 fi

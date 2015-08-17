@@ -44,7 +44,8 @@ group.add_argument('--barcodeCol', default='index1_seq',
                    help='if using barcode map, this indicates the column of CPsignal'
                    'file giving the barcode. Default is "index1_seq"')
 group.add_argument('--seqCol', default='read2_seq',
-                   help='when looking for variants, look within this sequence')
+                   help='when looking for variants, look within this sequence. '
+                   'Default is "read2_seq"')
 group.add_argument('--noReverseComplement', default=False, action="store_true",
                    help='when looking for variants, default is to look for the'
                    'reverse complement. Flag if you want to look for forward sequence')
@@ -102,8 +103,8 @@ def findSeqMap(libCharacterizationFile, cpSignalFile, uniqueBarcodesFile=None,
     if mapToBarcode is None:
         if uniqueBarcodesFile is not None:
             mapToBarcode = True
-    else:
-        mapToBarcode = False
+        else:
+            mapToBarcode = False
     if not mapToBarcode and seqCol is None:
         print 'Error: need to define seqCol if using cpSignal file'
         return
@@ -207,13 +208,18 @@ if __name__ == '__main__':
     # load files
     args = parser.parse_args()
     
-    #consensusFile = options.b
-    #libraryFile = options.l # i.e. '../../all3x3.all.library'
-    #outFile = options.o
-    #outDir = os.path.dirname(outFile)
-    if args.out_file is None:
-        args.out_file = os.path.splitext(
-            args.cpsignal[:args.cpsignal.find('.pkl')])[0]
+    libCharacterizationFile = args.library_characterization
+    cpSignalFile = args.cpsignal
+    uniqueBarcodesFile = args.unique_barcodes
+    reverseComplement = not args.noReverseComplement
+    seqCol = args.seqCol
+    barcodeCol = args.barcodeCol
+    outFile = args.out_file
+
+    if outFile is None:
+        outFile = os.path.splitext(
+            cpSignalFile[:cpSignalFile.find('.pkl')])[0]
+    
     
     seqMap = findSeqMap(args.library_characterization, args.cpsignal,
                   uniqueBarcodesFile=args.unique_barcodes,
@@ -222,8 +228,8 @@ if __name__ == '__main__':
                       barcodeCol=args.barcodeCol)
 
     if args.save_text:
-        seqMap.to_csv(args.out_file, index=True, float_format='%4.0f', sep='\t')
+        seqMap.to_csv(outFile + '.CPannot', index=True, float_format='%4.0f', sep='\t')
     else:
-        seqMap.to_pickle(args.out_file + '.CPannot.pkl')
+        seqMap.to_pickle(outFile + '.CPannot.pkl')
 
  

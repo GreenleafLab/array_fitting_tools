@@ -233,11 +233,12 @@ if __name__ == '__main__':
     else:
         times, groupDict, fitParameters, table, default_errors = initiateFits(bindingCurveFilename,
                                                        timesFilename,
-                                                       annotatedClusterFile)    
+                                                       annotatedClusterFile)
+        results = pd.read_table(outFile+'.CPresults', index_col=0)
     sys.exit()
     
     # plot all variants
-    figDirectory = 'offRates/figs_2015-08-06/off_rate_curves'
+    figDirectory = 'offRates/figs_2015-08-16/off_rate_curves'
     for variant in results.index:
         try:
             fitFun.plotFitCurve(times, groupDict[variant],
@@ -245,7 +246,7 @@ if __name__ == '__main__':
                                  fitParameters, log_axis=False,
                                  func=objectiveFunctionOffRates, fittype='off',
                                  default_errors=default_errors,use_default=True)
-            plt.ylim([0, 1.5])
+            #plt.ylim([0, 1.5])
             plt.savefig(os.path.join(figDirectory, 'off_rate_curve.variant_%d.pdf'%variant))
         except:
             print 'issue with variant %d'%variant

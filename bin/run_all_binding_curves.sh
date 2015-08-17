@@ -37,6 +37,9 @@ then
     exit
 fi
 
+# print command
+echo "run_all_binding_curves.sh $ftd $mf $od $lc $bar $c $f"
+
 # process data
 python -m processData -fs $ftd -mf $mf -od $od -fp $f
 output=$(find $od -maxdepth 1  -name "*CPsignal" -type f)

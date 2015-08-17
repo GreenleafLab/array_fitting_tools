@@ -222,14 +222,14 @@ def plotNumberInBins(variant_table, xdelta=None):
     return
 
 def plotNumberTotal(variant_table, binedges=None, variant_table2=None):
-    bins = np.arange(100)
-    fig = plt.figure(figsize=(2.5,2.5))
+    bins = np.arange(120)
+    fig = plt.figure(figsize=(3.5,2.5))
     hist, binedges, patches = plt.hist(variant_table.numTests.astype(float).values,
-                            bins=bins, histtype='stepfilled', alpha=0.5, color='grey')
-    plt.plot((binedges[:-1]+binedges[1:])*0.5, hist, linewidth=1, alpha=0.1, color='grey' )
+                            bins=bins, histtype='stepfilled', alpha=0.5, color=sns.xkcd_rgb['navy blue'])
+    plt.plot((binedges[:-1]+binedges[1:])*0.5, hist, linewidth=1, alpha=0.1, color=sns.xkcd_rgb['navy blue'])
     #sns.distplot(variant_table.numTests.astype(float).values, bins=bins,
     #            hist_kws={'histtype':'stepfilled'}, color='grey')
-    plt.xlabel('# measurements')
+    plt.xlabel('# tests')
     plt.ylabel('# variants')
     plt.tight_layout()
     ax = plt.gca()
@@ -237,8 +237,8 @@ def plotNumberTotal(variant_table, binedges=None, variant_table2=None):
 
     if variant_table2 is not None:
         hist, binedges, patches = plt.hist(variant_table2.numTests.astype(float).values,
-                                           bins=bins, histtype='stepfilled', alpha=0.5, color=sns.xkcd_rgb['gold'])
-        plt.plot((binedges[:-1]+binedges[1:])*0.5, hist, linewidth=1, alpha=0.1, color=sns.xkcd_rgb['gold'])
+                                           bins=bins, histtype='stepfilled', alpha=0.5, color=sns.xkcd_rgb['dark cyan'])
+        plt.plot((binedges[:-1]+binedges[1:])*0.5, hist, linewidth=1, alpha=0.1, color=sns.xkcd_rgb['dark cyan'])
 
     ylim = ax.get_ylim()
     plt.plot([5]*2, ylim, 'k--', linewidth=1, alpha=0.5)
@@ -457,23 +457,20 @@ def plotDeltaAbsFluorescence(bindingSeries, bindingSeriesBackground, concentrati
                  fontsize=12)
     pass
 
-def plotReplicatesKd(variant_tables, cutoff=None, relative=None, variant=None,
-                   log=None, vmax=None):
-    if cutoff is None:
-        cutoff = -7.1
-    if relative is None:
-        relative = False
-    if variant is None:
-        variant = 34429
+def plotReplicatesKd(variant_tables,
+                   log=None, vmax=None, scatter=None):
+
     if log is None:
         log = False
     if log:
         bins = 'log'
     else:
         bins = None
+    if scatter is None:
+        scatter = False
     
     parameters = fitFun.fittingParameters()
-    
+    cutoff = parameters.cutoff_dG
     index = (pd.concat(variant_tables, axis=1).loc[:, 'numTests'] >=5).all(axis=1)
     
     x = np.log10(parameters.find_Kd_from_dG(variant_tables[0].loc[index].dG.astype(float)))
@@ -481,9 +478,12 @@ def plotReplicatesKd(variant_tables, cutoff=None, relative=None, variant=None,
         
     fig = plt.figure(figsize=(4,2.5))
     ax = fig.add_subplot(111, aspect='equal')
-    im = ax.hexbin(x, y, bins=bins, mincnt=0, vmin=0, vmax=vmax,
-           #extent=[-12, cutoff, -12, cutoff],
-           gridsize=75)
+    if scatter:
+        ax.scatter(x, y, alpha=0.1, marker='.', c='k', s=1)
+    else:
+        im = ax.hexbin(x, y, bins=bins, mincnt=0, vmin=0, vmax=vmax,
+               #extent=[-12, cutoff, -12, cutoff],
+               gridsize=75)
     
     plt.xlabel('$K_d$ rep 1 (nM)')
     plt.ylabel('$K_d$ rep 2 (nM)')
@@ -497,22 +497,71 @@ def plotReplicatesKd(variant_tables, cutoff=None, relative=None, variant=None,
     plt.plot(xlim, slope*xlim+intercept, 'r:', linewidth=1)
 
     plt.annotate('$R^2$=%4.2f'%(r_value**2),
-                 xy=(0.95, 0.05),
+                 xy=(0.15, 0.01),
                  xycoords='axes fraction',
-                 horizontalalignment='right', verticalalignment='bottom',
+                 horizontalalignment='left', verticalalignment='bottom',
                  fontsize=12)
-    plt.xlim(xlim[0], x.max())
-    plt.ylim(ylim[0], y.max())
+    #plt.xlim(xlim[0], x.max())
+    #plt.ylim(ylim[0], y.max())
     xticks = ax.get_xticks()
     plt.xticks(xticks, ['$10^{%d}$'%x for x in xticks])
     plt.yticks(xticks, ['$10^{%d}$'%x for x in xticks])
     
-    plt.plot([np.log10(parameters.find_Kd_from_dG(cutoff))]*2, ylim, 'k--')
-    plt.plot(xlim, [np.log10(parameters.find_Kd_from_dG(cutoff))]*2, 'k--')
-    plt.colorbar(im)
+    plt.plot([np.log10(parameters.find_Kd_from_dG(cutoff))]*2, ylim, 'k--', linewidth=1)
+    plt.plot(xlim, [np.log10(parameters.find_Kd_from_dG(cutoff))]*2, 'k--', linewidth=1)
+    if not scatter:
+        plt.colorbar(im)
     #plt.yticks(np.arange(0, 60, 10))
     plt.tight_layout()
 
+def plotResidualsKd(variant_tables):
+    parameters = fitFun.fittingParameters()
+    cutoff = np.log10(parameters.cutoff_kd)
+    index = (pd.concat(variant_tables, axis=1).loc[:, 'numTests'] >=5).all(axis=1)
+    
+    x = np.log10(parameters.find_Kd_from_dG(variant_tables[0].loc[index].dG.astype(float)))
+    y = np.log10(parameters.find_Kd_from_dG(variant_tables[1].loc[index].dG.astype(float)))
+
+    numTests_x = variant_tables[0].loc[index].numTests
+    numTests_y = variant_tables[1].loc[index].numTests
+
+    index = (x < cutoff)&(y < cutoff)
+    z =  y - (y - x).loc[index].mean()
+    residuals = pd.concat([(x - z), (x+z)/2.], axis=1, keys=['diff', 'value'])
+    plt.figure()
+    plt.hist(residuals.loc[residuals.value < np.log10(5000), 'diff'],
+             bins=np.linspace(-1, 1, 100), histtype='stepfilled', alpha=0.5,
+             color=sns.xkcd_rgb['navy blue'])
+    
+def plotNumberOfTilesFitRates(tileMap, universalTimes):
+    fig = plt.figure(figsize=(5,3));
+    gs = gridspec.GridSpec(1, 2, wspace=0.05, width_ratios=[2,1],
+                           bottom=0.25, left=0.15)
+    ax = fig.add_subplot(gs[0,0])
+    sns.heatmap(tileMap.transpose(),  linewidths=.5, cbar=False, ax=ax,
+                yticklabels=universalTimes[tileMap.columns].astype(int))
+    ax.set_xlabel('tile')
+    ax.set_ylabel('time (s)')
+    
+    color = sns.cubehelix_palette()[-1]      
+    ax = fig.add_subplot(gs[0,1])
+    ax.barh(np.arange(tileMap.shape[1]), tileMap.sum(axis=0)[::-1],
+            facecolor=color, edgecolor='w', linewidth=0.5,
+            )
+    ax.set_yticks(np.arange(tileMap.shape[1])+0.5)
+    ax.set_yticklabels([])
+    majorLocator   = mpl.ticker.MultipleLocator(5)
+    majorFormatter = mpl.ticker.FormatStrFormatter('%d')
+    minorLocator   = mpl.ticker.MultipleLocator(1)
+    ax.xaxis.set_major_locator(majorLocator)
+    ax.xaxis.set_major_formatter(majorFormatter)
+    ax.xaxis.set_minor_locator(minorLocator)
+    ax.set_xlabel('# tiles')
+    ax.tick_params(top='off', right='off', left='off')
+    sns.despine()
+    
+
+    
 def plotReplicates(variant_tables, cutoff=None, relative=None, variant=None,
                    log=None, vmax=None):
     if cutoff is None:
