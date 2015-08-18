@@ -3,10 +3,12 @@ import tectoData
 import seaborn as sns
 sns.set_style('white')
 
-figDirectory = 'flow_rigid/figs_2015-04-04'
-filename = 'binding_curves_rigid/reduced_signals/barcode_mapping/AAYFY_ALL_filtered_tecto_sorted.annotated.abbrev.CPfitted'
+figDirectory = 'flow_rigid/figs_07_15_15'
+#filename = 'binding_curves_rigid/reduced_signals/barcode_mapping/AAYFY_ALL_filtered_tecto_sorted.annotated.abbrev.CPfitted'
+filename = 'AAYFY_ALL_filtered_tecto_sorted.annotated.abbrev.CPfitted'
 table = pd.read_table(filename, index_col=0)
-filename = 'binding_curves_rigid/reduced_signals/barcode_mapping/AAYFY_ALL_filtered_tecto_sorted.annotated.perVariant.CPfitted'
+#filename = 'binding_curves_rigid/reduced_signals/barcode_mapping/AAYFY_ALL_filtered_tecto_sorted.annotated.perVariant.CPfitted'
+filename = 'AAYFY_ALL_filtered_tecto_sorted.annotated.perVariant.bootStrapped.CPfitted'
 variant_table = pd.read_table(filename, index_col=0)
 
 filename = 'off_rates_rigid/reduced_signals/barcode_mapping/AAYFY_ALL_filtered_tecto_sorted.annotated.abbrev.CPfitted'
