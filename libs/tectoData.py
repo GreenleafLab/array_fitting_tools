@@ -18,6 +18,7 @@ import scipy.stats as st
 import seqfun
 import IMlibs
 import scipy as scp
+import subprocess
 
 class Parameters():
     def __init__(self, concentrations=None):
@@ -296,17 +297,19 @@ class AffinityData():
                                                                  fmin=self.affinity_params_cluster.loc[index, 'fmin'],
                                                                  fmax=self.affinity_params_cluster.loc[index, 'fmax']),
                     '-', alpha=0.5, color=sns.xkcd_rgb['vermillion'])
-        ax.set_xscale('log')
-        ax.set_xlabel('concentration (nM)')
-        ax.set_ylabel('absolute fluorescence (a.u.)')
-        ax.set_xlim(0.5, 2500)
+            ax.set_title(str(round(self.affinity_params_cluster.loc[index].dG,2)))
+            ax.set_xscale('log')
+            ax.set_xlabel('concentration (nM)')
+            ax.set_ylabel('absolute fluorescence (a.u.)')
+            ax.set_xlim(0.5, 2500)
+        
         plt.tight_layout()
         return ax
     
     def plotClustersAll(self, fmax_lb=None):
-        max_num_plots = 16
-        fig = plt.figure(figsize=(9, 6))
-        gs = gridspec.GridSpec(4, 4)
+        max_num_plots = 8
+        fig = plt.figure(figsize=(13, 10))
+        gs = gridspec.GridSpec(2,4)
         
         # sort dG and plot in this order
         vec = self.affinity_params_cluster.dG.copy()
@@ -319,28 +322,34 @@ class AffinityData():
         for i, idx in enumerate(index):
             ax = fig.add_subplot(gs[i])
             self.plotCluster(idx, ax, fmax_lb=fmax_lb)
+            ax.set_title('$\Delta$G = ' + str(round(self.affinity_params_cluster.loc[idx].dG,2)), fontsize=15)
+            ax.set_xscale('log')
+            ax.set_xlabel('Concentration (nM)')
+            ax.set_ylabel('Absolute fluorescence (a.u.)')
+            ax.set_xlim(0.5, 2500)
+            
 
-        plt.annotate('absolute fluorescence (a.u.)', xy=(0.2, 0.5),
-                xycoords='figure fraction',
-                rotation=90,
-                horizontalalignment='right', verticalalignment='center',
-                fontsize=12)
-           
-        plt.annotate('concentration (nM)', xy=(0.5, 0.025),
-                xycoords='figure fraction',
-                horizontalalignment='center', verticalalignment='top',
-                fontsize=12)
+        #plt.annotate('absolute fluorescence (a.u.)', xy=(0.2, 0.5),
+        #        xycoords='figure fraction',
+        #        rotation=90,
+        #        horizontalalignment='right', verticalalignment='center',
+        #        fontsize=12)
+        #   
+        #plt.annotate('concentration (nM)', xy=(0.5, 0.025),
+        #        xycoords='figure fraction',
+        #        horizontalalignment='center', verticalalignment='top',
+        #        fontsize=12)
 
-        plt.annotate(('# tests: %d\n'+
-                      'Pass fit filter: %3.1f%%\n'+
-                      'dG: %4.2f (%4.2f, %4.2f)')
-                      %(self.affinity_params.numTests,
-                        self.affinity_params.fitFraction*100,
-                        self.affinity_params.dG, self.affinity_params.dG_lb, self.affinity_params.dG_ub),
-                       xy=(.025, 0.975), xycoords='figure fraction',
-                      horizontalalignment='left', verticalalignment='top',
-                      fontsize=12)
-        gs.update(wspace=0.5, hspace=0.5, left=0.25, bottom=0.1, top=0.975, right=0.975)
+        #plt.annotate(('# tests: %d\n'+
+        #              'Pass fit filter: %3.1f%%\n'+
+        #              'dG: %4.2f (%4.2f, %4.2f)')
+        #              %(self.affinity_params.numTests,
+        #                self.affinity_params.fitFraction*100,
+        #                self.affinity_params.dG, self.affinity_params.dG_lb, self.affinity_params.dG_ub),
+        #               xy=(.025, 0.975), xycoords='figure fraction',
+        #              horizontalalignment='left', verticalalignment='top',
+        #              fontsize=12)
+        gs.update(wspace=0.4, hspace=0.4, left=0.25, bottom=0.5, top=0.5, right=0.975)
         pass
     
     def plotCluster(self, index, ax, fmax_lb=None ):
@@ -605,7 +614,7 @@ def plotAllRigid(variant_table):
     plt.tight_layout()
     plt.savefig(os.path.join(figDirectory, 'junciton_M_MM.bylength.pdf'))
     
-def plotBadLoop(variant_table):
+def plotBadLoop(variant_table, table):
     variant_table.loc[variant_table.loc[:, 'topology'].astype(str) == "nan", 'topology'] = ''
     helix_context = 'rigid'
     variants_good = variantFun.findVariantNumbers(table, {'helix_context':helix_context, 'loop':'goodLoop',
@@ -622,7 +631,7 @@ def plotBadLoop(variant_table):
     pal = {1:sns.xkcd_rgb["vermillion"], 0:sns.xkcd_rgb["light grey"]}
     g = sns.FacetGrid(variant_subtable, row="loop", hue='cutoff', size=2, aspect=2, palette=pal)
     g.map(plt.hist, "dG", bins=bins,histtype="stepfilled", alpha=0.75);
-    g.set_axis_labels("dG (kcal/mol)", "number of variants");
+    g.set_axis_labels("$\Delta$G (kcal/mol)", "Number of Variants");
     g.set(yticks=np.arange(0, 400,100), xlim=(-12, -5.5) )
     g.fig.subplots_adjust(left=0.15, wspace=.05, right=0.5);
     g.add_legend();
@@ -630,36 +639,36 @@ def plotBadLoop(variant_table):
     
     #g.map(sns.distplot, "dG", kde=False, norm_hist=False);
     # plot
-    xlim =  [-11.5, -4]
-    ylim = [-11.5, -4]
+    #xlim =  [-11.5, -4]
+    #ylim = [-11.5, -4]
+    #
+    ## plot histograms
+    #sns.distplot(data);
+    #
+    #fig = plt.figure(figsize=(3.5,3.25))
+    #gs = gridspec.GridSpec(1, 2,
+    #                   width_ratios=[1,3],
+    #                   wspace=0.025)
+    #ax1 = fig.add_subplot(111, aspect='equal')
+    #im = ax1.hexbin(data.loc[:, ('good', 'dG')], data.loc[:, ('bad', 'dG')], cmap='Greys', 
+    #                extent=[xlim[0], xlim[1], ylim[0], ylim[1]], gridsize=50)
+    #ax1.set_xlabel('GGAA loop dG (kcal/mol)')
+    #ax1.set_ylabel('GAAA loop dG (kcal/mol)')
+    #plt.tight_layout()
+    #plt.colorbar(im)
     
-    # plot histograms
-    sns.distplot(data);
-
-    fig = plt.figure(figsize=(3.5,3.25))
-    gs = gridspec.GridSpec(1, 2,
-                       width_ratios=[1,3],
-                       wspace=0.025)
-    ax1 = fig.add_subplot(111, aspect='equal')
-    im = ax1.hexbin(data.loc[:, ('good', 'dG')], data.loc[:, ('bad', 'dG')], cmap='Greys', 
-                    extent=[xlim[0], xlim[1], ylim[0], ylim[1]], gridsize=50)
-    ax1.set_xlabel('GGAA loop dG (kcal/mol)')
-    ax1.set_ylabel('GAAA loop dG (kcal/mol)')
-    plt.tight_layout()
-    plt.colorbar(im)
-    
-    xlim =  [-12, -5]
-    ylim = [-12, -5]
-    index = data.loc[:, ('good', 'dG')] < -8
-    color = 'vermillion'
-    name1 = ('good', 'dG'); name2 = ('bad', 'dG')
-    g = sns.JointGrid(data.loc[:, name1], data.loc[:, name2], size=3.75, ratio=7, space=0, dropna=True, xlim=xlim, ylim=xlim)
-    g.plot_marginals(sns.kdeplot, color=sns.xkcd_rgb[color], shade=True)
-    #g.plot_joint(plt.hexbin, cmap='Greys', extent=[xlim[0], xlim[1], ylim[0], ylim[1]], gridsize=40)
-    #g.plot_joint(sns.kdeplot, cmap='Greys', shade=True, gridsize=50, clip=[(xlim[0], xlim[1]), (ylim[0], ylim[1])])
-    g.plot_joint(plt.scatter, alpha=0.5, edgecolors=sns.xkcd_rgb['charcoal'], facecolors='none')
-    g.set_axis_labels('GGAA loop dG (kcal/mol)', 'GAAA loop dG (kcal/mol)')
-    #.annotate(st.pearsonr, template="{stat} = {val:.3f} (p = {p:.3g})");
+    #xlim =  [-12, -5]
+    #ylim = [-12, -5]
+    #index = data.loc[:, ('good', 'dG')] < -8
+    #color = 'vermillion'
+    #name1 = ('good', 'dG'); name2 = ('bad', 'dG')
+    #g = sns.JointGrid(data.loc[:, name1], data.loc[:, name2], size=3.75, ratio=7, space=0, dropna=True, xlim=xlim, ylim=xlim)
+    #g.plot_marginals(sns.kdeplot, color=sns.xkcd_rgb[color], shade=True)
+    ##g.plot_joint(plt.hexbin, cmap='Greys', extent=[xlim[0], xlim[1], ylim[0], ylim[1]], gridsize=40)
+    ##g.plot_joint(sns.kdeplot, cmap='Greys', shade=True, gridsize=50, clip=[(xlim[0], xlim[1]), (ylim[0], ylim[1])])
+    #g.plot_joint(plt.scatter, alpha=0.5, edgecolors=sns.xkcd_rgb['charcoal'], facecolors='none')
+    #g.set_axis_labels('GGAA loop dG (kcal/mol)', 'GAAA loop dG (kcal/mol)')
+    ##.annotate(st.pearsonr, template="{stat} = {val:.3f} (p = {p:.3g})");
     
     
 def findOtherVariants(variant_table, table, variants):
@@ -902,7 +911,7 @@ def plotSequenceJoe(variant_table, helices=None, mismatches=None):
     #plt.scatter(np.arange(len(subtable)), subtable.dG, facecolors='none', edgecolors='k')
     
     if helices:
-        predicted = pd.read_table('/home/sarah/JunctionLibrary/seq_params/exhustive_helices.results', sep=' ', header=None, usecols=[0, 4], names=['seq', 'ddG'])
+        predicted = pd.read_table('/home/namita/Code/JunctionLibrary/seq_params/exhustive_helices.results', sep=' ', header=None, usecols=[0, 4], names=['seq', 'ddG'])
         predicted.index = [s.replace('U', 'T') for s in predicted.seq]
     if mismatches:
         predicted = pd.read_table('/home/sarah/JunctionLibrary/seq_params/double_double_sequences.predictions.txt', index_col=0)
@@ -910,50 +919,79 @@ def plotSequenceJoe(variant_table, helices=None, mismatches=None):
     
     subtable.index = subtable.sequence
     A = pd.concat([subtable.loc[predicted.index].dG, predicted.ddG], axis=1).dropna()
-    x = A.dG
+    A2 = A.abs()
+    dGref = -A2[A2.ddG == A2.ddG.min()].dG.values[0]
+    x = A.dG-dGref
     y = A.ddG   
-    
-    fig = plt.figure(figsize=(4,4))
+    fig = plt.figure(figsize=(6,6))
     ax = fig.add_subplot(111)
-    ax.scatter(x, y, alpha=0.5, marker='.', s=20, c='k')
+    bins = np.arange(-12.5,-9.5,0.05)
+    ax.hist(A.dG, bins = bins, alpha=0.5, color='blue')
+    ax.set_xlabel('$\Delta$G (kcal/mol)')
+    ax.set_ylabel('N')
+    for item in ([ax.title, ax.xaxis.label, ax.yaxis.label] +
+        ax.get_xticklabels() + ax.get_yticklabels()):
+        item.set_fontsize(20)
+    fig.subplots_adjust(wspace=0.5, bottom=0.2, hspace=0.5, left=0.2); 
+
+    
+    fig = plt.figure(figsize=(6,6))
+    ax = fig.add_subplot(111)
+    ax.scatter(x, y, alpha=0.3, marker='o', s=10, c='k')
     
     # fit with OLS
     X = sm.add_constant(x)
     model = sm.OLS(y, X)
     results = model.fit()
     
-    xlim_max = np.array([-12, -4])
-    #ax.plot(xlim_max,  results.params.dG*xlim_max + results.params.const, 'r:')
-    
     
     # robust least squares
     model = sm.RLM(y, X )
     results = model.fit()
 
-    xlim_max = np.array([-12, -4])
+    xlim_max = np.array([-5, 3])
     ax.plot(xlim_max,  results.params.dG*xlim_max + results.params.const, 'r:', label='best fit')
        
     # line of slope 1
-    origin = np.array([(A.dG - A.ddG).mean(), 0]) - np.array([2]*2)
-    ax.plot([origin[0], origin[0]+5], [origin[1], origin[1]+5], '--', color=sns.xkcd_rgb['turquoise'], label='slope 1')
+    origin = np.array([(x- y).mean(), 0]) - np.array([2]*2)
+    #ax.plot([origin[0], origin[0]+5], [origin[1], origin[1]+5], '--', color=sns.xkcd_rgb['turquoise'], label='slope 1')
+    ax.plot([-1.5,2], [-1.5,2], '--', color=sns.xkcd_rgb['black'], label='y=x')
     
-    ax.set_xlim(-12.5, -9.5)
+    ax.set_xlim(-1.5, 2)
     ax.set_ylim(-1.5, 2)
-    ax.set_xlabel('dG observed (kcal/mol)')
-    ax.set_ylabel('ddG predicted (kcal/mol)')
+    ax.set_xlabel('$\Delta\Delta$G Observed (kcal/mol)')
+    ax.set_ylabel('$\Delta\Delta$G Predicted (kcal/mol)')
     plt.legend(loc='upper left')
     plt.tight_layout()
-    
-    # also plot histograms of error
-    plt.figure(figsize=(3.5, 3.5))
-    plt.hist(results.resid.values, bins=np.arange(-1.5, 1.5, .1), alpha=0.5, color='grey')
-    plt.xlabel('residual ddG (kcal/mol)')
-    plt.tight_layout()
+    slope, intercept, r_value, p_value, std_err = scp.stats.linregress(x,y)
+    #slope, intercept, r_value, p_value, std_err = scp.stats.linregress(x,y-results.params.const)
+    stringprint = ('R^2 = ' + str(round(r_value**2,2)) + '\n'
+                    'slope = ' + str(round(results.params.dG,2)) + '\n')
+                    #'y-int = '+ str(round(intercept,2)) + '\n')
+                       
+        
+    ax.text(-1.5,1.0, stringprint, fontsize=13)
 
-    plt.figure(figsize=(3.5, 3.5))
-    plt.hist((subtable.dG_ub - subtable.dG_lb).values, bins=np.arange(0, 3, 0.1), alpha=0.5, color='grey')  
-    plt.xlabel('95% confidence (kcal/mol)')
+    for item in ([ax.title, ax.xaxis.label, ax.yaxis.label] +
+        ax.get_xticklabels() + ax.get_yticklabels()):
+        item.set_fontsize(20)
+    fig.subplots_adjust(wspace=0.5, bottom=0.2, hspace=0.5, left=0.2); 
+    
+     #lso plot histograms of error
+    plt.figure(figsize=(5, 5))
+    plt.hist(results.resid.values, bins=np.arange(-1.5, 1.5, .1), alpha=0.5, color='grey')
+    plt.xlabel('residual $\Delta\Delta$G (kcal/mol)')
+    plt.ylabel('N (Sequences)')
     plt.tight_layout()
+    ax = plt.gca()
+    for item in ([ax.title, ax.xaxis.label, ax.yaxis.label] +
+        ax.get_xticklabels() + ax.get_yticklabels()):
+        item.set_fontsize(15)
+    fig.subplots_adjust(wspace=0.5, bottom=0.2, hspace=0.5, left=0.2); 
+    #plt.figure(figsize=(3.5, 3.5))
+    #plt.hist((subtable.dG_ub - subtable.dG_lb).values, bins=np.arange(0, 3, 0.1), alpha=0.5, color='grey')  
+    #plt.xlabel('95% confidence (kcal/mol)')
+    #plt.tight_layout()
 
 def plotVarianceDataset(table):
     bins = np.linspace(0, 2, 50)
@@ -1031,16 +1069,23 @@ def historgram_ddG_Tert(variant_table, tert1, tert2):
         bins = np.arange(1, 3, 0.1)
         #ax.hist(ddG,bins=bins, alpha=0.5, histtype='stepfilled')
         ax.hist(ddG , bins=bins, color=sns.xkcd_rgb['vermillion'], histtype='stepfilled', alpha=0.5)
+        
         plt.title(r'$\Delta\Delta$' + 'G A225U')
         plt.xlabel(r'$\Delta\Delta$' + 'G (kcal/mol)')
-        plt.ylabel('Count')
+        plt.ylabel('N')
+        ax.set_xlim([1.5,3.0])
         if tert2 is 'A225U':
-            y = np.linspace(0,35)
-            h = plt.plot(np.ones(50)*2.1, y)
+            y = np.linspace(0,30)
+            h = plt.plot(np.ones(50)*2.3, y, 'k:', linewidth=3.0)
+            ylim = ax.get_ylim()
+            h = plt.plot(np.ones(50)*np.median(ddG), y, 'r:', linewidth=3.0)
+            #plt.plot([np.median(ddG), 0], [np.median(ddG), ylim], 'r:')
+            
             
         for item in ([ax.title, ax.xaxis.label, ax.yaxis.label] +
             ax.get_xticklabels() + ax.get_yticklabels()):
             item.set_fontsize(20)
+        fig.subplots_adjust(wspace=0.5, bottom=0.2, hspace=0.5, left=0.15);   
     return ddG
 def plotTertiaryContacts(variant_table, length=None):
     if length is None: length = 10
@@ -1105,21 +1150,27 @@ def plotTertvsTert(variant_table, tert1, tert2):
         sns.set_style("darkgrid")
  
         ax.plot([origin[0], origin[0]+5], [origin[1], origin[1]+5], '--', color=sns.xkcd_rgb['amber'], label='slope 1')
-        ax.set_xlabel(tert1,fontsize=15)
-        ax.set_ylabel(tert2,fontsize=15)
-        ax = sns.regplot(x,y)
+        if tert1 is '11nt':
+            ax.set_xlabel('$\Delta$G WT' ,fontsize=15)
+        else:
+            ax.set_xlabel('$\Delta$G' + tert1,fontsize=15)
+        ax.set_ylabel('$\Delta$G ' + tert2,fontsize=15)
+        #ax = sns.regplot(x,y)
         #xlim_max = np.array([-12, -4])
-        stringprint = ('R^2 = ' + str(round(r_value**2,2)) + '\n'
-                       'slope = ' + str(round(slope,2)) + '\n')
-                       #'y-int = '+ str(round(intercept,2)) + '\n')
+        #stringprint = ('R^2 = ' + str(round(r_value**2,2)) + '\n'
+        #               'slope = ' + str(round(slope,2)) + '\n')
+        #               #'y-int = '+ str(round(intercept,2)) + '\n')
                        
         
-        ax.text(-11.75,-8, stringprint, fontsize=13)
+        #ax.text(-11.75,-8, stringprint, fontsize=13)
         ax.get_xaxis().set_minor_locator(mpl.ticker.AutoMinorLocator())
         ax.get_yaxis().set_minor_locator(mpl.ticker.AutoMinorLocator())
         ax.grid(b=True, which='major', color='w', linewidth=1.0)
         ax.grid(b=True, which='minor', color='w', linewidth=0.5)
-
+        for item in ([ax.title, ax.xaxis.label, ax.yaxis.label] +
+            ax.get_xticklabels() + ax.get_yticklabels()):
+            item.set_fontsize(20)
+        fig.subplots_adjust(wspace=0.5, bottom=0.2, hspace=0.5, left=0.15);  
     #X = sm.add_constant(x)
     
     #
@@ -1307,66 +1358,72 @@ def plotThreeWaySwitch(variant_table, figDirectory):
         table_threeway_all = table_threeway_all.append(table_GGAA)
         
         
-        slope, intercept, r_value, p_value, std_err = scp.stats.linregress(x,y)
-        fig = plt.figure(figsize=(7,7))
-        ax = fig.add_subplot(111, aspect='equal')
-        
-
-        #ax2 = sns.jointplot(x, y, kind="reg", size=8)
-        ax.scatter(x, y, marker='.', c='k', alpha=0.8)
-        # plot line of slope one
-        # line of slope 1
-        #origin = np.array([-12, -12-(x-y).mean()])
-        ax.set_xlim([-12, -7])
-        ax.set_ylim([-12, -7])
-        #ax.plot([-12, -7], [-12, -7], '--', color=sns.xkcd_rgb['vermillion'], label='yisx')
-        sns.set_style("darkgrid")
- 
-        #ax.plot([origin[0], origin[0]+5], [origin[1], origin[1]+5], '--', color=sns.xkcd_rgb['amber'], label='slope 1')
-        ax.set_xlabel('GGAA',fontsize=15)
-        ax.set_ylabel('UUCG',fontsize=15)
-        ax = sns.regplot(x,y)
-        #xlim_max = np.array([-12, -4])
-        stringprint = ('R^2 = ' + str(round(r_value**2,2)) + '\n'
-                       'slope = ' + str(round(slope,2)) + '\n')
-                       #'y-int = '+ str(round(intercept,2)) + '\n')
-                       
-        
-        ax.text(-11.75,-8, stringprint, fontsize=13)
-        ax.get_xaxis().set_minor_locator(mpl.ticker.AutoMinorLocator())
-        ax.get_yaxis().set_minor_locator(mpl.ticker.AutoMinorLocator())
-        ax.grid(b=True, which='major', color='w', linewidth=1.0)
-        ax.grid(b=True, which='minor', color='w', linewidth=0.5)
-        fig.suptitle(topo)
-        plt.savefig(os.path.join(figDirectory, 'threewayUUCGvsGGAA.topology%s.pdf'%(topo)))
-        plt.close('all')
-        
-        fig = plt.figure(figsize=(10,10))
-        gs = gridspec.GridSpec(2, 2)
-        ax1 = fig.add_subplot(gs[0,0])
-        
-        ax1.hist(Kconf , bins=np.linspace(0, 200, 50 ), color=sns.xkcd_rgb['vermillion'], histtype='stepfilled', alpha=0.5)
-        plt.xlabel('Kconf')
-        plt.ylabel('count')
-        plt.tight_layout()
-        ax2 = fig.add_subplot(gs[0,1])
-        ax2.hist(dGconf, bins=np.linspace(-3.5, 3.5, 40), color=sns.xkcd_rgb['vermillion'], histtype='stepfilled', alpha=0.5,label="dGconf")
-        ax2.hist(dGbind, bins=np.linspace(-12.5, -5.5, 40), color=sns.xkcd_rgb['amber'], histtype='stepfilled', alpha=0.5, label="dGbind")
-        ax2.legend()
-        plt.xlabel('dG (kcal/mol)')
-        plt.ylabel('count')
-        
-        ax3 = fig.add_subplot(gs[1,0])
-        ax3 = sns.boxplot(table_GGAA.dGbind, groupby=np.sort(table_GGAA.helix_one_length))
-        plt.ylabel('dGbind (kcal/mol)')
-        ax3.set_ylim([-12.5,-5.5])
-        ax4 = fig.add_subplot(gs[1,1])
-        ax4 = sns.boxplot(table_GGAA.dGconf, groupby=np.sort(table_GGAA.helix_one_length))
-        ax4.set_ylim([-3.5, 3.5])
-        plt.ylabel('dGconf (kcal/mol)')
-        fig.suptitle(topo)
-        #grouped = subtable.groupby('receptor')
-        plt.savefig(os.path.join(figDirectory, 'threeway.topology%s.energetics.pdf'%(topo)))
+        #slope, intercept, r_value, p_value, std_err = scp.stats.linregress(x,y)
+        #fig = plt.figure(figsize=(7,7))
+        #ax = fig.add_subplot(111, aspect='equal')
+        #
+        #
+        ##ax2 = sns.jointplot(x, y, kind="reg", size=8)
+        #ax.scatter(x, y, marker='.', c='k', alpha=0.8)
+        ## plot line of slope one
+        ## line of slope 1
+        ##origin = np.array([-12, -12-(x-y).mean()])
+        #ax.set_xlim([-12, -7])
+        #ax.set_ylim([-12, -7])
+        ##ax.plot([-12, -7], [-12, -7], '--', color=sns.xkcd_rgb['vermillion'], label='yisx')
+        #sns.set_style("darkgrid")
+        #
+        ##ax.plot([origin[0], origin[0]+5], [origin[1], origin[1]+5], '--', color=sns.xkcd_rgb['amber'], label='slope 1')
+        #ax.set_xlabel('GGAA',fontsize=15)
+        #ax.set_ylabel('UUCG',fontsize=15)
+        #ax = sns.regplot(x,y)
+        ##xlim_max = np.array([-12, -4])
+        #stringprint = ('R^2 = ' + str(round(r_value**2,2)) + '\n'
+        #               'slope = ' + str(round(slope,2)) + '\n')
+        #               #'y-int = '+ str(round(intercept,2)) + '\n')
+        #               
+        #
+        #ax.text(-11.75,-8, stringprint, fontsize=13)
+        #ax.get_xaxis().set_minor_locator(mpl.ticker.AutoMinorLocator())
+        #ax.get_yaxis().set_minor_locator(mpl.ticker.AutoMinorLocator())
+        #ax.grid(b=True, which='major', color='w', linewidth=1.0)
+        #ax.grid(b=True, which='minor', color='w', linewidth=0.5)
+        #fig.suptitle(topo)
+        #plt.savefig(os.path.join(figDirectory, 'threewayUUCGvsGGAA.topology%s.pdf'%(topo)))
+        #plt.close('all')
+        #
+        #fig = plt.figure(figsize=(10,10))
+        #gs = gridspec.GridSpec(1, 2)
+        #ax3 = fig.add_subplot(gs[0,0])
+        #
+        ##ax1.hist(Kconf , bins=np.linspace(0, 200, 50 ), color=sns.xkcd_rgb['vermillion'], histtype='stepfilled', alpha=0.5)
+        ##plt.xlabel('Kconf')
+        ##plt.ylabel('count')
+        ##plt.tight_layout()
+        ##ax2 = fig.add_subplot(gs[0,1])
+        ##ax2.hist(dGconf, bins=np.linspace(-3.5, 3.5, 40), color=sns.xkcd_rgb['vermillion'], histtype='stepfilled', alpha=0.5,label="dGconf")
+        ##ax2.hist(dGbind, bins=np.linspace(-12.5, -5.5, 40), color=sns.xkcd_rgb['amber'], histtype='stepfilled', alpha=0.5, label="dGbind")
+        ##ax2.legend()
+        ##plt.xlabel('dG (kcal/mol)')
+        ##plt.ylabel('count')
+        #
+        ##ax3 = fig.add_subplot(gs[1,0])
+        #ax3 = sns.boxplot(table_GGAA.dGbind, groupby=np.sort(table_GGAA.helix_one_length))
+        #plt.ylabel('dGbind (kcal/mol)')
+        #ax3.set_ylim([-12.5,-5.5])
+        #ax = plt.gca()
+        #for item in ([ax.title, ax.xaxis.label, ax.yaxis.label] + ax.get_xticklabels() + ax.get_yticklabels()):
+        #    item.set_fontsize(20)
+        #ax4 = fig.add_subplot(gs[0,1])
+        #ax4 = sns.boxplot(table_GGAA.dGconf, groupby=np.sort(table_GGAA.helix_one_length))
+        #ax4.set_ylim([-3.5, 3.5])
+        #plt.ylabel('dGconf (kcal/mol)')
+        #fig.suptitle(topo)
+        ##grouped = subtable.groupby('receptor')
+        #plt.savefig(os.path.join(figDirectory, 'threeway.topology%s.energetics.pdf'%(topo)))
+        #ax = plt.gca()
+        #for item in ([ax.title, ax.xaxis.label, ax.yaxis.label] + ax.get_xticklabels() + ax.get_yticklabels()):
+        #    item.set_fontsize(20)
     return table_threeway_all   
     #need to color by length
 
@@ -1414,8 +1471,119 @@ def compareTopos(variant_table, figDirectory):
             plt.savefig(os.path.join(figDirectory, 'threeway.dGconf_topology%svs%s.pdf'%(topo, topo_)))
             plt.close()
         
-  
+ 
+#def getstacking(fitParametersFilenameParts, bindingSeriesFilenameParts, initialFitParameters, scale_factor, indices=None):
+#    workerPool = multiprocessing.Pool(processes=len(bindingSeriesFilenameParts)) #create a multiprocessing pool that uses at most the specified number of cores
+#    for i, bindingSeriesFilename in bindingSeriesFilenameParts.items():
+#        result = workerPool.apply_async(findKds, args=(bindingSeriesFilename, fitParametersFilenameParts[i],
+#                                                     initialFitParameters['fmax']['lowerbound'], initialFitParameters['fmax']['upperbound'], initialFitParameters['fmax']['initial'],
+#                                                     initialFitParameters['dG']['lowerbound'],   initialFitParameters['dG']['upperbound'],   initialFitParameters['dG']['initial'],
+#                                                     initialFitParameters['fmin']['lowerbound'], initialFitParameters['fmin']['upperbound'], initialFitParameters['fmin']['initial'],
+#                                                     scale_factor,)
+#                               )
+#    workerPool.close()
+#    workerPool.join()
+#    return
 
+def getdG_stacking_threeway(variant_table):
+    subtable = variant_table.loc[variant_table.sublibrary == 'three_way_junctions']
+    sLength = len(subtable)  
+
+    dG_2on1 = pd.Series(np.random.randn(sLength), index=subtable.index)
+    dG_3on1 = pd.Series(np.random.randn(sLength), index=subtable.index)
+    dG_2on3 = pd.Series(np.random.randn(sLength), index=subtable.index)
+    ddG_h2_h3 = pd.Series(np.random.randn(sLength), index=subtable.index)
+    flags = pd.Series(np.random.randn(sLength), index=subtable.index)
+    for i,row in subtable.iterrows():
+        sequence = row.sequence
+        l1 = int(row.helix_one_length)
+        l2 = int(9-l1)
+        [j1,j2,j3] = row.junction_seq[2:].split('_')
+        h2_extralength = int(l2-3)
+        ind_h1 = int(11+l1)
+        looplength = 6
+        h1_start_5 = 11
+        h1_end_5 = h1_start_5 + l1
+        h2_start_5 = h1_end_5 + len(j1)
+        h2_end_5 = h2_start_5 + 3
+        h2_start_3 = h2_end_5 + 2*h2_extralength + looplength
+        h2_end_3 = h2_start_3 + 3
+        h1_end_3 = -12
+        h1_start_3 = -15
+        h3_start_5 = h2_end_3 + len(j2)
+        h3_end_5 = h3_start_5 + 3
+        
+        h3_start_3 = h1_start_3 -len(j3) #-18
+        h3_end_3 = h3_start_3 - 3 #-15
+        print h3_start_3
+        print h3_end_3
+        seq_base_h2 = sequence[h1_start_5:h1_end_5] + sequence[h2_start_5:h2_end_5] +'UUCG' + sequence[h2_start_3:h2_end_3]+ sequence[h1_start_3:h1_end_3] 
+        seq_base_h3 = sequence[ind_h1-3:ind_h1] + sequence[11+9+6+l2+len(j2)+len(j1):11+9+6+l2+len(j2)+len(j1)+3]+ 'UUCG' + sequence[11+9+2*6+3*l2+len(j2)-3 + len(j1):11+9+2*6+3*l2+len(j2) +len(j1)]+ sequence[11+9+6*2+l2*3+len(j1+j2+j3):11+9+6*2+l2*3+len(j1+j2+j3)+3]
+        seq_h2_h3 = sequence[11+9+2*6+3*l2+len(j2)-3:11+9+2*6+3*l2+len(j2)] + sequence[ind_h1+len(j1):ind_h1+len(j1)+3] +'UUCG' + sequence[11+9+6+l2-3+len(j1):11+9+6+l2+len(j1)]+sequence[11+9+6+l2+len(j2):11+9+6+l2+len(j2)+3] 
+
+        #seq_base_h2 = sequence[ind_h1-3:ind_h1] + sequence[ind_h1+len(j1):ind_h1+len(j1)+3] +'UUCG' + sequence[11+9+6+l2-3+len(j1):11+9+6+l2+len(j1)]+ sequence[11+9+6*2+l2*3+len(j1+j2+j3):11+9+6*2+l2*3+len(j1+j2+j3)+3] 
+        #seq_base_h3 = sequence[ind_h1-3:ind_h1] + sequence[11+9+6+l2+len(j2)+len(j1):11+9+6+l2+len(j2)+len(j1)+3]+ 'UUCG' + sequence[11+9+2*6+3*l2+len(j2)-3 + len(j1):11+9+2*6+3*l2+len(j2) +len(j1)]+ sequence[11+9+6*2+l2*3+len(j1+j2+j3):11+9+6*2+l2*3+len(j1+j2+j3)+3]
+        #seq_h2_h3 = sequence[11+9+2*6+3*l2+len(j2)-3:11+9+2*6+3*l2+len(j2)] + sequence[ind_h1+len(j1):ind_h1+len(j1)+3] +'UUCG' + sequence[11+9+6+l2-3+len(j1):11+9+6+l2+len(j1)]+sequence[11+9+6+l2+len(j2):11+9+6+l2+len(j2)+3] 
+        #
+        output_base_h2 = subprocess.check_output('echo \'' + seq_base_h2 +'\' | RNAfold -d 0', shell=True).split('\n')[1].split(' (')
+        #print output_base_h2
+        output_base_h3 = subprocess.check_output('echo \'' + seq_base_h3 +'\' | RNAfold -d 0', shell=True).split('\n')[1].split(' (')
+        #print output_base_h3
+        output_h2_h3 = subprocess.check_output('echo \'' + seq_h2_h3 +'\' | RNAfold -d 0', shell=True).split('\n')[1].split(' (')
+        #print output_h2_h3
+        dG_2on1[i]= float(output_base_h2[1].strip('()'))
+        dG_3on1[i] = float(output_base_h3[1].strip('()'))
+        dG_2on3[i] = float(output_h2_h3[1].strip('()'))
+        ddG_h2_h3[i] = dG_2on1[i]-dG_3on1[i]
+        #times where the secondary structure isn't parsed right.
+        print output_base_h2[0] + output_base_h3[0]
+        #print seq_base_h2 + seq_base_h3
+        #print seq_base_h2,seq_base_h3
+        print dG_2on1[i], dG_3on1[i], ddG_h2_h3[i]
+        print i
+        #print row.junction_seq[2:]
+        flags[i] =  (output_base_h2[0] + output_base_h3[0]).count('.')   
+    subtable['ddG_2on1'] = dG_2on1
+    subtable['ddG_3on1'] = dG_3on1
+    subtable['ddG_2on3'] = dG_2on3
+    subtable['ddG_h2_h3'] =  ddG_h2_h3
+    subtable['flags'] = flags
+    subtable.to_csv('ThreewayJunctions_dGstacking.txt', sep='\t')
+
+def correlateStacking(variant_table, figDirectory):
+    table_three_way = plotThreeWaySwitch(variant_table, figDirectory)
+    table_pred = pd.read_table('ThreewayJunctions_dGstacking.txt',index_col=0)
+    sLength = len(table_three_way)
+    ddG_h2_h3 = pd.Series(np.random.randn(sLength), index=table_three_way.index)
+    for i,row in table_three_way.iterrows():
+        print i
+        test = table_pred[table_pred.index == i]['ddG_h2_h3'].values[0]
+        ddG_h2_h3[i] = test
+    table_three_way['ddG_h2_h3_pred'] = ddG_h2_h3
+    #table_sym = table_three_way[table_three_way.junction_seq == 'tw__']
+    table_sym = table_three_way
+    x = table_sym.dGconf
+    y = table_sym.ddG_h2_h3_pred
+    slope, intercept, r_value, p_value, std_err = scp.stats.linregress(x,y)
+    
+    fig = plt.figure(figsize=(7,7))
+    ax = fig.add_subplot(111, aspect='equal')
+    ax2 = sns.jointplot(x, y, kind="reg", size=8)
+    ax.scatter(x, y, marker='.', c='k', alpha=0.8)
+    fig2 = plt.figure(figsize=(6,6))
+    ax = fig2.add_subplot(111)
+    bins = np.arange(-5,5,0.5)
+    ax.hist(y.values, bins = bins, alpha=0.5, color='blue')
+   # plot line of slope one
+        ## line of slope 1
+        ##origin = np.array([-12, -12-(x-y).mean()])
+        #ax.set_xlim([-12, -7])
+        #ax.set_ylim([-12, -7])
+        ##ax.plot([-12, -7], [-12, -7], '--', color=sns.xkcd_rgb['vermillion'], label='yisx')
+        #sns.set_style("darkgrid")
+    
+
+    
     
 def plotScatterplotDelta(variant_tables):
     index = pd.concat([(variant_table.numTests >= 5)&
@@ -1484,6 +1652,16 @@ def plotSequenceJoeLengthChanges(variant_table):
     
     for fig in [fig1, fig2]:
         fig.subplots_adjust(bottom=0.15, left=0.15)
+def plotdiff_mismatches(variant_table):
+    mismatches_all = variant_table[(variant_table.junction== 'N')&(variant_table.ss_correct == 1)&(variant_table.numTests >= 5)&(variant_table.receptor == '11nt')]
+    grouped_MM  = mismatches_all.groupby('no_flank')
+    grouped_flank  = mismatches_all.groupby('flank')
+    #for name, group in grouped_MM:
+    #    mismatches_all.groupby('no_flank').dG.hist(alpha=0.4)
+    #    print name, group
+
+    
+    
     
 def plotSequencesLengthChanges(variant_table):
 
@@ -1524,6 +1702,103 @@ def compareSeqTiled(variant_table, length=None):
     plt.ylabel('probability density')
     plt.tight_layout()
     
+def plotScatterplotGAAAA(variant_tables, labels=None, index=None):
+    if labels is None:
+        labels = ['rep1', 'rep2']
+    if index is None:
+        index = pd.concat([(vtable.pvalue <= 0.05)&(vtable.numTests >= 5) for vtable in variant_tables], axis=1).all(axis=1)
+    variant_table = variant_tables[0]
+    subtable = pd.concat([vtable.loc[index, 'dG'] for vtable in variant_tables], axis=1).dropna()
+    subtable.columns = labels
+    subtable['residuals'] = subtable['rep1']-subtable['rep2']
+    
+    index_largediffs = subtable[subtable['residuals'] > -1]
+    #index_interesting = subtable[(subtable['residuals'] > -1.5)&(subtable['rep2'] < -8)]
+    table_bigdiffs = variant_table.ix[index_largediffs.index.tolist()]
+    #subtable_interesting = variant_table.ix[index_interesting.index.tolist()]
+    index_11nt = pd.concat([(vtable.pvalue <= 0.05)&(vtable.numTests >= 5)&(vtable.receptor != '11nt') for vtable in variant_tables], axis=1).all(axis=1)
+    subtable_11nt = pd.concat([vtable.loc[index_11nt, 'dG'] for vtable in variant_tables], axis=1).dropna()
+    subtable_11nt.columns = labels
+    index_threeway = pd.concat([(vtable.pvalue <= 0.05)&(vtable.numTests >= 5)&(vtable.junction == 'Threeway') for vtable in variant_tables], axis=1).all(axis=1)
+    subtable_threeway = pd.concat([vtable.loc[index_threeway, 'dG'] for vtable in variant_tables], axis=1).dropna()
+    subtable_threeway.columns = labels
+    index_filt = pd.concat([(vtable.pvalue <= 0.05)&(vtable.numTests >= 5)&(vtable.receptor == '11nt')&(vtable.junction != 'Threeway') for vtable in variant_tables], axis=1).all(axis=1)
+    subtable_filt = pd.concat([vtable.loc[index_filt, 'dG'] for vtable in variant_tables], axis=1).dropna()
+    subtable_filt.columns = labels
+    subtable_filt['residuals'] = subtable_filt['rep1']-subtable_filt['rep2']
+    
+    index_interesting = subtable_filt[(subtable_filt['residuals'] > -1.5)&(subtable_filt['rep2'] < -8)]
+    table_interesting = variant_table.ix[index_interesting.index.tolist()]
+    subtable_intersting = subtable_filt[(subtable_filt['residuals'] > -1.5)&(subtable_filt['rep2'] < -8)]
+    index_norm = subtable_filt[(subtable_filt['residuals'] < -1.5)&(subtable_filt['rep2'] < -8)]
+    table_norm = variant_table.ix[index_norm.index.tolist()]
+    
+    xlim = [-11.75, -5.75]
+    fig = plt.figure(figsize=(7,7))
+    plt.hexbin(subtable.loc[:, labels[0]], subtable.loc[:, labels[1]], bins='log')
+    ax = fig.add_subplot(111)
+    ax.scatter(subtable_11nt.loc[:, labels[0]], subtable_11nt.loc[:, labels[1]],  edgecolors=sns.xkcd_rgb['dark blue'], facecolors=sns.xkcd_rgb['dark blue'])
+    ax2 = fig.add_subplot(111)
+    ax2.scatter(subtable_threeway.loc[:, labels[0]], subtable_threeway.loc[:, labels[1]],  edgecolors=sns.xkcd_rgb['green'], facecolors=sns.xkcd_rgb['green'])
+    plt.title('All Sequences')
+    plt.plot(xlim, xlim, 'r:')
+    plt.xlim(xlim)
+    plt.ylim(xlim)
+    plt.xlabel('GAAA $\Delta$G (kcal/mol)' )
+    plt.ylabel('GAAAA $\Delta$G (kcal/mol)')
+    r, pvalue = st.pearsonr(subtable.loc[:, labels[0]], subtable.loc[:, labels[1]])
+    plt.annotate('rsq = %4.3f\nsigma= %4.3f'%(r**2, (subtable.loc[:, labels[0]]- subtable.loc[:, labels[1]]).std()), xy=(0.05, 0.95),
+                    xycoords='axes fraction',
+                    horizontalalignment='left', verticalalignment='top',
+                    fontsize=12)
+    plt.tight_layout()
+    
+    xlim = [-11.75, -5.75]
+    fig = plt.figure(figsize=(7,7))
+    plt.hexbin(subtable_filt.loc[:, labels[0]], subtable_filt.loc[:, labels[1]], bins='log')
+    plt.plot(xlim, xlim, 'r:')
+    plt.xlim(xlim)
+    plt.ylim(xlim)
+    plt.title('Filtered for 11nt receptor and not three way')
+    plt.xlabel('GAAA $\Delta$G (kcal/mol)' )
+    plt.ylabel('GAAAA $\Delta$G (kcal/mol)')
+    r, pvalue = st.pearsonr(subtable.loc[:, labels[0]], subtable.loc[:, labels[1]])
+    plt.annotate('rsq = %4.3f\nsigma= %4.3f'%(r**2, (subtable.loc[:, labels[0]]- subtable.loc[:, labels[1]]).std()), xy=(0.05, 0.95),
+                    xycoords='axes fraction',
+                    horizontalalignment='left', verticalalignment='top',
+                    fontsize=12)
+    plt.tight_layout()
+
+    xlim = [-11.75, -5.75]
+    fig = plt.figure(figsize=(7,7))
+    plt.hexbin(subtable.loc[:, labels[0]], subtable.loc[:, labels[1]], bins='log')
+    ax = fig.add_subplot(111)
+    ax.scatter(subtable_intersting.loc[:, labels[0]], subtable_intersting.loc[:, labels[1]],edgecolors=sns.xkcd_rgb['vermillion'], facecolors=sns.xkcd_rgb['vermillion'] )
+    plt.plot(xlim, xlim, 'r:')
+    plt.xlim(xlim)
+    plt.ylim(xlim)
+    plt.title('Interesting')
+    plt.xlabel('GAAA $\Delta$G (kcal/mol)' )
+    plt.ylabel('GAAAA $\Delta$G (kcal/mol)')
+    r, pvalue = st.pearsonr(subtable.loc[:, labels[0]], subtable.loc[:, labels[1]])
+    plt.annotate('rsq = %4.3f\nsigma= %4.3f'%(r**2, (subtable.loc[:, labels[0]]- subtable.loc[:, labels[1]]).std()), xy=(0.05, 0.95),
+                    xycoords='axes fraction',
+                    horizontalalignment='left', verticalalignment='top',
+                    fontsize=12)
+    plt.tight_layout()
+    
+    # plot residuals
+    plt.figure(figsize=(4,4))
+    
+    
+    plt.hist((subtable.loc[:, labels[0]]- subtable.loc[:, labels[1]]).values , bins=np.linspace(-3, 3, 100), color=sns.xkcd_rgb['vermillion'], histtype='stepfilled', alpha=0.5)
+    plt.xlabel('$\Delta\Delta$G (kcal/mol)')
+    plt.ylabel('count')
+    ax = plt.gca()
+    ylim = ax.get_ylim()
+    plt.plot([0, 0], ylim, 'k:')
+    plt.tight_layout()
+    return    
 def plotScatterplotReplicates(variant_tables, labels=None, index=None):
     if labels is None:
         labels = ['rep1', 'rep2']
@@ -1549,7 +1824,7 @@ def plotScatterplotReplicates(variant_tables, labels=None, index=None):
     
     # plot residuals
     plt.figure(figsize=(4,4))
-    plt.hist((subtable.loc[:, labels[0]]- subtable.loc[:, labels[1]]).values , bins=np.linspace(-1, 1, 100), color=sns.xkcd_rgb['vermillion'], histtype='stepfilled', alpha=0.5)
+    plt.hist((subtable.loc[:, labels[0]]- subtable.loc[:, labels[1]]).values , bins=np.linspace(-3, 3, 100), color=sns.xkcd_rgb['vermillion'], histtype='stepfilled', alpha=0.5)
     plt.xlabel('ddG (kcal/mol) %s - %s'%(labels[0], labels[1]))
     plt.ylabel('count')
     ax = plt.gca()
