@@ -46,7 +46,7 @@ plt.savefig(os.path.join(figDirectory, 'histogram.fit_fmax.n_%d.pdf'%n));
 
 
 parameters = fittingParameters.Parameters(concentrations, table=table)
-table_dropped = table.drop(['222.2', '666.7','2000'], axis=1)
+table_dropped = table.drop(['2.22E+02', '6.67E+02', '2.00E+03'], axis=1)
 parameters.concentrations = concentrations[:-3]
 variants = variant_table.loc[(variant_table.dG < -8.9)].sort('dG').iloc[::10].index
 results = IMlibs.getBootstrappedErrors(table_dropped, parameters, 20, variants=variants)

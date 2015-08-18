@@ -959,8 +959,11 @@ def plotSequenceJoe(variant_table, helices=None, mismatches=None):
     
     ax.set_xlim(-1.5, 2)
     ax.set_ylim(-1.5, 2)
-    ax.set_xlabel('$\Delta\Delta$G Observed (kcal/mol)')
-    ax.set_ylabel('$\Delta\Delta$G Predicted (kcal/mol)')
+
+
+    ax.set_xlabel('$\Delta$G observed (kcal/mol)')
+    ax.set_ylabel('$\Delta$$\Delta$G predicted (kcal/mol)')
+    ax.tick_params(top='off', right='off')
     plt.legend(loc='upper left')
     plt.tight_layout()
     slope, intercept, r_value, p_value, std_err = scp.stats.linregress(x,y)
