@@ -86,9 +86,11 @@ tileList = filteredCPseqFilenameDict.keys()
 
 # import directory names to analyze
 print 'Finding CPfluor files in directories given in "%s"...'%args.CPfluor_dirs_to_quantify
-fluor_dirs_red, fluor_dirs, concentrations = IMlibs.loadMapFile(args.CPfluor_dirs_to_quantify)
-fluorNamesByTileDict, timeStampDict = IMlibs.getFluorFileNamesOffrates(fluor_dirs, tileList)
-fluorNamesByTileRedDict = IMlibs.getFluorFileNames(fluor_dirs_red, tileList)
+fluorDirsAll, fluorDirsSignal, concentrations = IMlibs.loadMapFile(args.map_CPfluors)
+fluorNamesByTileDict, timeDelta = IMlibs.getFluorFileNamesOffrates(fluorDirsSignal, tileList)
+fluorNamesByTileRedDict = IMlibs.getFluorFileNames(fluorDirsAll, tileList)
+
+
 
 # initiate multiprocessing
 if args.num_cores is None:

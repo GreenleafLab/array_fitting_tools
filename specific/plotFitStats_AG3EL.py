@@ -5,8 +5,11 @@ import functools
 import multiprocessing
 import datetime
 import seaborn as sns
+sys.path.insert(0, '/home/sarah/array_image_tools_SKD')
+import fittingParameters
 sns.set_style('white')
-
+sns.set_style("white", {'xtick.major.size': 4,  'ytick.major.size': 4})
+              
 chip = 'AG3EL'
 flow = 'WC'
 dirname = '/lab/sarah/RNAarray/150605_onchip_binding'
@@ -17,67 +20,105 @@ if not os.path.exists(figDirectory):
     
 
 
-table = pd.read_table(os.path.join(dirname, flow, stddirs, chip+'_filtered_anyRNA_sorted.annotated.abbrev.CPfitted'), index_col=0)
+table = pd.read_table(os.path.join(dirname, flow, stddirs, chip+'_filtered_anyRNA_sorted.annotated.CPfitted'), index_col=0)
 variant_table = pd.read_table(os.path.join(dirname, flow, stddirs, chip+'_filtered_anyRNA_sorted.annotated.perVariant.bootStrapped.CPfitted'), index_col=0)
 table.dropna(axis=0, subset=['variant_number'], inplace=True)
 concentrations = 2000*np.power(3., np.arange(0, -8, -1))[::-1]
 
-# fit medians
-variant_table, bindingSeries, allClusterSignal,  bindingSeriesNorm = IMlibs.findVariantTable(table, concentrations=concentrations)
 
-numCores = 20
-variantFittedFilename = os.path.join(dirname, flow, stddirs, chip+'_filtered_anyRNA_sorted.annotated.perVariant.CPfitted')
-null_scores = bindingSeries.iloc[:, -2]
-parameters = fittingParameters.Parameters(concentrations, bindingSeries.iloc[:,-1], allClusterSignal.loc[:, 'all_cluster_signal'], null_scores.values)
-fitUnconstrainedAbs = IMlibs.splitAndFit(bindingSeries, allClusterSignal, variantFittedFilename,
-                                              concentrations, parameters, numCores, index=bindingSeries.index)
-
-parameters.fitParameters.loc['upperbound', 'fmax'] = 100*bindingSeriesNorm.loc[np.isfinite(bindingSeriesNorm).all(axis=1)].max(axis=1).max()
-fitUnconstrained = IMlibs.splitAndFit(bindingSeriesNorm, pd.Series(data=1, index=bindingSeriesNorm.index), variantFittedFilename,
-                                              concentrations, parameters, numCores, index=bindingSeriesNorm.index)
-
-
-
-IMlibs.plotFitFmaxs(fitUnconstrainedAbs)
-plt.title('absolute fluorescence'); plt.xlim(0, 3000); plt.tight_layout()
-plt.savefig(os.path.join(figDirectory, 'constrained_fmax.AG3EL.absolute_fluorescence.pdf'))
-IMlibs.plotFitFmaxs(fitUnconstrained)
-plt.title('normalized fluorescence'); plt.xlim(0, 1.7); plt.tight_layout()
-plt.savefig(os.path.join(figDirectory, 'constrained_fmax.AG3EL.normalized_fluorescence.pdf'))
-
-# plot those with lower bounds
-index = ((fitUnconstrainedAbs.dG < parameters.find_dG_from_Kd(parameters.find_Kd_from_frac_bound_concentration(0.5, 2000)))&
-         (fitUnconstrainedAbs.dG > parameters.find_dG_from_Kd(parameters.find_Kd_from_frac_bound_concentration(0.9, 2000))))
-IMlibs.plotFitFmaxs(fitUnconstrainedAbs, index=index)
-plt.title('absolute fluorescence'); plt.xlim(0, 3000); plt.tight_layout()
-plt.savefig(os.path.join(figDirectory, 'constrained_fmax.AG3EL.absolute_fluorescence.pdf'))
-IMlibs.plotFitFmaxs(fitUnconstrained)
-plt.title('normalized fluorescence'); plt.xlim(0, 1.7); plt.tight_layout()
-plt.savefig(os.path.join(figDirectory, 'constrained_fmax.AG3EL.normalized_fluorescence.pdf'))
-
-compareResults.plotContour(x=fitUnconstrained.dG, y=fitUnconstrained.fmax, xlim=[-12, -6], ylim=[0, 2], aspect='auto', labels=['dG', 'fmax'], min_value=5, plot_points=False)
-plt.savefig(os.path.join(figDirectory, 'unconstrained_fmax_vs_dG.normalizes_fluorescence.pdf'))
-compareResults.plotContour(x=fitUnconstrainedAbs.dG, y=fitUnconstrainedAbs.fmax, xlim=[-12, -6], ylim=[0, 3000], aspect='auto', labels=['dG', 'fmax'], min_value=5, plot_points=False)
-plt.savefig(os.path.join(figDirectory, 'unconstrained_fmax_vs_dG.absolute_fluorescence.pdf'))
-
-# do constrained fit
-maxdG = parameters.find_dG_from_Kd(parameters.find_Kd_from_frac_bound_concentration(0.9, concentrations[args.null_column]))
-parameters.fitParameters.loc[:, 'fmax'] = IMlibs.plotFitFmaxs(fitUnconstrained, maxdG=maxdG)
-fitConstrained = IMlibs.splitAndFit(bindingSeriesNorm, pd.Series(data=1, index=bindingSeriesNorm.index), variantFittedFilename,
-                                              concentrations, parameters, numCores, index=bindingSeriesNorm.index)
-compareResults.plotContour(x=fitConstrained.dG, y=fitConstrained.fmax, xlim=[-12, -6], ylim=[0, 2], aspect='auto', labels=['dG', 'fmax'], min_value=5, plot_points=False)
-plt.savefig(os.path.join(figDirectory, 'constrained_fmax_vs_dG.normalized_fluorescence.pdf'))
+# plot different n's
+n = 10
+plt.figure(figsize=(3,3));
+x = np.linspace(0.4, 1.6)
+sns.distplot(parameters.tight_binders_fit_params.loc[parameters.tight_binders_fit_params.number==n, 'fmax'],
+             color='0.5', hist_kws={'histtype':'stepfilled'});
+plt.plot(x, parameters.find_fmax_bounds_given_n(n, return_dist=True).pdf(x), color='r')
+plt.annotate('n = %d'%n, xy=(.025, .975),
+                xycoords='axes fraction',
+                horizontalalignment='left', verticalalignment='top',
+                fontsize=12)
+ax = plt.gca(); ax.tick_params(right='off', top='off')
+plt.xlabel('fit $f_{max}$')
+plt.ylabel('probability')
+plt.xlim([x[0], x[-1]])
+plt.tight_layout()
+plt.savefig(os.path.join(figDirectory, 'histogram.fit_fmax.n_%d.pdf'%n));
 
 
+parameters = fittingParameters.Parameters(concentrations, table=table)
+table_dropped = table.drop(['2.22E+02', '6.67E+02', '2.00E+03'], axis=1)
+parameters.concentrations = concentrations[:-3]
+variants = variant_table.loc[(variant_table.dG < -8.9)].sort('dG').iloc[::10].index
+results = IMlibs.getBootstrappedErrors(table_dropped, parameters, 20, variants=variants)
 
-# plot variance in fit parameters per cluster
-tectoData.plotVarianceDataset(table)
-plt.savefig(os.path.join(figDirectory, 'histogram.variance_dG.nan_barcode_filters.pdf'))
+
+index = results.index
+cmap = sns.diverging_palette(20, 220, center="dark", as_cmap=True, )
+c = results.flag
+c.loc[variant_table.loc[index].flag == 1] = -1
+fig = plt.figure(figsize=(3, 3))
+ax = fig.add_subplot(111, aspect='equal')
+xlim = [-12, -8.5]
+
+im = ax.scatter(variant_table.loc[index].dG, results.loc[index].dG, marker='.', alpha=0.5, s=8,
+                c=c.astype(float), vmin=-1, vmax=1, cmap=cmap, linewidth=0)
+
+plt.xticks(np.arange(xlim[0], xlim[1]))
+plt.xlim(xlim); plt.xlabel('$\Delta$G (kcal/mol) all 8 concentrations')
+plt.ylim(xlim); plt.ylabel('$\Delta$G (kcal/mol) 5 concentrations')
+plt.plot(xlim, xlim, 'r', linewidth=0.5)
+ax.tick_params(top='off', right='off')
+plt.tight_layout()
+plt.savefig(os.path.join(figDirectory, 'scatterplot.first_five_concentrations_subsampled_10.pdf'));
+
+# plot
+binedges = np.arange(-12, -5, 0.25)
+variant_table.loc[:, 'binned_dG'] = np.digitize(variant_table.dG, bins=binedges)
+variant_table.loc[:, 'dG (kcal/mol)'] = np.nan
+for idx, binname in itertools.izip(variant_table.index, variant_table.binned_dG):
+    if binname == 0:
+        variant_table.loc[idx, 'dG (kcal/mol)'] = '< %4.1f'%binedges[0]
+    elif binname == len(binedges):
+        variant_table.loc[idx, 'dG (kcal/mol)'] = '> %4.1f'%binedges[-1]
+    else:
+        variant_table.loc[idx, 'dG (kcal/mol)'] = '%4.2f to %4.2f'%(binedges[binname-1], binedges[binname])
+order = (['< %4.1f'%binedges[0]] +
+    ['%4.2f to %4.2f'%(binedges[binname-1], binedges[binname]) for binname in np.arange(1, len(binedges))] +
+    ['> %4.1f'%binedges[-1]])
+g = sns.factorplot(x="dG (kcal/mol)", y="diff_fmin", data=variant_table, kind='bar', order=order, color='seagreen', size=3, aspect=1.5)
+g.set_xticklabels(rotation=90)
 
 
-# plot confidence intervals
-tectoData.plotConfIntervals(variant_table)
-plt.savefig(os.path.join(figDirectory, 'histogram.conf_interval.at_least_5variants.pdf'))
+plt.figure(figsize=(3,3));
+#plt.hist(results.dG, bins=np.arange(-12, -4, 0.25), histtype='stepfilled', alpha=0.5, color='0.5'); ax=plt.gca(); ylim = ax.get_ylim();
+#plt.plot([np.percentile(results.dG, 2.5)]*2, ylim, ':', color='0.5');
+
+plt.hist(results.loc[results.numClusters>=5].dG, bins=np.arange(-12, -4, 0.25), histtype='stepfilled', alpha=0.5, color='0.5'); ax=plt.gca(); ylim = ax.get_ylim();
+plt.plot([np.percentile(results.loc[results.numClusters>=5].dG, 2.5)]*2, ylim,  ':', color='0.5');
+plt.xlabel('$\Delta$G (kcal/mol)'); plt.tight_layout()
+ax = plt.gca()
+ax.tick_params(top='off', right='off')
+plt.savefig(os.path.join(figDirectory, 'results.background.min_num_clusters_5.pdf'));
+
+#fitUnconstrainedAbs = IMlibs.splitAndFit(bindingSeries, allClusterSignal, variantFittedFilename,
+#                                              concentrations, parameters, numCores, index=bindingSeries.index)
+detection_limit = -6.93
+cmap = sns.diverging_palette(220, 20, center="dark", as_cmap=True)
+index = variant_table.loc[variant_table.numClusters >= 5].index
+xlim = [-12.5, -5]
+fig = plt.figure(figsize=(4.5,3.75))
+ax = fig.add_subplot(111, aspect='equal')
+im = ax.scatter(variant_table.loc[index].dG_init, variant_table.loc[index].dG, marker='.', alpha=0.5,
+                c=variant_table.loc[index].fmax_init, vmin=0.5, vmax=1.5, cmap=cmap, linewidth=0)
+plt.plot(xlim, xlim, 'c:', linewidth=1)
+plt.plot([detection_limit]*2, xlim, 'r:', linewidth=1)
+plt.plot(xlim, [detection_limit]*2, 'r:', linewidth=1)
+plt.xlim(xlim); plt.xlabel('$\Delta$G initial (kcal/mol)')
+plt.ylim(-12.5, -5); plt.ylabel('$\Delta$G final (kcal/mol)')
+plt.colorbar(im, label='fmax')
+ax.tick_params(top='off', right='off')
+plt.tight_layout()
+plt.savefig(os.path.join(figDirectory, 'inital_vs_final.colored_by_fmax_initial.min_num_clusters_5.png'));
 
 # plot variation due to sequence
 tectoData.plotSequenceJoe(variant_table)
