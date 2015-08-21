@@ -41,6 +41,7 @@ fi
 echo "run_all_binding_curves.sh $ftd $mf $od $lc $bar $c $f"
 
 # process data
+echo "python -m processData -fs $ftd -mf $mf -od $od -fp $f"
 python -m processData -fs $ftd -mf $mf -od $od -fp $f
 output=$(find $od -maxdepth 1  -name "*CPsignal" -type f)
 
@@ -60,6 +61,7 @@ if [ -f $basename".CPannot.pkl" ];
 then
     echo "CPannot file exists: "$basename".CPannot.pkl"
 else
+    echo " python -m findSeqDistribution -lc $lc -cs $basename".CPsignal.pkl" -bar $bar"
     python -m findSeqDistribution -lc $lc -cs $basename".CPsignal.pkl" -bar $bar
     
     # check success
@@ -77,6 +79,7 @@ if [ -f $basename".CPfitted.pkl" ];
 then
     echo "CPfitted file exists: "$basename".CPfitted.pkl"
 else
+    echo "python -m singleClusterFits -cs $basename".CPsignal.pkl" -c $c -n 20"
     python -m singleClusterFits -cs $basename".CPsignal.pkl" -c $c -n 20
 
     # check success
@@ -94,6 +97,7 @@ if [ -f $basename".CPvariant" ];
 then
     echo "CPfitted file exists: "$basename".CPvariant"
 else
+    echo "python -m bootStrapFits -t $basename".CPfitted.pkl" -c $c -a $basename".CPannot.pkl" -b $basename".bindingSeries.pkl" -n 20"
     python -m bootStrapFits -t $basename".CPfitted.pkl" -c $c -a $basename".CPannot.pkl" -b $basename".bindingSeries.pkl" -n 20
 
     # check success
