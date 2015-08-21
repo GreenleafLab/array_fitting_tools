@@ -560,8 +560,14 @@ def filterFitParameters(table):
     index = (table.rsq > 0.5)&(table.dG_stde.astype(float) < 1)&(table.fmax_stde.astype(float)<table.fmax.astype(float))
     return table.loc[index]
 
-def loadLibCharVariantTable(libCharFile, variantTableFile):
-    libChar = pd.read_table(libCharFile).loc[:, :'ss_correct']
+def loadLibCharVariantTable(libCharFile, variantTableFile, old=None):
+    if old is None:
+        old = False
+    
+    if not old:
+        libChar = pd.read_table(libCharFile).loc[:, :'ss_correct']
+    else:
+        libChar = pd.read_table(libCharFile)
     variant_table = pd.read_table(variantTableFile, index_col=0)
     
     final = pd.DataFrame(index=libChar.index, columns=libChar.columns.tolist() +

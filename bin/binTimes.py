@@ -116,4 +116,4 @@ if __name__ == '__main__':
     
     # plot the number of tiles and times
     plotFun.plotNumberOfTilesFitRates(tileMap, universalTimes)
-    
+    plt.savefig(os.path.join(os.path.dirname(outFile)), 'number_tiles_fit.pdf'))

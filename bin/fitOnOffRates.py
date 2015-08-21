@@ -246,7 +246,7 @@ if __name__ == '__main__':
                                  fitParameters, log_axis=False,
                                  func=objectiveFunctionOffRates, fittype='off',
                                  default_errors=default_errors,use_default=True)
-            #plt.ylim([0, 1.5])
+            plt.ylim([0, 1.5])
             plt.savefig(os.path.join(figDirectory, 'off_rate_curve.variant_%d.pdf'%variant))
         except:
             print 'issue with variant %d'%variant

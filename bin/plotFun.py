@@ -274,7 +274,7 @@ def plotErrorTotal(variant_table, variant_table2=None):
                     showfliers=False)
 
     index = variant_table.dG < parameters.find_dG_from_Kd(5000)
-    fractional_error = findKdAndError(variant_table)
+    #fractional_error = findKdAndError(variant_table)
     sns.boxplot(x="numTests", y="fractional_error", data=fractional_error.loc[index],
                 whis=1.5, order=order, fliersize=0,
                 linewidth=0.5, color='grey', ax=ax, showcaps=False, showfliers=False)
@@ -527,11 +527,25 @@ def plotResidualsKd(variant_tables):
 
     index = (x < cutoff)&(y < cutoff)
     z =  y - (y - x).loc[index].mean()
-    residuals = pd.concat([(x - z), (x+z)/2.], axis=1, keys=['diff', 'value'])
-    plt.figure()
+    residuals = pd.concat([(x - y), (x+y)/2.], axis=1, keys=['diff', 'value'])
+    plt.figure(figsize=(4,3))
     plt.hist(residuals.loc[residuals.value < np.log10(5000), 'diff'],
              bins=np.linspace(-1, 1, 100), histtype='stepfilled', alpha=0.5,
              color=sns.xkcd_rgb['navy blue'])
+    
+    residuals = pd.concat([np.power(10, x) - np.power(10, y),
+                           (np.power(10, x) + np.power(10, y))/2.],
+        axis=1, keys=['diff', 'value'])
+    plt.figure(figsize=(3,3))
+    plt.hist((residuals.loc[residuals.value < 5000, 'diff']/
+              residuals.loc[residuals.value < 5000, 'value']).values,
+             bins=np.linspace(-2, 1, 100), histtype='stepfilled', alpha=0.5,
+             color=sns.xkcd_rgb['navy blue'])
+    plt.xlabel('fraction of Kd')
+    plt.ylabel('number of variants')
+    ax = plt.gca()
+    ax.tick_params(right='off', top='off')
+    plt.tight_layout()
     
 def plotNumberOfTilesFitRates(tileMap, universalTimes):
     fig = plt.figure(figsize=(5,3));
@@ -674,3 +688,162 @@ def plotDeltaDeltaGByLength(variant_tables, cutoff=None, normed=None):
     plt.ylabel('probability')
     plt.tight_layout()
 
+def plotAbsoluteFluorescenceInLibraryBins(bindingSeriesNormLabeled, libCharFile,
+                                          cutoff=None, bindingPoint=None,
+                                          ylim=None):
+    if bindingPoint is None:
+        bindingPoint = -1
+    if ylim is None: ylim = (0, 1.5)
+    libChar = pd.read_table(libCharFile)
+    grouped = bindingSeriesNormLabeled.groupby('variant_number')
+    
+    fluorescence = grouped.median().iloc[:, bindingPoint]
+    data = pd.concat([libChar.length,
+                      libChar.loop + '_' + libChar.receptor,
+                      fluorescence], axis=1)
+    data.columns = ['length', 'loop_receptor', 'fluorescence']
+    
+    g = sns.FacetGrid(data, col='loop_receptor', col_wrap=4,  ylim=ylim,
+                      size=2, aspect=1.4,)
+                      
+    g.map(sns.boxplot, "length", "fluorescence",
+                                 order=[8,9,10,11,12],
+                                 whis=1.5, fliersize=0,
+                linewidth=0.5, color='grey', showcaps=False, showfliers=False)
+
+    # plot cutoff if present
+
+    for ax in g.axes.flat:
+        xlim = ax.get_xlim()
+        ax.plot(xlim, [cutoff]*2, c="r", ls=":", linewidth=1)
+        
+    plt.annotate('%s nM'%fluorescence.name,
+             xy=(0.95, 0.05),
+             xycoords='figure fraction',
+             horizontalalignment='right', verticalalignment='bottom',
+             fontsize=12)
+
+def plotLibraryFigure(matrixAll, labelMat, libChar, labels=None, positions=None,
+                      allLengths=None):
+    if labels is None:
+        labels = ['sequence_8', 'sequence_9', 'sequence_10', 'sequence_11','sequence_12',
+                    '0x1', '0x2', '0x3',
+                    '1x0', '2x0', '3x0',
+                    '1x1', "1x1'",
+                    '1x2', "1x2'",
+                    '1x3', "1x3'",
+                    '2x1', "2x1'",
+                    '3x1', "3x1'",
+                    '2x2',  '3x3', "3x3'"]
+    if positions is None:
+        positions = range(-3, 5)
+    if allLengths is None:
+        allLengths = [8, 9, 10, 11, 12]
+    numLengths = len(allLengths)
+    width_keys = ['%s_0'%key for key in labels]
+    width_ratios  = np.array([np.log10(len(matrixAll[labelMat[key]].dropna(axis=0, how='all')))
+                                          for key in width_keys])
+    with sns.axes_style("whitegrid", {'grid.linestyle': u':', 'axes.edgecolor': '0.9'}):
+        fig = plt.figure(figsize=(6, 3.5))
+        gs = gridspec.GridSpec(2, len(labels), wspace=0, hspace=0.05,
+                               width_ratios=width_ratios,
+                               height_ratios=[1,4],
+                               bottom=0.25, right=0.97, left=0.1, top=0.97)
+        markers = ['^', 'o', 'v']
+        cmap = sns.cubehelix_palette(start=0.75, rot=1.25, light=0.40, dark=0.05, reverse=True, hue=1, as_cmap=True)
+        colors= ['black', 'red brown', 'orange brown', 'greenish blue', 'dark teal']
+        colors= ['black', 'red brown', 'tomato red', 'blue', 'navy blue', 'plum', 'milk chocolate' , 'medium green']
+        for i, key in enumerate(labels):
+            ax = fig.add_subplot(gs[1, i])
+            number = pd.Series(index=positions)
+            numPossible = len(matrixAll[labelMat['%s_%d'%(key, 0)]])
+            for j, position in enumerate(positions):
+                try:
+                    a = matrixAll[labelMat['%s_%d'%(key, position)]].dropna(axis=0, how='all')
+                    indices = np.hstack(np.column_stack(a.values)).astype(float)
+                    index = np.isfinite(indices)
+                    
+                    x = np.array(a.index.tolist())/float(np.max(a.index.tolist()))
+                    x = np.hstack([x]*numLengths)[index]
+                    
+                    y = libChar.loc[indices[index]].length.values
+                    jitter = st.norm.rvs(loc=position*0.15, scale=0.05, size=len(y))
+                    c = (libChar.loc[indices[index]].helix_one_length).fillna(0).values
+                    if not key.find('sequence') == 0:
+                        c += 1
+                    else:
+                        c[:] = 0
+                    for k in range(5):
+                        index = c == k
+                        ax.scatter(x[index], (y+jitter)[index], s=1, marker='.',
+                                   facecolors=sns.xkcd_rgb[colors[k]], edgecolors='none')
+                    number.loc[position] = (len(a))
+                except:
+                    pass
+
+            plt.ylim(7.5, 12.5)
+            plt.xlim(0, 1)
+            ax.set_xticks([0, 1])
+            ax.set_xticklabels([])
+            ax.set_yticks(allLengths)
+            if i != 0:
+                ax.set_yticklabels([])
+            
+            
+            if key.find('sequence')==0:
+                ax.annotate('%s'%(key),
+                             xy=(0.5, -0.01),
+                             xycoords='axes fraction',
+                             horizontalalignment='center', verticalalignment='top',
+                             rotation=90,
+                             fontsize=10)
+            else:
+                ax.annotate('%s'%(key),
+                             xy=(0.5, -0.13),
+                             xycoords='axes fraction',
+                             horizontalalignment='center', verticalalignment='bottom',
+                             rotation=90,
+                             fontsize=10)   
+            # plot second box
+            n = number.loc[0]
+            scaled_width = width_ratios.min()/np.log10(n)
+            aspect = 0.1
+            ax = fig.add_subplot(gs[0, i])
+            ax.bar(left=[0.4], height=np.log10(numPossible), width=scaled_width*0.5,
+                   facecolor='grey', edgecolor='0.9', alpha=0.5)
+            ax.bar(left=[0.6], height=np.log10(n), width=scaled_width*0.5,
+                   facecolor=sns.xkcd_rgb['charcoal'], edgecolor='0.9', alpha=1)
+        
+            
+            #ax.bar(left=[0], height=numPossible/np.log10(numPossible), width=1, color='grey', alpha=0.5)
+            #ax.bar(left=[0], height=n/(aspect*np.log10(numPossible)), width=aspect, color='navy', alpha=0.5)
+            ax.set_xlim(0, 1)
+            ax.set_xticks([0,1])
+            ax.set_ylim([0, 6])
+            ax.set_yticks(np.arange(6))
+            ax.set_yticklabels(['$10^%d$'%y if (y-1)%2==0 else '' for y in np.arange(6)] )
+            #ax.set_yscale('log')
+            ax.set_xticklabels([])
+            if i != 0:
+                ax.set_yticklabels([])
+                
+def plotNormalizedFitCurve(concentrations, subSeries, result, fitParameters):
+    
+    fitFun.plotFitCurve(concentrations,
+                        subSeries,
+                        result,
+                        fitParameters)
+    ax = plt.gca()
+    majorLocator   = mpl.ticker.MultipleLocator(result.fmax*0.5)
+    minorLocator   = mpl.ticker.MultipleLocator(result.fmax*0.1)
+    majorFormatter = mpl.ticker.FormatStrFormatter('%4.1f')
+    ax.yaxis.set_major_locator(majorLocator)
+    ax.yaxis.set_major_formatter(majorFormatter)
+    ax.yaxis.set_minor_locator(minorLocator)
+    ax.set_ylim(0, result.fmax*1.1)
+    ax.set_yticklabels([])
+    #
+    #normalized_ticks = np.linspace(0, result.fmax, 5)
+    #
+    #ax.set_yticks(normalized_ticks)
+    #ax.set_yticklabels([0, 0.5, 1])

@@ -10,7 +10,9 @@ import itertools
 import seqfun
 import IMlibs
 import scipy.stats as st
-
+sns.set_style("white", {'xtick.major.size': 4,  'ytick.major.size': 4,
+                        'xtick.minor.size': 2,  'ytick.minor.size': 2,
+                        'lines.linewidth': 1})
 
 class fittingParameters():
     
@@ -454,7 +456,7 @@ def plotFitCurve(concentrations, subSeries, results,
             eminus = eplus = default_errors/np.sqrt(numTests)
     
     # plot binding points
-    plt.figure(figsize=(4,4));
+    plt.figure(figsize=(2.5,2.3));
     plt.errorbar(concentrations, fluorescence,
                  yerr=[eminus, eplus], fmt='.', elinewidth=1,
                  capsize=2, capthick=1, color='k', linewidth=1)
@@ -510,13 +512,14 @@ def plotFitCurve(concentrations, subSeries, results,
         pass
     ax = plt.gca()
     ax.tick_params(right='off', top='off')
+    ax.tick_params(which="minor", right='off', top='off')
     plt.xlim(more_concentrations[[0, -1]])
     if fittype=='binding':
         plt.xlabel('concentration (nM)')
     else:
         plt.xlabel('time (s)')
     plt.ylabel('normalized fluorescence')
-    plt.tight_layout()
+    plt.subplots_adjust(bottom=0.26, left=0.2, top=0.97)
 
 def findMaxProbability(x, numBins=None):
     if numBins is None:

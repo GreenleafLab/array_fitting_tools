@@ -150,6 +150,29 @@ if __name__=="__main__":
                                      concentrations)
     plt.savefig(os.path.join(figDirectory, os.path.basename(outFile)+'_vs_clusters.pdf'))
     
+    # plot annotations if annotations are given
+    if annotatedClusterFile is not None:
+        bindingSeriesNormLabeled = pd.concat([pd.read_pickle(annotatedClusterFile),
+                                              np.divide(bindingSeries, np.vstack(allClusterSignal))],
+            axis=1)
+        bindingSeriesBackgroundNorm = bindingSeriesBackground/allClusterSignal.median()
+        libCharFile = '/lab/sarah/RNAarray/150311_library_v2/all_10expts.library_characterization.txt'
+        
+        # find q values
+        for bindingPoint in range(7):
+            backgroundInLast = (bindingSeriesBackground.iloc[:, bindingPoint]/
+                                allClusterSignal.median()).dropna()
+            ecdf = ECDF(backgroundInLast)
+            idx  = np.abs((ecdf(backgroundInLast) - 0.95)).argmin()
+            cutoff = backgroundInLast.iloc[idx]
+            
+            plotFun.plotAbsoluteFluorescenceInLibraryBins(bindingSeriesNormLabeled,
+                                                          libCharFile,
+                                                          cutoff=cutoff,
+                                                          bindingPoint=bindingPoint)
+            plt.savefig(os.path.join(figDirectory,
+                                     'normalized_fluorescence.categories_%d.pdf'%bindingPoint))
+    
     if args.fit:
         annotations = pd.read_pickle(annotatedClusterFile).sort('variant_number')
         

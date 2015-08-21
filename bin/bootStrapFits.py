@@ -175,7 +175,7 @@ def perVariant(concentrations, subSeries, fitParameters, fmaxDist, initial_point
     return results
 
 def initiateFitting(fittedBindingFilename, annotatedClusterFile,
-                     bindingCurveFilename, concentrations ):
+                     bindingCurveFilename, concentrations):
 
     # load initial points and find fitParameters
     initialPointsAll = pd.concat([pd.read_pickle(annotatedClusterFile),
@@ -377,4 +377,7 @@ if __name__ == '__main__':
                         results2.loc[variant],
                         fitParameters)
     
-    
+    for variant in variants:
+        plotFun.plotNormalizedFitCurve(concentrations, groupDict[variant],
+                                       variant_table.loc[variant], fitParameters)
+        plt.savefig(os.path.join(figDirectory, 'binding_curve.variant_%d.pdf'%variant))
