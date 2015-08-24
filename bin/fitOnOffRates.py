@@ -214,7 +214,7 @@ if __name__ == '__main__':
     # find out file
     if outFile is None:
         outFile = os.path.splitext(
-            annotatedClusterFile[:annotatedClusterFile.find('.pkl')])[0]
+            bindingCurveFilename[:bindingCurveFilename.find('.pkl')])[0]
     
     # process inputs
     if timesFilename is None:

@@ -40,10 +40,9 @@ parser.add_argument('-o', '--out_file',
                    help='output basename')
 
 group = parser.add_argument_group('optional arguments for binning')
-group.add_argument('--n_tiles', type=int, default=2, metavar="N",
-                    help='minimum number of tiles to include time point. Default is 2. '
-                    'Set to 1 if you wish to include a time point even if only 1 tile is fit')
-
+parser.add_argument('-tau', '--timeDelta', type=float, metavar="n",
+                   help='number of seconds separating bins. Default is to find '
+                   'min time between tiles.')
 
 
 ##### SCRIPT #####
@@ -80,8 +79,11 @@ if __name__ == '__main__':
     
     # make array of universal times: i.e. bins in which you will test binding
     # default time delta is the minimum time delta within a single tile
-    min_time_delta = np.min([(np.array(times[1:]) - np.array(times[:-1])).min()
-                             for times in timeDelta.values()])
+    if args.timeDelta is None:
+        min_time_delta = np.min([(np.array(times[1:]) - np.array(times[:-1])).min()
+                                 for times in timeDelta.values()])
+    else:
+        min_time_delta = args.timeDelta 
     
     universalTimes = np.arange(0, np.hstack(timeDelta.values()).max()+min_time_delta,
                                min_time_delta)
@@ -94,6 +96,7 @@ if __name__ == '__main__':
            
     # remake binding series file
     tileMap = pd.DataFrame(data=0, index=np.sort(cols.keys()), columns=finalCols)
+    timeMap = pd.DataFrame(index=np.sort(cols.keys()), columns=finalCols)
     timeSeriesNorm = pd.DataFrame(index=bindingSeriesNorm.index,
                                   columns=finalCols)
     for tile, times in timeDelta.items():
@@ -102,18 +105,20 @@ if __name__ == '__main__':
         old_cols = np.arange(len(times))
         timeSeriesNorm.loc[index, cols[tile]] = bindingSeriesNorm.loc[index,old_cols].values
         tileMap.loc[tile, cols[tile]] = 1
-        
-    # how many tiles do you want to include data point?
-    min_num_tiles = args.n_tiles
-    index = (tileMap.sum() >= min_num_tiles)
-    finalCols = finalCols[index.values]
-    timeSeriesNorm = timeSeriesNorm.loc[:, index]
+        timeMap.loc[tile, cols[tile]] = timeDelta[tile]        
     
     # save times and 
-    finalTimes = pd.Series(universalTimes[finalCols], index=finalCols)
+    finalTimes = timeMap.mean()
     timeSeriesNorm.to_pickle(bindingCurveFilename)
     np.savetxt(timesFilename, finalTimes.values)
     
     # plot the number of tiles and times
-    plotFun.plotNumberOfTilesFitRates(tileMap, universalTimes)
-    plt.savefig(os.path.join(os.path.dirname(outFile)), 'number_tiles_fit.pdf'))
+    plotFun.plotNumberOfTilesFitRates(tileMap, finalTimes)
+    plt.savefig(os.path.join(os.path.dirname(outFile), 'number_tiles_fit.pdf'))
+    
+    plotFun.plotTimesScatter(timeMap, finalTimes)
+    plt.savefig(os.path.join(os.path.dirname(outFile), 'times_fit.pdf'))
+        
+    # plot timeDelta original
+    plotFun.plotTimesOriginal(timeDelta)
+    plt.savefig(os.path.join(os.path.dirname(outFile), 'times_per_tile_original.pdf'))

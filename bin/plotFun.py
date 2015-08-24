@@ -547,13 +547,13 @@ def plotResidualsKd(variant_tables):
     ax.tick_params(right='off', top='off')
     plt.tight_layout()
     
-def plotNumberOfTilesFitRates(tileMap, universalTimes):
+def plotNumberOfTilesFitRates(tileMap, finalTimes):
     fig = plt.figure(figsize=(5,3));
     gs = gridspec.GridSpec(1, 2, wspace=0.05, width_ratios=[2,1],
                            bottom=0.25, left=0.15)
     ax = fig.add_subplot(gs[0,0])
     sns.heatmap(tileMap.transpose(),  linewidths=.5, cbar=False, ax=ax,
-                yticklabels=universalTimes[tileMap.columns].astype(int))
+                yticklabels=finalTimes.astype(int).values)
     ax.set_xlabel('tile')
     ax.set_ylabel('time (s)')
     
@@ -573,7 +573,54 @@ def plotNumberOfTilesFitRates(tileMap, universalTimes):
     ax.set_xlabel('# tiles')
     ax.tick_params(top='off', right='off', left='off')
     sns.despine()
+
+def plotTimesScatter(timeMap, finalTimes):
+    color = sns.cubehelix_palette()[-1]      
+    fig = plt.figure(figsize=(3,3));
+    for i, time in enumerate(finalTimes):
+        y = timeMap.iloc[:, i].dropna()
+        x = i + st.norm.rvs(loc=0, scale=0.1, size=len(y))
+        plt.scatter(x, y, marker='o', s=10, facecolors='none', edgecolors=color)
+        plt.scatter(i, time, marker='x', s=30, facecolors='none', edgecolors=color, linewidth=1.25)
+    ax = plt.gca()
+    xlim = ax.get_xlim()
+    ylim = ax.get_ylim()
     
+    plt.xlim(-len(finalTimes)*0.01, len(finalTimes)*1.01)
+    plt.xticks(np.arange(len(finalTimes)))
+    plt.xlabel('time points')
+
+    plt.ylim(0 - (ylim[1]-ylim[0])*0.01, ylim[1])
+    plt.ylabel('time (s)')
+    
+    ax.tick_params(top='off', right='off')
+    plt.tight_layout()
+    
+def plotTimesOriginal(timeDelta):
+    plt.figure(figsize=(4, 4))
+    colors = sns.color_palette('Paired', 10) + sns.color_palette('Paired', 10)
+    tiles = np.sort(timeDelta.keys())
+    for i, tile in enumerate(tiles):
+        times = timeDelta[tile]
+        x = np.arange(len(times))
+        y = times
+        if i%3 == 0:
+            fmt = ':'
+            marker = 'o'
+        elif (i-1)%3==0:
+            fmt = '-'
+            marker = '<'
+        else:
+            fmt = '--'
+            marker = '*'
+        plt.plot(x, y, fmt, color=colors[i], marker=marker, label=tile, linewidth=1)
+    plt.legend(loc='upper left', ncol=2)
+    plt.xticks(np.arange(np.max([len(vec) for vec in timeDelta.values()])))
+    plt.xlabel('time points')
+    plt.ylabel('time (s)')
+    ax = plt.gca()
+    ax.tick_params(top='off', right='off')
+    plt.tight_layout()
 
     
 def plotReplicates(variant_tables, cutoff=None, relative=None, variant=None,
