@@ -1,16 +1,27 @@
 import datetime
 import scipy.cluster.hierarchy as sch
 import scipy.cluster as sc
+import pandas as pd
+import sys
+import os
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
 import IMlibs
 import fitFun
 sys.path.append('/home/sarah/array_image_tools_SKD/specific/')
+sys.path.append('/Users/Sarah/python/array_image_tools_SKD/specific/')
 from mergeReplicates import errorPropagateAverage
 
 parameters = fitFun.fittingParameters()
-libCharFile = '/lab/sarah/RNAarray/150311_library_v2/all_10expts.library_characterization.txt'
+#libCharFile = '/lab/sarah/RNAarray/150311_library_v2/all_10expts.library_characterization.txt'
+libCharFile = 'all_10expts.library_characterization.txt'
+
 libChar = pd.read_table(libCharFile).loc[:, :'ss_correct']
 
 wcFile = '/lab/sarah/RNAarray/final_WC/flowWC.150607_150605.combined.results.pkl'
+wcFile = 'flowWC.150607_150605.combined.results.pkl'
+
 results = pd.concat([libChar, pd.read_pickle(wcFile)], axis=1)
 
 figDirectory = os.path.join(os.path.dirname(wcFile), 'figs_'+str(datetime.date.today()))
@@ -19,12 +30,14 @@ if not os.path.exists(figDirectory):
 
 subresults = results.loc[results.sublibrary=='junction_conformations'].copy()
 subresults.sort(['effective_length', 'offset'], inplace=True)
+#subresults = subresults.loc[subresults.ss_correct.astype(bool)]
 
 junction_seq_ref = 'UGAUCU_AGAUCA'
 
 # try with a table of just dG
 subresults.loc[:, 'id'] = (subresults.length.astype(int).astype(str) + '_' +
                            subresults.helix_one_length.astype(int).astype(str))
+
 pivot = subresults.pivot(index='junction_seq', columns='id', values='dG')
 pivot = pivot.loc[:,['8_1', '9_0', '9_1','9_2','10_1',
                      '10_2','10_3','11_2','12_3',]]
@@ -33,27 +46,9 @@ pivot[pivot >= parameters.cutoff_dG] = parameters.cutoff_dG
 ddGs = (pivot - pivot.loc[junction_seq_ref]).astype(float)
 
 # cluster?
+labels, M = consensusCluster(ddGs, n_samples=500, k=21,
+                                     plot=False)
 
-z = sch.linkage(ddGs.dropna(how='any', axis=0), method='ward')
-index = sch.leaves_list(z)
-
-plt.figure()
-sns.heatmap(ddGs.dropna(how='any', axis=0).iloc[index])
-
-numClusters = 7
-for numClusters in range(3, 20):
-
-    centroid, label = sc.vq.kmeans2(ddGs.dropna(how='any', axis=0), numClusters)
-    index =  np.argsort(label)
-    plt.figure(figsize=(5, 7))
-    sns.heatmap(ddGs.dropna(how='any', axis=0).iloc[index], yticklabels=False)
-    plt.savefig(os.path.join(figDirectory, 'junctions_9contexts.clustered_kmean.%d_clusters.pdf'%numClusters))
-
-grouped = subresults.groupby('junction_seq')
-junctions = grouped.first().junction
-labeled_junctions = pd.concat([junctions, pd.Series(label,
-                                                    index = ddGs.dropna(how='any', axis=0).index)],
-    axis=1, keys = ['junction', 'class'] )
 
 possible_junctions = np.unique(junctions)
 fig = plt.figure(figsize=(5,7))
