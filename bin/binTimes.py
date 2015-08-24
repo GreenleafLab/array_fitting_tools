@@ -114,11 +114,11 @@ if __name__ == '__main__':
     
     # plot the number of tiles and times
     plotFun.plotNumberOfTilesFitRates(tileMap, finalTimes)
-    plt.savefig(os.path.join(os.path.dirname(outFile), 'number_tiles_fit.pdf'))
+    plt.savefig(outFile + '.number_tiles_fit.pdf')
     
     plotFun.plotTimesScatter(timeMap, finalTimes)
-    plt.savefig(os.path.join(os.path.dirname(outFile), 'times_fit.pdf'))
+    plt.savefig(outFile + '.times_fit.pdf')
         
     # plot timeDelta original
     plotFun.plotTimesOriginal(timeDelta)
-    plt.savefig(os.path.join(os.path.dirname(outFile), 'times_per_tile_original.pdf'))
+    plt.savefig(outfile + '.times_per_tile_original.pdf')
