@@ -1,17 +1,18 @@
 from fitOnOffRates import checkFits
+import IMlibs
 
 # load results on/off
-#offrate_file = '/lab/sarah/RNAarray/150605_onchip_binding/WC/offRates/AG3EL_Bottom_filtered_reduced.CPresults'
-#onrate_file  = '/lab/sarah/RNAarray/150605_onchip_binding/WC/onRates/AG3EL_Bottom_filtered_reduced.CPresults'
+offrate_file = '/lab/sarah/RNAarray/150605_onchip_binding/WC/offRates/AG3EL_Bottom_filtered_reduced.CPresults'
+onrate_file  = '/lab/sarah/RNAarray/150605_onchip_binding/WC/onRates/AG3EL_Bottom_filtered_reduced.CPresults'
 
-offrate_file = '/lab/sarah/RNAarray/141111_miseq_run_tecto_TAL_VR/with_all_clusters/WC/offRates/AAYFY_ALL_Bottom_filtered_reduced.CPresults'
-#libCharFile = '/lab/sarah/RNAarray/150311_library_v2/all_10expts.library_characterization.txt'
-libCharFile = '/lab/sarah/RNAarray/140929_library_design/allJunctions.noUs.noMB2.characterization'
-#variant_table = IMlibs.loadLibCharVariantTable(libCharFile, 'bindingCurves/AG3EL_Bottom_filtered_reduced.CPvariant')
-variant_table = IMlibs.loadLibCharVariantTable(libCharFile, '/lab/sarah/RNAarray/141111_miseq_run_tecto_TAL_VR/with_all_clusters/WC/bindingCurves/AAYFY_ALL_Bottom_filtered_reduced.CPvariant')
+#offrate_file = '/lab/sarah/RNAarray/141111_miseq_run_tecto_TAL_VR/with_all_clusters/WC/offRates/AAYFY_ALL_Bottom_filtered_reduced.CPresults'
+libCharFile = '/lab/sarah/RNAarray/150311_library_v2/all_10expts.library_characterization.txt'
+#libCharFile = '/lab/sarah/RNAarray/140929_library_design/allJunctions.noUs.noMB2.characterization'
+variant_table = IMlibs.loadLibCharVariantTable(libCharFile, 'bindingCurves/AG3EL_Bottom_filtered_reduced.CPvariant')
+#variant_table = IMlibs.loadLibCharVariantTable(libCharFile, '/lab/sarah/RNAarray/141111_miseq_run_tecto_TAL_VR/with_all_clusters/WC/bindingCurves/AAYFY_ALL_Bottom_filtered_reduced.CPvariant')
 
-results_off = pd.read_table(offrate_file, index_col=0)
-results_on  = pd.read_table(onrate_file, index_col=0)
+results_off = pd.concat([pd.read_table(libCharFile), pd.read_table(offrate_file, index_col=0)], axis=1).loc[:, 'fmax':]
+results_on  = pd.concat([pd.read_table(libCharFile), pd.read_table(onrate_file, index_col=0)], axis=1).loc[:, 'fmax':]
 
 # plot kobs versus other parameters
 index_on = checkFits(results_on, fittype='on')

@@ -121,4 +121,4 @@ if __name__ == '__main__':
         
     # plot timeDelta original
     plotFun.plotTimesOriginal(timeDelta)
-    plt.savefig(outfile + '.times_per_tile_original.pdf')
+    plt.savefig(outFile + '.times_per_tile_original.pdf')

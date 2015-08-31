@@ -18,11 +18,12 @@ This script does NOT filter the barcodes at all - filterBarcodesAndAlignToRefere
 import os, sys
 import numpy as np
 from collections import Counter
-from optparse import OptionParser
+import argparse
 import datetime
 import pandas as pd
 import scipy.stats as st
 import matplotlib.pyplot as plt
+import seaborn as sns
 ''' Functions '''
 
 # Writes a single line with a newline to the specified file
@@ -72,44 +73,52 @@ def consensusVoting(r1Block,Q1Block,degeneracy):
 
 if __name__ == "__main__":
 
-    ## Get options and arguments from command line
-    parser = OptionParser()
-    parser.add_option('-i', dest="inFile", help="Merged file to be analyzed. Does not need to be sorted")
-    parser.add_option('-s', dest="sorted", action="store_true", default=False, help="flag if the input is already filtered and sorted")
-    parser.add_option('-o', dest="outFile", help="directory in which to write output")
-    parser.add_option("-q", dest="avgQScoreCutoff", type=int, default=28, help="cutoff for average q score of the read")
-    parser.add_option("-c", dest='colBarcode', help="column number in which the barcodes appear (1 indexed)", action='store', type='int')
-    parser.add_option("-C", dest='colTarget', help="column number in which the target sequences appear (1 indexed)", action='store', type='int')
-    options, arguments = parser.parse_args()
+    parser = argparse.ArgumentParser(description='compress barcodes')
+    parser.add_argument('-i', '--inFile', required=True, 
+                       help='Merged file to be analyzed. Does not need to be sorted.')
+    parser.add_argument('-s', '--sorted', default=False, action="store_true",
+                       help='flag if the input is already filtered and sorted')
+    
+    parser.add_argument('-o', '--outFile', required=True, metavar="*.unique_barcodes",
+                       help='file to which to write output')
+    parser.add_argument('-q', '--avgQScoreCutoff', type=int, default=28,
+                        help='cutoff for average q score of the read. default is 28')
+    parser.add_argument('-c', '--colBarcode', help="column number in which the "
+                      "barcodes appear (1 indexed)", action='store', type=int)
+    parser.add_argument('-C', '--colTarget', help="column number in which the "
+                      "target sequences appear (1 indexed)", action='store', type=int)
+
+
+    args = parser.parse_args()
 
     # return usage information if no argvs given
     if len(sys.argv)==1:
         os.system(sys.argv[0]+" --help")
         sys.exit()
 
-    print "in file: %s"%options.inFile
-    print "out file: %s"%options.outFile
-    print "colBarcode: %s"%options.colBarcode
-    print "colTarget: %s"%options.colTarget
+    print "in file: %s"%args.inFile
+    print "out file: %s"%args.outFile
+    print "colBarcode: %s"%args.colBarcode
+    print "colTarget: %s"%args.colTarget
     
 
     
-    options.colBarcode = options.colBarcode-1
-    options.colTarget = options.colTarget-1
+    args.colBarcode = args.colBarcode-1
+    args.colTarget = args.colTarget-1
 
     # sort CPseq and filter again
-    if not options.sorted:
+    if not args.sorted:
         print "Sorting input CPseq file..."
-        newInFile = os.path.splitext(options.inFile)[0] + '.sort.CPseq'
-        inFile = pd.read_table(options.inFile, header=None)
-        inFile.dropna(subset=[options.colBarcode]).sort(options.colBarcode).to_csv(newInFile, sep='\t', header=False, index=False)
-        options.inFile = newInFile
+        newInFile = os.path.splitext(args.inFile)[0] + '.sort.CPseq'
+        inFile = pd.read_table(args.inFile, header=None)
+        inFile.dropna(subset=[args.colBarcode]).sort(args.colBarcode).to_csv(newInFile, sep='\t', header=False, index=False)
+        args.inFile = newInFile
         
     print "Compressing barcodes..."
     ## Initiate output files
-    inFile_name = os.path.splitext(os.path.basename(options.inFile))[0]
-    outFolder = os.path.dirname(options.outFile)
-    outputFileName =  options.outFile + '.tmp'
+    inFile_name = os.path.splitext(os.path.basename(args.inFile))[0]
+    outFolder = os.path.dirname(args.outFile)
+    outputFileName =  args.outFile + '.tmp'
     statFileName =  os.path.join(outFolder, inFile_name+"_compressedBarcodes.stat")
 
     logFileName =   os.path.join(outFolder, "compressBarcodes_v8.log")
@@ -117,8 +126,8 @@ if __name__ == "__main__":
 
     ## Write to log
     writeLine(logFile, 'Analysis performed ' + str(datetime.datetime.now()) + ' using compressBarcodes_v8.py')
-    writeLine(logFile, 'Barcodes compressed from file: ' + options.inFile)
-    writeLine(logFile, 'Average sequence quality score cutoff used: ' + str(options.avgQScoreCutoff))
+    writeLine(logFile, 'Barcodes compressed from file: ' + args.inFile)
+    writeLine(logFile, 'Average sequence quality score cutoff used: ' + str(args.avgQScoreCutoff))
 
     writeLine(logFile, '\nCompressed barcodes in output file ' + outputFileName)
     writeLine(logFile, 'Columns:')
@@ -153,14 +162,14 @@ if __name__ == "__main__":
     diffLenSeqs = 0
 
     ## Initial counting
-    with open(options.inFile,"r") as r:
+    with open(args.inFile,"r") as r:
         for line in r:
             numSeqs += 1
             if numSeqs == 1:
-                lastBC = line.rstrip().split('\t')[options.colBarcode]
+                lastBC = line.rstrip().split('\t')[args.colBarcode]
 
     ## Going through the CPseq file
-    with open(options.inFile, "r") as r, open(outputFileName, "w") as wo, open(statFileName, "w") as ws:
+    with open(args.inFile, "r") as r, open(outputFileName, "w") as wo, open(statFileName, "w") as ws:
         for line in r:
 
             # Reading line by line
@@ -168,10 +177,10 @@ if __name__ == "__main__":
             if lineCount % 10000 == 0:
                 print "Processing the "+str(lineCount) +"th sequence"
             seqLine = line.rstrip().split('\t')
-            r1 = seqLine[options.colTarget]
-            Q1 = seqLine[options.colTarget + 1]
-            BC = seqLine[options.colBarcode]
-            Qbc = seqLine[options.colBarcode + 1]
+            r1 = seqLine[args.colTarget]
+            Q1 = seqLine[args.colTarget + 1]
+            BC = seqLine[args.colBarcode]
+            Qbc = seqLine[args.colBarcode + 1]
 
             # At the beginning of each barcode block,
             # and do it for the very last line instead of the very first line
@@ -181,7 +190,7 @@ if __name__ == "__main__":
                 # Append sequence and q-scores to the barcode block
                 # Check the sequences before putting into block
                 if lineCount == numSeqs:
-                    if avgQScore(Q1) <= options.avgQScoreCutoff:
+                    if avgQScore(Q1) <= args.avgQScoreCutoff:
                         crapSeqs += 1
                     else:
                         r1Block.append(r1)
@@ -237,7 +246,7 @@ if __name__ == "__main__":
 
             # Append sequence and q-scores to the barcode block
             # Check the sequences before putting into block
-            if avgQScore(Q1) <= options.avgQScoreCutoff:
+            if avgQScore(Q1) <= args.avgQScoreCutoff:
                 crapSeqs += 1
             else:
                 r1Block.append(r1)
@@ -265,16 +274,14 @@ if __name__ == "__main__":
     logFile.close()
 
     # load compressed barode file, and append whether the barcode is 'good' or not
-    finalFilename = options.outFile
-    #filenames = ['tecto_lib2.AEL52_AG172_AG1D1_AG3EL.unique_barcodes.tmp',
-    #             'tecto_lib2.AEL52_AG1D1_AG3EL_AG1CV.unique_barcodes.tmp',
-    #             'tecto_lib2.AEL52_AG172_AG3EL.unique_barcodes.tmp',
-    #             'tecto_lib2.AEL52_AG1D1_AG3EL.unique_barcodes.tmp',
-    #             'tecto_lib2.AG172_AG3EL_AG1D1.unique_barcodes.tmp']
-    #for filename in filenames:
-    barcodes = pd.read_table(outputFileName, header=None, names=['sequence', 'barcode', 'clusters_per_barcode', 'fraction_consensus', 'mean_barcode_quality'], usecols=range(4)+[6])
-    #max_confidence = pd.Series(st.binom.interval(0.95, barcodes.loc[:, 'clusters_per_barcode'].astype(int).values, 0.5)[1], index=barcodes.index)
-    #barcodes.loc[:, 'barcode_good'] = barcodes.clusters_per_barcode*barcodes.fraction_consensus > max_confidence
+    finalFilename = args.outFile
+
+    barcodes = pd.read_table(outputFileName, header=None, names=['sequence',
+                                                                 'barcode',
+                                                                 'clusters_per_barcode',
+                                                                 'fraction_consensus',
+                                                                 'mean_barcode_quality'],
+                             usecols=range(4)+[6])
 
     # another way
     p = 0.25
@@ -286,10 +293,14 @@ if __name__ == "__main__":
     barcodes.loc[:, 'barcode_good'] = (barcodes.pvalue < 0.05)&[len(s)>12 for s in barcodes.barcode]
     
     # save
+    filteredFilename = os.path.splitext(finalFilename)[0] + '.filtered' + os.path.splitext(finalFilename)[1]
+    barcodes.loc[barcodes.barcode_good].to_csv(filteredFilename, sep='\t', index=False)
     barcodes.to_csv(finalFilename, sep='\t', index=False)
     
     print finalFilename.split('.')[1].replace('_', '\t')
-    print '\t%d good barcodes out of %d (%d%%)'%(barcodes.barcode_good.sum(), len(barcodes), 100*barcodes.barcode_good.sum()/float(len(barcodes)) )
+    print '\t%d good barcodes out of %d (%d%%)'%(barcodes.barcode_good.sum(),
+                                                 len(barcodes),
+                                                 100*barcodes.barcode_good.sum()/float(len(barcodes)) )
     #plt.figure(); plt.plot(np.linspace(0, 1, 11), np.array(n_good)/float(n_good[0]), 'o')
     
     # plot histogram

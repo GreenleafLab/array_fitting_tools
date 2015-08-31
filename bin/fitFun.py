@@ -513,13 +513,16 @@ def plotFitCurve(concentrations, subSeries, results,
     ax = plt.gca()
     ax.tick_params(right='off', top='off')
     ax.tick_params(which="minor", right='off', top='off')
+    ylim = ax.get_ylim()
+    plt.ylim(0, ylim[1])
     plt.xlim(more_concentrations[[0, -1]])
     if fittype=='binding':
         plt.xlabel('concentration (nM)')
     else:
         plt.xlabel('time (s)')
+        plt.ticklabel_format(style='sci', axis='x', scilimits=(0,0))
     plt.ylabel('normalized fluorescence')
-    plt.subplots_adjust(bottom=0.26, left=0.2, top=0.97)
+    plt.subplots_adjust(bottom=0.26, left=0.26, top=0.97)
 
 def findMaxProbability(x, numBins=None):
     if numBins is None:

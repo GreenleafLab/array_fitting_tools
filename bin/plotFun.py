@@ -594,8 +594,15 @@ def plotTimesScatter(timeMap, finalTimes):
     plt.ylabel('time (s)')
     
     ax.tick_params(top='off', right='off')
+    ax.tick_params(which='minor', top='off', right='off')
     plt.tight_layout()
-    
+    majorLocator   = mpl.ticker.MultipleLocator(5)
+    minorLocator   = mpl.ticker.MultipleLocator(1)
+    majorFormatter = mpl.ticker.FormatStrFormatter('%d')
+    ax.xaxis.set_major_locator(majorLocator)
+    ax.xaxis.set_major_formatter(majorFormatter)
+    ax.xaxis.set_minor_locator(minorLocator)    
+
 def plotTimesOriginal(timeDelta):
     plt.figure(figsize=(4, 4))
     colors = sns.color_palette('Paired', 10) + sns.color_palette('Paired', 10)

@@ -1,5 +1,6 @@
 import itertools
 import hjh.junction
+import seqfun
 
 libCharFile = '/lab/sarah/RNAarray/150311_library_v2/all_10expts.library_characterization.txt'
 libChar = pd.read_table(libCharFile).loc[:, :'ss_correct']
@@ -87,6 +88,8 @@ for position in positions:
 
             s = libChar.loc[(libChar.length==length)&
                             (libChar.offset==position)&
+                            (libChar.receptor=='11nt')&
+                            (libChar.loop=='GGAA')&
                             pd.Series(np.in1d(libChar.no_flank, b),
                             #pd.Series(np.in1d(libChar.junction_seq, b),
                                       index=libChar.index)].junction_seq
@@ -129,9 +132,10 @@ plotFun.plotLibraryFigure(matrixAll, labelMat, libChar)
 # plot tertiary contacts
 # plot tertiary contacts
 motifs = (['B1', 'B1,B1', 'B1,B1,B1', 'M', 'M,B1', 'M,B1,B1', 'M,M', 'M,M,B1',
-          'M,M,M', 'W'])
+          'M,M,M', '_'])
 associatedMotifs = {}
 for motif in motifs:
+    
     associatedMotifs[motif] = tuple(motif.split(','))
 
 matrixAll = {}
@@ -166,7 +170,7 @@ for position in positions:
             matching_locs = (a.iloc[index] == s).values
             
             matrix.loc[index[matching_locs], length] = s.iloc[matching_locs].index.tolist()
-
+        
         matrixAll['%s_%d'%(motif, position)] = matrix
         # plot tertiary contacts
 
@@ -174,7 +178,7 @@ labelMat = {}
 for position in np.unique(libChar.loc[libChar.sublibrary=='along'].offset):
 
     labelMat.update({
-                '0x0_%d'%position:'W_%d'%position,
+                '0x0_%d'%position:'__%d'%position,
                 '1x0_%d'%position:'B1_%d'%position,
                 '2x0_%d'%position:'B1,B1_%d'%position,
                 '3x0_%d'%position:'B1,B1,B1_%d'%position,

@@ -377,7 +377,9 @@ if __name__ == '__main__':
                         results2.loc[variant],
                         fitParameters)
     
+    ids = libChar.loc[variants].length.astype(int).astype(str) + '_' +libChar.loc[variants].helix_one_length.astype(int).astype(str)
+    seq = libChar.loc[variants].junction_seq.astype(str)
     for variant in variants:
         plotFun.plotNormalizedFitCurve(concentrations, groupDict[variant],
                                        variant_table.loc[variant], fitParameters)
-        plt.savefig(os.path.join(figDirectory, 'binding_curve.variant_%d.pdf'%variant))
+        plt.savefig(os.path.join(figDirectory, 'binding_curve.variant_%d.seq_%s.%s.pdf'%(variant, seq.loc[variant], ids.loc[variant])))

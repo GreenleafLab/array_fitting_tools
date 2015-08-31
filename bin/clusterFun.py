@@ -8,6 +8,7 @@ import os
 import numpy as np
 import seaborn as sns
 from scikits.bootstrap import bootstrap
+from joblib import Parallel, delayed
 from statsmodels.distributions.empirical_distribution import ECDF
 
 def clusterKmeans(ddGs, k):
@@ -17,7 +18,7 @@ def clusterKmeans(ddGs, k):
 def clusterHierarchical(M, k, return_z=None):
     if return_z is None:
         return_z = False
-    z = sch.linkage(M, method='average')
+    z = sch.linkage(M, method='average', metric='euclidean')
     labels = pd.Series(sch.fcluster(z, k, 'maxclust'), index=M.index)
     if return_z:
         return labels, z
@@ -26,7 +27,8 @@ def clusterHierarchical(M, k, return_z=None):
     
 def scrubInput(ddG):
     # normalize rows or columns here?
-    return ddG.dropna(how='any', axis=0).astype(float)
+    a = ddG.dropna(how='any', axis=0).astype(float)
+    return pd.DataFrame(sc.vq.whiten(a), index=a.index, columns=a.columns)
 
 def computeConnectivity(clusters=None, index=None):
     if clusters is None:
@@ -47,7 +49,9 @@ def computeConnectivity(clusters=None, index=None):
         n.loc[clusters.index, clusters.index] = 1
     return m, n  
 
-def getCDF(M):
+def getCDF(M, plot=None):
+    if plot is None:
+        plot = False
     upperTri = pd.DataFrame(np.triu(np.ones((len(M), len(M))), k=1).astype(bool),
                             index=M.index, columns=M.columns)
     flattened = np.ravel(M[upperTri])
@@ -57,24 +61,34 @@ def getCDF(M):
     cdf = np.append(0, ecdf(x))
     x = np.append(0, x)
 
-    plt.figure(figsize=(3, 3))
-    plt.plot(x, cdf)
-    plt.xlim(-0.01, 1.01)
-    ax = plt.gca()
-    ax.tick_params(right='off', top='off')
-    plt.xlabel('consensus index value')
-    plt.ylabel('cdf')
-    plt.tight_layout()
+    if plot:
+        plt.figure(figsize=(3, 3))
+        plt.plot(x, cdf)
+        plt.xlim(-0.01, 1.01)
+        ax = plt.gca()
+        ax.tick_params(right='off', top='off')
+        plt.xlabel('consensus index value')
+        plt.ylabel('cdf')
+        plt.tight_layout()
     
     return x, cdf
         
 def findAreaOfCDF(x, cdf):
     return np.sum([cdf[i]*(x[i] - x[i-1]) for i in np.arange(len(x)-1)])
    
+def findConnectivity(D, indices, method, k):
+    M, I = computeConnectivity(index=D.index)
+    for index in indices:
+        subddGs = D.loc[index]
+        clusters = pd.Series(method(subddGs, k), index=index)
+        m, n = computeConnectivity(clusters, index=D.index)
+        M += m
+        I += n
 
+    return M, I
 
-def consensusCluster(ddGs, method=None, subsample=None, n_samples=None, k=None,
-                     plot=None):
+def consensusCluster(D, method=None, subsample=None, n_samples=None, k=None,
+                     plot=None, numCores=None):
     if n_samples is None:
         n_samples = 100
     
@@ -89,48 +103,51 @@ def consensusCluster(ddGs, method=None, subsample=None, n_samples=None, k=None,
     
     if plot is None:
         plot = True
+    
+    if numCores is None:
+        numCores = 10
 
     indices = ['']*n_samples
     for i in range(n_samples):
-        indices[i] = np.random.choice(ddGs.index,
-                                      size=int(len(ddGs)*subsample),
-                                      replace=False)
-
-    M, I = computeConnectivity(index=ddGs.index)
-    for i, index in enumerate(indices):
-        if i%10==0:
-            print '\t%4.1f%% (%d out of %d)'%(i/float(n_samples)*100, i, n_samples)
-        clusters = pd.Series(method(ddGs.loc[index], k), index=index)
-        m, n = computeConnectivity(clusters, index=ddGs.index)
+        indices[i] = np.random.choice(D.index,
+                                      size=int(len(D)*subsample),
+                                      replace=False).astype(str)
+    M, I = computeConnectivity(index=D.index)
+    indicesSplit = np.array_split(indices, numCores)
+    a = (Parallel(n_jobs=numCores, verbose=10)
+         (delayed(findConnectivity)(D, index, method, k) for index in indicesSplit))
+    for m, n in a:
         M += m
-        I += n
+        I += n      
     M = M/I
+        
     labels, z = clusterHierarchical(M, k, return_z=True)
     if plot:
         sns.clustermap(M, yticklabels=False, xticklabels=False, square=True,
                        row_linkage=z, col_linkage=z)
     return labels, M
 
-def optimizeNumClusters(ddGs, method=None, subsample=None, n_samples=None, ks=None):
+def optimizeNumClusters(D, method=None, subsample=None, n_samples=None, ks=None,
+                        numCores=None):
     if ks is None:
         ks = np.arange(5, 30, 5)
     
     cdfs = {}
     for k in ks:
         print k
-        labels, M = consensusCluster(ddGs, method=method, subsample=subsample,
-                                     n_samples=n_samples, k=k,
+        labels, M = consensusCluster(D, method=method, subsample=subsample,
+                                     n_samples=n_samples, k=k, numCores=numCores,
                                      plot=False)
         x, cdf = getCDF(M)
         cdfs[k] = pd.Series(cdf, index=x)
         
-    return cdfs
+    return pd.concat(cdfs, axis=1)
 
 
 def plotCDFs(cdfs):
     
     x = cdfs.index
-    values = np.arange(3, 23, 2)
+    values = cdfs.columns
     cNorm  = mpl.colors.Normalize(vmin=0, vmax=len(values)-1)
     cm = 'coolwarm'
     scalarMap = mpl.cm.ScalarMappable(norm=cNorm, cmap=cm)
@@ -156,3 +173,20 @@ def plotCDFs(cdfs):
     
     plt.legend(loc='lower right')
     plt.savefig(os.path.join(figDirectory, 'all_cdfs.subsampled_0.8.n_samples_500.pdf'))
+    
+def getDeltaK(cdfs):
+    x = cdfs.index
+    k = cdfs.columns
+    areas = pd.Series([findAreaOfCDF(x, cdfs.loc[:, k].values) for k in cdfs],
+        index = cdfs.columns)
+    areasPrime = pd.Series([areas.loc[:k].max() for k in areas.index],
+        index = cdfs.columns)
+    deltaK = pd.Series(index=cdfs.columns[:-1])
+    
+    for i, k in enumerate(cdfs.columns[:-1]):
+        if k == 2:
+            deltaK.loc[k] = areasPrime.loc[k]
+        else:
+            deltaK.loc[k] = (areasPrime.loc[k+1] - areasPrime.loc[k])/areasPrime.loc[k]
+            
+    return deltaK
