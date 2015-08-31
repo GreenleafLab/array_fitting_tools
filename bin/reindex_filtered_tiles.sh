@@ -6,6 +6,7 @@
 ftd=$1
 od=$2
 seq=$3
+filt=$4
 
 set -e -o nounset
 # help
@@ -16,7 +17,8 @@ then
     echo "Arguments:
     (1) a directory of CPseq files, (i.e. filtered)
     (2) an output directory that will hold the indexed files
-    (2) a sequence"
+    (3) a sequence
+    (4) (optional) a filter, st you only check those with a certain filter."
     echo "Example:"
     echo "reindex_filtered_tiles.sh \\
     tiles/filtered_tiles/ \\
@@ -30,14 +32,27 @@ if [ ! -d $od ];
 then
     mkdir $od
 fi
+
+if [ $# -eq 3 ];
+then
+    echo "no filter supplied"
     
-for file in $files;
-do 
-    awk -v seq=$seq '{OFS="\t"}{j=index($2, "anyRNA"); i=index($3, seq); 
-                           if (i>0 && j>0) {print $1,$2,$3,$4,$5,$6,substr($3, 0, i-1),
-                           substr($4,0, i-1),$9,$10} else print $0}' $file > $od/$(basename $file)
-done
-#
+    for file in $files;
+    do 
+        awk -v seq=$seq '{OFS="\t"}{i=index($3, seq); 
+                               if (i>0) {print $1,$2,$3,$4,$5,$6,substr($3, 0, i-1),
+                               substr($4,0, i-1),$9,$10} else print $0}' $file > $od/$(basename $file)
+    done
+else
+    echo "using filter "$filt
+    for file in $files;
+    do 
+        awk -v seq=$seq -v filt=$filt '{OFS="\t"}{j=index($2, filt); i=index($3, seq); 
+                               if (i>0 && j>0) {print $1,$2,$3,$4,$5,$6,substr($3, 0, i-1),
+                               substr($4,0, i-1),$9,$10} else print $0}' $file > $od/$(basename $file)
+    done
+fi
+    #
 ## or for already reduced CPseq file
 #file=AG1D1_tecto.CPseq
 #cat $file |  awk -v seq=$seq '{OFS="\t"}{i=index($3, seq); if (i>0) {print $1,$2,$3,$4,$5,$6,substr($3, 0, i-1),substr($4,0, i-1),$9,$10} else print $0}' | head
