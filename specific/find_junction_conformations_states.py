@@ -150,7 +150,7 @@ fig = plt.figure(figsize=(5,6))
 plt.subplots_adjust(bottom=0.25, top=0.97, right=0.9, left=0.15)
 ax = fig.add_subplot(111)
 sns.heatmap(fraction.astype(float).loc[labels.loc[seq_order]].loc[:, order], ax=ax, yticklabels=False,
-            cbar_kws={"label": "$-log_{10}$$p$"});
+            cbar_kws={"label": "fraction in cluster"});
 xlim = ax.get_xlim()
 ylim = ax.get_ylim()
 
