@@ -7,6 +7,7 @@ from scikits.bootstrap import bootstrap
 from statsmodels.stats.weightstats import DescrStatsW
 import warnings
 import itertools
+from collections import deque
 import seqfun
 import IMlibs
 import scipy.stats as st
@@ -14,6 +15,7 @@ sns.set_style("white", {'xtick.major.size': 4,  'ytick.major.size': 4,
                         'xtick.minor.size': 2,  'ytick.minor.size': 2,
                         'lines.linewidth': 1})
 from fitFun import fittingParameters
+import hjh.junction
 
  
 def objectiveFunction(params, y=None, return_weighted=None, return_pred=None):
@@ -30,15 +32,8 @@ def objectiveFunction(params, y=None, return_weighted=None, return_pred=None):
         length, seq, pos = idx
         
         term1 = parvals['bind_%d'%length]
+        term2 = parameters.RT*np.log(parvals[y.loc[idx].seq])
         
-        seq = list(seq)
-        if pos == 0:
-            term2 = parameters.RT*np.log(parvals['%s%s_%s'%(seq[0], seq[2], seq[1])])
-        elif pos == 1:
-            term2 = parameters.RT*np.log(parvals['%s%s_%s'%(seq[2], seq[1], seq[0])])
-        elif pos == 2:
-            term2 = parameters.RT*np.log(parvals['%s%s_%s'%(seq[1], seq[0], seq[2])])
-            
         diff.loc[idx] = term1 + term2 
     
     if return_pred:
@@ -62,20 +57,19 @@ def fitThreeWay(y, weight=None):
                        max = -4)
     
     for seq in seqs:
-        permute_0 = '%s%s_%s'%(seq[0], seq[2], seq[1])
-        permute_1 = '%s%s_%s'%(seq[2], seq[1], seq[0])
-        permute_2 = '%s%s_%s'%(seq[1], seq[0], seq[2])
-        params.add(permute_0,
+        circPermutedSeqs = y.loc[lengths[0],seq].seq
+
+        params.add(circPermutedSeqs.loc[0],
                        value=0.1, 
                        min = 0,
                        max = 1)
-        params.add(permute_1,
+        params.add(circPermutedSeqs.loc[1],
                        value=0.1, 
                        min = 0,
                        max = 1)
         
-        params.add(permute_2,
-                       expr='1-%s-%s'%(permute_0, permute_1))
+        params.add(circPermutedSeqs.loc[2],
+                       expr='1-%s-%s'%(circPermutedSeqs.loc[0], circPermutedSeqs.loc[1]))
     
     func = objectiveFunction
     results = minimize(func, params,
@@ -106,3 +100,126 @@ def fitThreeWay(y, weight=None):
     final_params.loc['rmse'] = rmse
     
     return final_params
+
+def findVariantsByLengthAndCircularlyPermutedSeq(subtable, junction_type=None, lengths=None,
+                                                 topology=None, loop=None):
+    if junction_type is None:
+        junction_type = 3
+        
+    if lengths is None:
+        lengths = np.unique(subtable.helix_one_length)
+    
+    if topology is None:
+        topology = '__'
+    
+    if loop is None:
+        loop = 'GGAA_UUCG'
+        
+    # find all seqeunce possibilities
+    seqs = hjh.junction.Junction(('W', 'W', 'W')).sequences.side1
+    
+    # split topoloogy
+    insertions = topology.split('_')
+    
+    y = {}
+    for length in lengths:
+        y[length] = {}
+        done_seqs = []
+        for seq in seqs:
+            if np.all([i==seq[0] for i in seq]):
+                pass
+                #print '\tSkipping junction %s because no permutations'%seq
+            elif seq in done_seqs:
+                pass
+                #print '\tJunction %s already done'%seq
+            else:
+                #print 'doing junction %s'%seq
+                
+                y[length][seq] = pd.DataFrame(index=np.arange(junction_type),
+                                              columns=['dG', 'variance', 'weight', 'seq', 'variant', 'correct'])
+                g = deque(np.arange(junction_type))
+                for idx in np.arange(junction_type):
+                    
+                    ins = [insertions[i] for i in list(g)]
+                    seq_list = [seq[i] for i in list(g)]
+                    done_seqs.append(''.join(seq_list))
+                    index = ((subtable.helix_one_length == length)&
+                             (subtable.junction_seq == '_'.join(seq_list))&
+                             (subtable.insertions   == '_'.join(ins))&
+                             (subtable.loop == loop))
+                    if index.sum() == 1:
+                        y[length][seq].loc[idx, 'dG'] = subtable.loc[index].dG.values[0]
+                        y[length][seq].loc[idx, 'variance'] = (((subtable.loc[index].eminus + subtable.loc[index].eplus)/2)**2).values[0]
+                        y[length][seq].loc[idx, 'weight'] = (1/(subtable.loc[index].eminus + subtable.loc[index].eplus)).values[0]
+                        y[length][seq].loc[idx, 'variant'] = index.loc[index].index[0]
+                        y[length][seq].loc[idx, 'correct'] = (subtable.loc[index].ss_correct=='True').values[0]
+                    y[length][seq].loc[idx, 'seq'] = '_'.join(seq_list)
+                    
+                    # rotate g
+                    g.rotate(1)
+        y[length] = pd.concat(y[length])
+    return pd.concat(y)
+    
+
+def findDataMat(subtable, y, results):
+    parameters = fittingParameters()
+    data = pd.concat([subtable.loc[y.variant].dG, pd.Series(subtable.loc[y.variant+1].dG.values,
+                                                            index=y.variant)], axis=1, keys = ['fit', 'not_fit'])
+    data.index = y.index
+    data.loc[:, 'seq'] = y.seq
+    data.loc[:, 'ddG_pred'] = np.nan
+    data.loc[:, 'dG_conf'] = np.nan
+    data.loc[:, 'dG_bind'] = np.nan
+    for idx in data.index:
+        
+        seq = data.loc[idx].seq
+        length = idx[0]
+        
+        fAC = results.loc[seq]
+        fBC = results.loc['_'.join([seq.split('_')[i] for i in [0, 2, 1]])]
+        data.loc[idx, 'ddG_pred'] = parameters.RT*np.log(fAC/fBC)
+    
+        data.loc[idx, 'dG_conf'] = parameters.RT*np.log(results.loc[seq])
+        if 'bind_%d'%length in results.index:
+            data.loc[idx, 'dG_bind'] = results.loc['bind_%d'%length]
+            
+        data.loc[idx, 'residual'] = data.loc[idx, 'dG_conf'] + data.loc[idx, 'dG_bind'] - data.loc[idx, 'fit']
+        
+    # add nearest neighbor info
+    nn = pd.read_table('~/JunctionLibrary/seq_params/nearest_neighbor_rules.txt',
+                       index_col=0).astype(float)
+    data.loc[:, 'nn_pred'] = np.nan
+    complements = {'A':'U', 'U':'A', 'G':'C', 'C':'G'}
+    for idx in data.index:
+        length = idx[0]
+        seq = data.loc[idx].seq.replace('T', 'U').split('_')
+        v1 = pd.Series([seq[0], complements[seq[0]]], index = ['x', 'y'])
+        v2 = pd.Series([seq[1], complements[seq[1]]], index = ['x', 'y'])
+        v3 = pd.Series([seq[2], complements[seq[2]]], index = ['x', 'y'])
+        if length == 3:
+            bp3 = pd.Series(['U', 'A'], index = ['x', 'y'])
+            bp1 = pd.Series(['A', 'U'], index = ['x', 'y'])
+            bp2 = pd.Series(['C', 'G'], index = ['x', 'y'])
+        elif length == 4:
+            bp3 = pd.Series(['C', 'G'], index = ['x', 'y'])
+            bp1 = pd.Series(['G', 'C'], index = ['x', 'y'])
+            bp2 = pd.Series(['U', 'A'], index = ['x', 'y'])
+        elif length == 5:
+            bp3 = pd.Series(['C', 'G'], index = ['x', 'y'])
+            bp1 = pd.Series(['A', 'U'], index = ['x', 'y'])
+            bp2 = pd.Series(['C', 'G'], index = ['x', 'y'])
+        elif length == 6:
+            bp3 = pd.Series(['A', 'U'], index = ['x', 'y'])
+            bp1 = pd.Series(['A', 'U'], index = ['x', 'y'])
+            bp2 = pd.Series(['U', 'A'], index = ['x', 'y'])
+        else:
+            print 'error'
+        dg0 = nn.loc[bp1.x + v1.x] + nn.loc[v1.x + v3.x] + nn.loc[v3.x + bp3.x]
+        dg1 = nn.loc[bp3.y + v3.y] + nn.loc[v3.y + v2.x] + nn.loc[v2.x + bp2.x]
+        dg2 = nn.loc[bp2.y + v2.y] + nn.loc[v2.y + v1.y] + nn.loc[v1.y + bp1.y]
+        
+        dg0 = nn.loc[v1.x + v3.x]
+        dg2 = nn.loc[v2.y + v1.y] 
+        
+        data.loc[idx, 'nn_pred'] = (dg0 - dg2).values[0]
+    return data

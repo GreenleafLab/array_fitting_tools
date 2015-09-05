@@ -73,10 +73,13 @@ with sns.axes_style('white'):
                 yticklabels=False, xticklabels=False,  vmin=1, vmax=5)
 
 # plot chevron plot
+dG_ref = dGs.loc[junction_seq_ref]
+dG_ref.loc[dG_ref > parameters.cutoff_dG] = parameters.cutoff_dG
 for cluster in clusters:
     index = labels.loc[labels==cluster].index
-    tectoPlots.plotChevronPlot3(dGs, index=index, flow_id='wc10')
-    plt.savefig(os.path.join(figDirectory, 'chevron_plots2.wc_10.cluster_%d.pdf'%cluster))
+    tectoPlots.plotChevronPlot3(dGs, index=index, flow_id='wc11', dG_ref=dG_ref,
+                                cutoff=parameters.cutoff_dG)
+    plt.savefig(os.path.join(figDirectory, 'chevron_plots2.wc_11.cluster_%d.pdf'%cluster))
     plt.close()
     
 # print info about each cluster
