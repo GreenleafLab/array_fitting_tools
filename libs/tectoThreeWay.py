@@ -3,6 +3,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
+import os
 from scikits.bootstrap import bootstrap
 from statsmodels.stats.weightstats import DescrStatsW
 import warnings
@@ -17,7 +18,8 @@ sns.set_style("white", {'xtick.major.size': 4,  'ytick.major.size': 4,
 from fitFun import fittingParameters
 import hjh.junction
 
- 
+complements = {'A':'U', 'U':'A', 'G':'C', 'C':'G'}
+
 def objectiveFunction(params, y=None, return_weighted=None, return_pred=None):
     if return_pred is None:
         return_pred = False
@@ -44,8 +46,9 @@ def objectiveFunction(params, y=None, return_weighted=None, return_pred=None):
         return (diff - y.dG).astype(float)
 
     
-def fitThreeWay(y, weight=None):
+def fitThreeWay(y, weight=None, force=None):
     if weight is None: weight = False
+    if force is None: force = False
     lengths = y.index.levels[0].tolist()
     seqs = y.index.levels[1].tolist()
     
@@ -58,18 +61,18 @@ def fitThreeWay(y, weight=None):
     
     for seq in seqs:
         circPermutedSeqs = y.loc[lengths[0],seq].seq
-
+        if force:
+            vary = False
+        else:
+            vary = True
+            
         params.add(circPermutedSeqs.loc[0],
-                       value=0.1, 
-                       min = 0,
-                       max = 1)
+                    value=1./3, min=0, max=1, vary=vary)
         params.add(circPermutedSeqs.loc[1],
-                       value=0.1, 
-                       min = 0,
-                       max = 1)
+                    value=1./3, min=0, max=1, vary=vary)
         
         params.add(circPermutedSeqs.loc[2],
-                       expr='1-%s-%s'%(circPermutedSeqs.loc[0], circPermutedSeqs.loc[1]))
+                   expr='1-%s-%s'%(circPermutedSeqs.loc[0], circPermutedSeqs.loc[1]))
     
     func = objectiveFunction
     results = minimize(func, params,
@@ -152,7 +155,10 @@ def findVariantsByLengthAndCircularlyPermutedSeq(subtable, junction_type=None, l
                         y[length][seq].loc[idx, 'variance'] = (((subtable.loc[index].eminus + subtable.loc[index].eplus)/2)**2).values[0]
                         y[length][seq].loc[idx, 'weight'] = (1/(subtable.loc[index].eminus + subtable.loc[index].eplus)).values[0]
                         y[length][seq].loc[idx, 'variant'] = index.loc[index].index[0]
-                        y[length][seq].loc[idx, 'correct'] = (subtable.loc[index].ss_correct=='True').values[0]
+                        try:
+                            y[length][seq].loc[idx, 'correct'] = (subtable.loc[index].ss_correct=='True').values[0]
+                        except:
+                            pass
                     y[length][seq].loc[idx, 'seq'] = '_'.join(seq_list)
                     
                     # rotate g
@@ -170,6 +176,7 @@ def findDataMat(subtable, y, results):
     data.loc[:, 'ddG_pred'] = np.nan
     data.loc[:, 'dG_conf'] = np.nan
     data.loc[:, 'dG_bind'] = np.nan
+    data.loc[:, 'nn_pred'] = np.nan
     for idx in data.index:
         
         seq = data.loc[idx].seq
@@ -186,9 +193,15 @@ def findDataMat(subtable, y, results):
         data.loc[idx, 'residual'] = data.loc[idx, 'dG_conf'] + data.loc[idx, 'dG_bind'] - data.loc[idx, 'fit']
         
     # add nearest neighbor info
-    nn = pd.read_table('~/JunctionLibrary/seq_params/nearest_neighbor_rules.txt',
-                       index_col=0).astype(float)
-    data.loc[:, 'nn_pred'] = np.nan
+    nnFile = '~/JunctionLibrary/seq_params/nearest_neighbor_rules.txt'
+    if not os.path.exists(nnFile):
+        nnFile = '/Users/Sarah/python/JunctionLibrary/seq_params/nearest_neighbor_rules.txt'
+    if not os.path.exists(nnFile):
+        print 'Error: could not find nearest neighbor file'
+        return data
+    
+    nn = pd.read_table(nnFile, index_col=0).astype(float)
+    
     complements = {'A':'U', 'U':'A', 'G':'C', 'C':'G'}
     for idx in data.index:
         length = idx[0]
