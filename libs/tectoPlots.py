@@ -310,8 +310,30 @@ def plotBarPlotdG_bind(results, lengths):
 
 def plotBarPlotFrac(results, data):
     lengths = data.index.levels[0]
-    seqs =  ['AUC', 'AUG', 'AUU', 'GCC', 'UUC', 'UGC', 'UCC', 'AGU', 'UGG', 'AAG',
-             'AAC', 'ACC', 'AGC', 'AGG', 'UUG', 'ACG', 'UCG', 'ACU', 'GGC', 'AAU']
+    #to find seq order: 
+    #binned_fractions = fractions.loc[:, [0,1,2]].copy()
+    #for i in [0,1,2]: binned_fractions.loc[:, i] = np.digitize(fractions.loc[:, i].astype(float), bins=np.linspace(0, 1, 10))
+    #seqs = binned_fractions.sort([0, 1, 2]).index.tolist()
+    seqs = ['AUU',
+ 'AGG',
+ 'GCC',
+ 'AAG',
+ 'AUG',
+ 'ACC',
+ 'AGU',
+ 'ACU',
+ 'AAC',
+ 'UUC',
+ 'AUC',
+ 'UGG',
+ 'AGC',
+ 'GGC',
+ 'UCC',
+ 'UCG',
+ 'ACG',
+ 'AAU',
+ 'UGC',
+ 'UUG']
     fractions = pd.DataFrame(index=seqs, columns=[0, 1, 2] + ['stde_%d'%i for i in [0,1,2]])
     for seq in seqs:
         circPermutedSeqs = data.loc[lengths[0],seq].seq
@@ -337,6 +359,8 @@ def plotBarPlotFrac(results, data):
                 color=colors[permute],
                 error_kw={'ecolor': '0.3'})
     plt.xticks(x+0.5, fractions.index, rotation=90)
+    plt.ylim(0, 1.2)
+    plt.yticks(np.arange(0, 1.2, 0.2))
     plt.ylabel('fraction')
     ax = plt.gca(); ax.tick_params(top='off', right='off')
     plt.tight_layout()
