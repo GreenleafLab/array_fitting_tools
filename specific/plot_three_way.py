@@ -38,53 +38,58 @@ figDirectory = 'figs_3way_'+str(datetime.date.today())
 if not os.path.exists(figDirectory):
     os.mkdir(figDirectory)
 
+
+
+# process variants with loop, topology by length and by sequence
+y = tectoThreeWay.findVariantsByLengthAndCircularlyPermutedSeq(subtable)
+lengths = np.array(y.index.levels[0].tolist())
+
+# only fit the subset of the data in 'to_include'
+to_include = {'loop':['GGAA_UUCG'],
+              'length':[3,5,6],
+              'topology':['AA__', 'A__', '_AA_', '_A_', '__', '__A', '__AA']}
+
+# fit to model with least squares
+results = tectoThreeWay.fitThreeWay(y, to_include=to_include)
+
+# process data and fits into one mat
+data = tectoThreeWay.findDataMat(subtable, yprime, results)
+
+data.to_pickle(os.path.join(figDirectory, 'lengths_all.loop_%s.topology_all.dat.pkl'%(loop)))
+results.to_pickle(os.path.join(figDirectory, 'lengths_all.loop_%s.topology_all.results.pkl'%(loop)))
+
+# plot training set
 loop = 'GGAA_UUCG'
-for topology in ['__', 'A__', 'AA__', '_A_', '_AA_', '__A', '__AA']:
+for topology in ['AA__', 'A__', '_AA_', '_A_', '__', '__A', '__AA']:
 
-    # process variants with loop, topology by length and by sequence
-    y = tectoThreeWay.findVariantsByLengthAndCircularlyPermutedSeq(subtable,
-                                                                   topology=topology,
-                                                                   loop=loop)
-    lengths = np.array(y.index.levels[0].tolist())
-    
-    # if you only want to fit a subset of the data, change 'leave_out_lengths'
-    leave_out_lengths = np.array([])
-    other_lengths = lengths[np.logical_not(np.in1d(lengths, leave_out_lengths))]
-    yprime = {}
-    for length in other_lengths: yprime[length] = y.loc[length]
-    yprime = pd.concat(yprime)
-    
-    # fit to model with least squares
-    results = tectoThreeWay.fitThreeWay(yprime, force)
-    
-    # process data and fits into one mat
-    data = tectoThreeWay.findDataMat(subtable, y, results)
-
-    tectoPlots.plotScatterPlotTrainingSet(data, other_lengths)
+    subdata = tectoThreeWay.subsetData(data, {'topology':[topology],
+                                              'loop':[loop]})
+    tectoPlots.plotScatterPlotTrainingSet(subdata)
     plt.savefig(os.path.join(figDirectory, 'dG_fit.train.loop_%s.topology%s.pdf'%(loop, topology)))
-
-    data.to_pickle(os.path.join(figDirectory, 'all_lengths.loop_%s.topology%s.dat.pkl'%(loop, topology)))
-    results.to_pickle(os.path.join(figDirectory, 'all_lengths.loop_%s.topology%s.results.pkl'%(loop, topology)))
-
+    
     # plot the test set
     if len(leave_out_lengths) > 0:
-        tectoPlots.plotScatterplotTestSet(data, leave_out_lengths)
+        tectoPlots.plotScatterplotTestSet(subdata, leave_out_lengths)
         plt.savefig(os.path.join(figDirectory, 'dG_fit.test.loop_%s.topology%s.pdf'%(loop, topology)))
         
     # plot the predicted ddG with loop change
-    tectoPlots.plotScatterplotLoopChange(data)
+    tectoPlots.plotScatterplotLoopChange(subdata)
     plt.savefig(os.path.join(figDirectory, 'ddG_loop.loop_%s.topology%s.pdf'%(loop, topology)))
-    
+
+
+for topology in ['AA__', 'A__', '_AA_', '_A_', '__', '__A', '__AA']:
     # plot the fit parameters
-    tectoPlots.plotBarPlotFrac(results, data)
+    subdata = tectoThreeWay.subsetData(data, {'topology':topology,
+                                              'loop':loop})
+    tectoPlots.plotBarPlotFrac(results, subdata)
     plt.savefig(os.path.join(figDirectory, 'fraction_in_each_permute.loop_%s.topology%s.pdf'%(loop, topology)))
             
     # plot fit binding params
-    tectoPlots.plotBarPlotdG_bind(results, lengths)
+    tectoPlots.plotBarPlotdG_bind(results, subdata)
     plt.savefig(os.path.join(figDirectory, 'deltaG_bind.loop_%s.topology%s.pdf'%(loop, topology)))
     
     # plot the nn versus dG conf
-    tectoPlots.plotScatterPlotNearestNeighbor(data)
+    tectoPlots.plotScatterPlotNearestNeighbor(subdata)
     plt.savefig(os.path.join(figDirectory, 'dG_conf_vs_nn.loop_%s.topology%s.pdf'%(loop, topology)))
 
 

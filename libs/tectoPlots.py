@@ -21,6 +21,7 @@ from joblib import Parallel, delayed
 sns.set_style("white", {'xtick.major.size': 4,  'ytick.major.size': 4,
                         'xtick.minor.size': 2,  'ytick.minor.size': 2,
                         'lines.linewidth': 1})
+from tectoThreeWay import returnFracKey, returnBindingKey
 
 
 def plotChevronPlot(dGs, index=None, flow_id=None):
@@ -289,14 +290,19 @@ def plotClusterStats(fractions, pvalue, counts=None, pvalue_threshold=None):
         
         plt.subplots_adjust(left=0.35, bottom=0.35)
         
-def plotBarPlotdG_bind(results, lengths):
+def plotBarPlotdG_bind(results, data):
+    fixed_inds = data.index[0][:3]
+    loop = fixed_inds[0]
+    topology = fixed_inds[2]
+    lengths = data.index.levels[1]
+    
     colors = ["#3498db", "#95a5a6","#e74c3c", "#34495e"]
     ylim = [5.5, 8.5]
     plt.figure(figsize=(3,3));
     x = lengths
     plt.bar(x,
-            -results.loc[['bind_%d'%length for length in lengths]],
-            yerr=results.loc[['bind_%d_stde'%length for length in lengths]],
+            -results.loc[[returnBindingKey(loop, length, topology) for length in lengths]],
+            yerr=results.loc[['%s_stde'%returnBindingKey(loop, length, topology) for length in lengths]],
             color=colors[3],
             error_kw={'ecolor': '0.3'})
     plt.ylim(ylim)
@@ -309,37 +315,20 @@ def plotBarPlotdG_bind(results, lengths):
     plt.tight_layout() 
 
 def plotBarPlotFrac(results, data):
-    lengths = data.index.levels[0]
+    fixed_inds = data.index[0][:3]
+    topology = fixed_inds[-1]
     #to find seq order: 
     #binned_fractions = fractions.loc[:, [0,1,2]].copy()
     #for i in [0,1,2]: binned_fractions.loc[:, i] = np.digitize(fractions.loc[:, i].astype(float), bins=np.linspace(0, 1, 10))
     #seqs = binned_fractions.sort([0, 1, 2]).index.tolist()
-    seqs = ['AUU',
- 'AGG',
- 'GCC',
- 'AAG',
- 'AUG',
- 'ACC',
- 'AGU',
- 'ACU',
- 'AAC',
- 'UUC',
- 'AUC',
- 'UGG',
- 'AGC',
- 'GGC',
- 'UCC',
- 'UCG',
- 'ACG',
- 'AAU',
- 'UGC',
- 'UUG']
+    seqs = ['AUU','AGG','GCC', 'AAG', 'AUG', 'ACC',
+            'AGU', 'ACU','AAC','UUC','AUC','UGG','AGC','GGC',
+            'UCC','UCG','ACG','AAU','UGC','UUG']
     fractions = pd.DataFrame(index=seqs, columns=[0, 1, 2] + ['stde_%d'%i for i in [0,1,2]])
     for seq in seqs:
-        circPermutedSeqs = data.loc[lengths[0],seq].seq
         for permute in [0,1,2]:
-            fractions.loc[seq, permute] = results.loc[circPermutedSeqs.loc[permute]]
-            fractions.loc[seq, 'stde_%d'%permute] = results.loc[circPermutedSeqs.loc[permute]+'_stde']
+            fractions.loc[seq, permute] = results.loc[returnFracKey(topology, seq, permute)]
+            fractions.loc[seq, 'stde_%d'%permute] = results.loc[returnFracKey(topology, seq, permute)+'_stde']
             
     plt.figure(figsize=(4,3));
     colors = ["#3498db", "#95a5a6","#e74c3c", "#34495e"]
@@ -367,14 +356,17 @@ def plotBarPlotFrac(results, data):
     
 def plotScatterplotLoopChange(data):
     colors = {3:"#3498db", 4:"#95a5a6", 5:"#e74c3c", 6:"#34495e"}
-    lengths = data.index.levels[0]
+    lengths = data.index.levels[1]
     plt.figure(figsize=(3,3));
     for length in lengths:
-        plt.scatter((data.fit - data.not_fit).loc[length],
-                    data.ddG_pred.loc[length],
+        key = 'length'
+        index_length = (data.reset_index(level=key).loc[:, key]==length).values
+        plt.scatter((data.fit - data.not_fit).loc[index_length],
+                    data.ddG_pred.loc[index_length],
                     c=colors[length]);
-        index = data.dropna(subset=['fit', 'not_fit', 'ddG_pred']).index
-        r, pvalue = st.pearsonr((data.fit-data.not_fit).loc[index].loc[length], data.loc[index].loc[length].ddG_pred)
+        index = np.logical_not(data.isnull().loc[:, ['fit', 'not_fit', 'ddG_pred']].any(axis=1))
+        r, pvalue = st.pearsonr((data.fit-data.not_fit).loc[index_length].loc[index.loc[index_length]],
+            data.loc[index_length].loc[index.loc[index_length]].ddG_pred)
         print length, r**2
     
     plt.xlabel('$\Delta \Delta G$ (kcal/mol)'); plt.ylabel('$\Delta \Delta G$ predicted (kcal/mol)'); 
@@ -406,7 +398,8 @@ def plotScatterplotTestSet(data, leave_out_lengths):
     ax = plt.gca(); ax.tick_params(top='off', right='off')
     plt.tight_layout()
     
-def plotScatterPlotTrainingSet(data, other_lengths):
+def plotScatterPlotTrainingSet(data):
+
     # set plotting parameters
     xlim = np.array([-11, -6])
     ylim = np.array([-2.5, 0])
@@ -416,9 +409,12 @@ def plotScatterPlotTrainingSet(data, other_lengths):
     index = data.dropna(subset=['fit', 'dG_conf', 'dG_bind']).index
     r, pvalue = st.pearsonr(data.loc[index].fit, (data.dG_conf + data.dG_bind).loc[index])
     plt.figure(figsize=(3,3));
+    key = 'length'
+    other_lengths = np.unique(data.reset_index(level=key).loc[:, key])
     for length in other_lengths:
-        plt.scatter(data.loc[length].fit,
-                    (data.dG_conf + data.dG_bind).loc[length],
+        index_length = (data.reset_index(level=key).loc[:, key]==length).values
+        plt.scatter(data.loc[index_length].fit,
+                    (data.dG_conf + data.dG_bind).loc[index_length],
                     c=colors[length]);
     plt.xlim(xlim); plt.ylim(xlim); plt.xticks(np.arange(*xlim))
     plt.xlabel('$\Delta G$ (kcal/mol)'); plt.ylabel('$\Delta G$ predicated (kcal/mol)'); 
