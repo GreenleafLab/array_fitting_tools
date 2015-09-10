@@ -40,16 +40,16 @@ then
     for file in $files;
     do 
         awk -v seq=$seq '{OFS="\t"}{i=index($3, seq); 
-                               if (i>0) {print $1,$2,$3,$4,$5,$6,substr($3, 0, i-1),
-                               substr($4,0, i-1),$9,$10} else print $0}' $file > $od/$(basename $file)
+                               if (i>0) {print $1,$2,$3,$4,$5,$6,substr($3, 1, i-1),
+                               substr($4,1, i-1),$9,$10} else print $0}' $file > $od/$(basename $file)
     done
 else
     echo "using filter "$filt
     for file in $files;
     do 
         awk -v seq=$seq -v filt=$filt '{OFS="\t"}{j=index($2, filt); i=index($3, seq); 
-                               if (i>0 && j>0) {print $1,$2,$3,$4,$5,$6,substr($3, 0, i-1),
-                               substr($4,0, i-1),$9,$10} else print $0}' $file > $od/$(basename $file)
+                               if (i>0 && j>0) {print $1,$2,$3,$4,$5,$6,substr($3, 1, i-1),
+                               substr($4,1, i-1),$9,$10} else print $0}' $file > $od/$(basename $file)
     done
 fi
     #
