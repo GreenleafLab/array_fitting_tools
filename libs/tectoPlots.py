@@ -21,7 +21,7 @@ from joblib import Parallel, delayed
 sns.set_style("white", {'xtick.major.size': 4,  'ytick.major.size': 4,
                         'xtick.minor.size': 2,  'ytick.minor.size': 2,
                         'lines.linewidth': 1})
-from tectoThreeWay import returnFracKey, returnBindingKey
+from tectoThreeWay import returnFracKey, returnBindingKey, returnLoopFracKey
 
 
 def plotChevronPlot(dGs, index=None, flow_id=None):
@@ -316,6 +316,8 @@ def plotBarPlotdG_bind(results, data):
 
 def plotBarPlotFrac(results, data):
     fixed_inds = data.index[0][:3]
+    loop = fixed_inds[0]
+    print loop
     topology = fixed_inds[-1]
     #to find seq order: 
     #binned_fractions = fractions.loc[:, [0,1,2]].copy()
@@ -327,8 +329,12 @@ def plotBarPlotFrac(results, data):
     fractions = pd.DataFrame(index=seqs, columns=[0, 1, 2] + ['stde_%d'%i for i in [0,1,2]])
     for seq in seqs:
         for permute in [0,1,2]:
-            fractions.loc[seq, permute] = results.loc[returnFracKey(topology, seq, permute)]
-            fractions.loc[seq, 'stde_%d'%permute] = results.loc[returnFracKey(topology, seq, permute)+'_stde']
+            if loop == 'GGAA_UUCG':
+                fractions.loc[seq, permute] = results.loc[returnFracKey(topology, seq, permute)]
+                fractions.loc[seq, 'stde_%d'%permute] = results.loc[returnFracKey(topology, seq, permute)+'_stde']
+            else:
+                fractions.loc[seq, permute] = results.loc[returnLoopFracKey(topology, seq, permute)]
+                fractions.loc[seq, 'stde_%d'%permute] = results.loc[returnLoopFracKey(topology, seq, permute)+'_stde']                
             
     plt.figure(figsize=(4,3));
     colors = ["#3498db", "#95a5a6","#e74c3c", "#34495e"]
@@ -361,12 +367,11 @@ def plotScatterplotLoopChange(data):
     for length in lengths:
         key = 'length'
         index_length = (data.reset_index(level=key).loc[:, key]==length).values
-        plt.scatter((data.fit - data.not_fit).loc[index_length],
-                    data.ddG_pred.loc[index_length],
+        plt.scatter(data.not_fit.loc[index_length],
+                    data.dG_conf_loop.loc[index_length],
                     c=colors[length]);
-        index = np.logical_not(data.isnull().loc[:, ['fit', 'not_fit', 'ddG_pred']].any(axis=1))
-        r, pvalue = st.pearsonr((data.fit-data.not_fit).loc[index_length].loc[index.loc[index_length]],
-            data.loc[index_length].loc[index.loc[index_length]].ddG_pred)
+        r, pvalue = st.pearsonr(data.loc[index_length].dropna(subset=['not_fit', 'dG_conf_loop']).not_fit,
+                                data.loc[index_length].dropna(subset=['not_fit', 'dG_conf_loop']).dG_conf_loop)
         print length, r**2
     
     plt.xlabel('$\Delta \Delta G$ (kcal/mol)'); plt.ylabel('$\Delta \Delta G$ predicted (kcal/mol)'); 
@@ -376,17 +381,20 @@ def plotScatterplotLoopChange(data):
 def plotScatterplotTestSet(data, leave_out_lengths):
     # set plotting parameters
     xlim = np.array([-11, -6.5])
-    ylim = np.array([-2.5, 0])
+    ylim = np.array([-3, 0])
     colors = {3:"#3498db", 4:"#95a5a6", 5:"#e74c3c", 6:"#34495e"}
     
     index = data.loc[data.isnull().dG_bind].dropna(subset=['fit', 'dG_conf']).index
     plt.figure(figsize=(3,3));
     annotateString = ''
+    key = 'length'
     for length in leave_out_lengths:
-        plt.scatter(data.loc[length].fit,
-                    data.loc[length].dG_conf,
+        index_length = (data.reset_index(level=key).loc[:, key]==length).values
+        plt.scatter(data.loc[index_length].dG,
+                    data.loc[index_length].dG_conf,
                     c=colors[length]);
-        r, pvalue = st.pearsonr(data.loc[index].loc[length].fit, data.loc[index].loc[length].dG_conf)
+        r, pvalue = st.pearsonr(data.loc[index_length].dropna(subset=['dG', 'dG_conf']).dG,
+                                data.loc[index_length].dropna(subset=['dG', 'dG_conf']).dG_conf)
         annotateString = '$R^2$=%4.2f for length=%d'%(r**2, length)
     plt.xlim(xlim); plt.ylim(ylim); plt.xticks(np.arange(*xlim))
     plt.xlabel('$\Delta G$ (kcal/mol)'); plt.ylabel('$\Delta G$ predicated (kcal/mol)'); 
@@ -406,15 +414,15 @@ def plotScatterPlotTrainingSet(data):
     colors = {3:"#3498db", 4:"#95a5a6", 5:"#e74c3c", 6:"#34495e"}
     
     # plot the training set
-    index = data.dropna(subset=['fit', 'dG_conf', 'dG_bind']).index
-    r, pvalue = st.pearsonr(data.loc[index].fit, (data.dG_conf + data.dG_bind).loc[index])
+    index = data.dropna(subset=['dG', 'dG_fit']).index
+    r, pvalue = st.pearsonr(data.loc[index].dG, data.dG_fit.loc[index])
     plt.figure(figsize=(3,3));
     key = 'length'
     other_lengths = np.unique(data.reset_index(level=key).loc[:, key])
     for length in other_lengths:
         index_length = (data.reset_index(level=key).loc[:, key]==length).values
-        plt.scatter(data.loc[index_length].fit,
-                    (data.dG_conf + data.dG_bind).loc[index_length],
+        plt.scatter(data.loc[index_length].dG,
+                    data.loc[index_length].dG_fit,
                     c=colors[length]);
     plt.xlim(xlim); plt.ylim(xlim); plt.xticks(np.arange(*xlim))
     plt.xlabel('$\Delta G$ (kcal/mol)'); plt.ylabel('$\Delta G$ predicated (kcal/mol)'); 

@@ -20,39 +20,7 @@ import hjh.junction
 
 complements = {'A':'U', 'U':'A', 'G':'C', 'C':'G'}
 
-def objectiveFunction(params, y=None, return_weighted=None, return_pred=None):
-    if return_pred is None:
-        return_pred = False
-    if return_weighted is None:
-        return_weighted = False
-    parameters = fittingParameters()
-    
-    parvals = params.valuesdict()
-
-    diff = y.dG.copy()
-    for idx in y.index:
-        loop, length, topology, seq, pos = idx
-        bindingKey = returnBindingKey(loop, length, topology)
-        if loop == 'GGAA_UUCG':
-            # then you want the fraction that lines up
-            fracKey = returnFracKey(topology, seq, pos)
-        else:
-            # then you want the permuted version where 1 becomes 0, 0 becomes 2
-            fracKey = returnFracKey(topology, seq, pos-1)
-        
-        # two terms to energy function
-        term1 = parvals[bindingKey]   
-        term2 = parameters.RT*np.log(parvals[fracKey])
-        
-        diff.loc[idx] = term1 + term2 
-    
-    if return_pred:
-        return diff.astype(float)
-    elif return_weighted:
-        return ((diff - y.dG)*y.weight).astype(float)
-    else:
-        return (diff - y.dG).astype(float)
-
+# functions that are useful in converting data structures to other data structures
 def returnBindingKey(loop, length, topology):
     if np.in1d(list(topology),  'A').sum() == 0:
         unique_topology = '_'
@@ -82,15 +50,73 @@ def returnSeq(seq, pos):
     seq = list(seq)
     return [seq[i] for i in list(g)]
 
-def fitThreeWay(y, weight=None, force=None, to_include=None):
+def returnLoopFracKey(topology, seq, pos):
+    junction_type = 3 # it's a three way junction, so three permutations exist
+    g = deque(np.arange(junction_type))
+    g.rotate(pos)
+    
+    seq = list(seq)
+    topology = topology.split('_')
+    
+    # for the other loop, the fit fraction is when you switch the first and sceond positions
+    seqKeys = [seq[i] for i in list(g)]
+    topKeys = [topology[i] for i in list(g)]
+    key = ('_'.join([seqKeys[i] for i in [2,0,1]]) + 'g' + 
+           '_'.join([topKeys[i] for i in [2,0,1]]))      
+    return key
+
+
+def objectiveFunction(params, y=None, return_weighted=None, return_pred=None):
+    if return_pred is None:
+        return_pred = False
+    if return_weighted is None:
+        return_weighted = False
+    parameters = fittingParameters()
+    
+    parvals = params.valuesdict()
+
+    diff = y.dG.copy()
+    for idx in y.index:
+        loop, length, topology, seq, pos = idx
+        bindingKey = returnBindingKey(loop, length, topology)
+        if loop == 'GGAA_UUCG':
+            # then you want the fraction that lines up
+            fracKey = returnFracKey(topology, seq, pos)
+        else:
+            # then you want the permuted version where 1 becomes 0, 0 becomes 2
+            fracKey = returnLoopFracKey(topology, seq, pos)
+        
+        # two terms to energy function
+        term1 = parvals[bindingKey]   
+        term2 = parameters.RT*np.log(parvals[fracKey])
+        
+        diff.loc[idx] = term1 + term2 
+    
+    if return_pred:
+        return diff.astype(float)
+    elif return_weighted:
+        return ((diff - y.dG)*y.weight).astype(float)
+    else:
+        return (diff - y.dG).astype(float)
+
+
+
+def fitThreeWay(y, weight=None, force=None, to_include=None, results=None):
     if weight is None: weight = False
-    if force is None: force = False
+    if force is None:
+        if results is None:
+            force = False
+        else:
+            force = True
     
     loops = subsetIndex(y, 'loop', to_include)
     lengths = subsetIndex(y, 'length', to_include)
     topologies = subsetIndex(y, 'topology', to_include)
     seqs = subsetIndex(y, 'seq', to_include)
     y = subsetData(y, to_include)
+    
+    # but also make sure that param is in y?
+    
     # store fit parameters in class for fitting
     params = Parameters()
     for loop, length, topology in itertools.product(loops, lengths, topologies):
@@ -99,6 +125,7 @@ def fitThreeWay(y, weight=None, force=None, to_include=None):
         if key in params.keys():
             print '%s already in dict'%key
         else:
+            print key
             params.add(key, value=-9, min = -16, max = -4)
     
     # now store state fractions
@@ -111,13 +138,20 @@ def fitThreeWay(y, weight=None, force=None, to_include=None):
         
         # save params for the first two circularly permuted seq/topology
         for pos in [0,1]:
-            params.add(returnFracKey(topology, seq, pos),
-                       value=1./3, min=0, max=1, vary=vary)
+            key = returnFracKey(topology, seq, pos)
+            if results is not None:
+                if key in results.index:
+                    val = results.loc[key]
+                else:
+                    val = 1/3.
+            else:
+                val = 1/3.
+            params.add(key, value=val, min=0, max=1, vary=vary)
         
         # then make the third 1 - the sum of the other two
         params.add(returnFracKey(topology, seq, 2),
-                   expr='1-%s-%s'%(returnFracKey(topology, seq, 0),
-                                   returnFracKey(topology, seq, 1)))
+                   expr='1-1./%s-1./%s'%(returnFracKey(topology, seq, 0),
+                                         returnFracKey(topology, seq, 1)))
     
     # now fit
     func = objectiveFunction
@@ -227,15 +261,11 @@ def findVariantsByLengthAndCircularlyPermutedSeq(subtable, junction_type=None, l
 
 def findDataMat(subtable, y, results):
     parameters = fittingParameters()
-    data = pd.concat([subtable.loc[y.variant].dG,
-                      pd.Series(subtable.loc[y.variant+1].dG.values, index=y.variant)],
-        axis=1, keys = ['fit', 'not_fit'])
-    data.index = y.index
-    #data.loc[:, 'seq'] = y.seq
-    data.loc[:, 'ddG_pred'] = np.nan
-    data.loc[:, 'dG_conf'] = np.nan
-    data.loc[:, 'dG_bind'] = np.nan
-    data.loc[:, 'nn_pred'] = np.nan
+
+    cols = y.columns.tolist() + ['dG_loop', 'dG_fit', 'f', 'f_loop', 'dG_conf', 'dG_conf_loop', 'dG_bind', 'nn_pred']
+    data = pd.DataFrame(index=y.index, columns=cols)
+    data.loc[:, y.columns] = y
+    data.loc[:, 'dG_loop'] = subtable.loc[y.variant+1].dG.values
     
     for idx in data.index:
 
@@ -246,23 +276,24 @@ def findDataMat(subtable, y, results):
             if loop == 'GGAA_UUCG':
                 # then you want the fraction that lines up
                 frac0 = results.loc[returnFracKey(topology, seq, pos)]
-                frac1 = results.loc[returnFracKey(topology, seq, pos-1)]
+                frac1 = results.loc[returnLoopFracKey(topology, seq, pos)]
             else:
                 # then you want the permuted version where 1 becomes 0, 0 becomes 2
-                frac0 = results.loc[returnFracKey(topology, seq, pos-1)]
+                frac0 = results.loc[returnLoopFracKey(topology, seq, pos)]
                 frac1 = results.loc[returnFracKey(topology, seq, pos)]
             
-    
-            data.loc[idx, 'ddG_pred'] = parameters.RT*np.log(frac0/frac1)
+            data.loc[idx, 'f'] = frac0
+            data.loc[idx, 'f_loop'] = frac1
             data.loc[idx, 'dG_conf'] = parameters.RT*np.log(frac0)
-        
+            data.loc[idx, 'dG_conf_loop'] = parameters.RT*np.log(frac1)
+
         if bindingKey in results.index:
             data.loc[idx, 'dG_bind'] = results.loc[bindingKey]
-            
-        data.loc[idx, 'residual'] = data.loc[idx, 'dG_conf'] + data.loc[idx, 'dG_bind'] - data.loc[idx, 'fit']
+        
+        data.loc[idx, 'dG_fit'] = data.loc[idx, 'dG_bind'] + data.loc[idx, 'dG_conf'] 
         
     # add nearest neighbor info
-    nnFile = '~/JunctionLibrary/seq_params/nearest_neighbor_rules.txt'
+    nnFile = '/home/sarah/JunctionLibrary/seq_params/nearest_neighbor_rules.txt'
     if not os.path.exists(nnFile):
         nnFile = '/Users/Sarah/python/JunctionLibrary/seq_params/nearest_neighbor_rules.txt'
     if not os.path.exists(nnFile):
