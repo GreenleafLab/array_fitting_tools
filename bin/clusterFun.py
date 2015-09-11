@@ -76,19 +76,32 @@ def getCDF(M, plot=None):
 def findAreaOfCDF(x, cdf):
     return np.sum([cdf[i]*(x[i] - x[i-1]) for i in np.arange(len(x)-1)])
    
-def findConnectivity(D, indices, method, k):
-    M, I = computeConnectivity(index=D.index)
+def findConnectivity(D, indices, method, k, transpose=None):
+    if transpose is None: transpose = False
+    
+    # transpose in the case that indices are subsampling genes rather than samples
+    if transpose:
+        index_all = D.columns
+    else:
+        index_all = D.index
+        
+    # initialize mat
+    M, I = computeConnectivity(index=index_all)
+    
     for index in indices:
-        subddGs = D.loc[index]
-        clusters = pd.Series(method(subddGs, k), index=index)
-        m, n = computeConnectivity(clusters, index=D.index)
+        subD = D.loc[index]
+        if transpose:
+            clusters = pd.Series(method(subD.trasnpose(), k), index=index_all)
+        else:
+            clusters = pd.Series(method(subD, k), index=index)
+        m, n = computeConnectivity(clusters, index=index_all)
         M += m
         I += n
 
     return M, I
 
 def consensusCluster(D, method=None, subsample=None, n_samples=None, k=None,
-                     plot=None, numCores=None):
+                     plot=None, numCores=None, transpose=None):
     if n_samples is None:
         n_samples = 100
     
@@ -106,16 +119,26 @@ def consensusCluster(D, method=None, subsample=None, n_samples=None, k=None,
     
     if numCores is None:
         numCores = 10
-
+    
+    if transpose is None:
+        transpose = False
+        # transpose is False: subsample items
+        # transpose is True: subsample features
+        
+    if transpose:
+        index_all = D.columns # these will be the rows/cols of the consensus matrix
+    else:
+        index_all = D.index   # these will be the rows/cols of the consensus matrix
+        
     indices = ['']*n_samples
     for i in range(n_samples):
         indices[i] = np.random.choice(D.index,
                                       size=int(len(D)*subsample),
-                                      replace=False).astype(str)
-    M, I = computeConnectivity(index=D.index)
+                                      replace=False)
+    M, I = computeConnectivity(index=index_all)
     indicesSplit = np.array_split(indices, numCores)
     a = (Parallel(n_jobs=numCores, verbose=10)
-         (delayed(findConnectivity)(D, index, method, k) for index in indicesSplit))
+         (delayed(findConnectivity)(D, index, method, k, transpose) for index in indicesSplit))
     for m, n in a:
         M += m
         I += n      
