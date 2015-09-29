@@ -129,7 +129,9 @@ if np.sum(already_exist) < len(filteredCPseqFilenameDict):
         print 'All signal files successfully generated'
     else:
         print 'Error: not all signal files successfully generated'
-        print '\tAre CPfluor files and CPseq files matching?'
+        for filename in np.sort(signalNamesByTileDict.values()):
+            if not os.path.exists(filename):
+                print '\tMissing tile %s'%filename
         sys.exit()
         
     
