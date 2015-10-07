@@ -593,7 +593,7 @@ def useSimulatedOrActual(variant_table, concentrations):
         use_actual = False
     return use_actual
 
-def plotSigmaByN(stds_actual, params, min_sigma=None):
+def plotSigmaByN(stds_actual, params, min_sigma=None, errors=None):
 
     x = stds_actual.index
     y = stds_actual.values
@@ -603,7 +603,13 @@ def plotSigmaByN(stds_actual, params, min_sigma=None):
 
     # plot data
     plt.figure(figsize=(4,3))
-    plt.plot(x,       y,       fmt[0], label=labels[0]);
+    if errors is not None:
+        plt.errorbar(x, y, yerr=[errors.loc[stds_actual.index].eminus,
+                                 errors.loc[stds_actual.index].eplus],
+                     fmt='.', elinewidth=1,
+                     capsize=2, capthick=1, color='k', linewidth=1)
+    else:
+        plt.plot(x,       y,       fmt[0], label=labels[0]);
     
     fmaxDist = fmaxDistAny()
     x_fit = np.arange(1, x.max())
@@ -629,33 +635,83 @@ def plotSigmaByN(stds_actual, params, min_sigma=None):
     plt.xlabel('number of tests')
     plt.ylabel('std of fit fmaxes in bin')
     return
+
+def excludeOutliersGaussian(vec, loc=None, fmax_bins=None, std=None, return_bounds=None):
+    if loc is None:
+        loc = vec.median()
+    if std is None:
+        std = vec.std()
+    if fmax_bins is None:
+        fmax_bins = np.linspace(0, vec.max(), 50)
+    if return_bounds is None:
+        return_bounds = False
+    
+    # calculate, assuming gaussian, where outliers are likely to be
+    if not np.isnan(std):
+        # remove outliers
+        pdf = st.norm.pdf(fmax_bins, loc=loc, scale=std)
+        cutoff = 1E-4
+        lowerbound, upperbound = np.percentile(fmax_bins[pdf > cutoff], [0, 100])
+        if return_bounds:
+            return lowerbound, upperbound
+        else:
+            return vec.loc[(vec >= lowerbound)&(vec <= upperbound)]
+    else:
+        # no outliers to remove
+        if return_bounds:
+            return vec.min(), vec.max()
+        else:
+            return vec
+    
     
 
-def findFinalBoundsParameters(variant_table, concentrations):
+def findFinalBoundsParameters(variant_table, concentrations, bootstrap=None):
+    if bootstrap is None:
+        bootstrap = False
     parameters = fittingParameters(concentrations=concentrations)
 
     # actual data
     tight_binders = variant_table.loc[variant_table.dG_init <= parameters.maxdG]
+    
+    # has mean (weighted average of fmax)
+    mean_fmax = np.average(tight_binders.fmax_init,
+                           weights=np.sqrt(tight_binders.numTests))
+    max_fmax = tight_binders.fmax_init.max()
+    fmax_bins = np.arange(0, max_fmax, mean_fmax/20.)
+    fmax_sub = excludeOutliersGaussian(tight_binders.fmax_init, loc=mean_fmax,
+                                       fmax_bins=fmax_bins)
+    n_tests = tight_binders.loc[fmax_sub.index].numTests
+    
+    # find relationship of std and number of tests
     stds_actual = pd.Series(index=np.unique(tight_binders.numTests))
     weights     = pd.Series(index=np.unique(tight_binders.numTests))
+    errors = pd.DataFrame(index=np.unique(tight_binders.numTests), columns=['eminus', 'eplus'])
+    
     for n in stds_actual.index:
-        stds_actual.loc[n] = seqfun.remove_outlier(
-            tight_binders.loc[tight_binders.numTests==n].fmax_init).std()
+        # find std
+        stds_actual.loc[n] = fmax_sub.loc[n_tests==n].std()
         weights.loc[n] = np.sqrt((tight_binders.numTests==n).sum())
+        # if that was successful, evaluate confidence interval
+        if not np.isnan(stds_actual.loc[n]) and bootstrap:
+            try:
+                lowerbound, upperbound  = bootstrap.ci(fmax_sub.loc[n_tests==n],
+                                                      statfunction=np.std)
+                errors.loc[n] = [stds_actual.loc[n] - lowerbound, upperbound - stds_actual.loc[n]]
+            except:
+                pass
+
     stds_actual.dropna(inplace=True)
-    weights = weights.loc[stds_actual.index]
 
     x = stds_actual.index
     y = stds_actual.values
-    weights_fit = weights
+    weights_fit = weights.loc[stds_actual.index]
 
     params = fitSigmaDist(x, y, weights=weights_fit)
     
     # save fitting parameters
-    params.add('median', value=np.average(tight_binders.fmax_init,
-                                          weights=np.sqrt(tight_binders.numTests)))
+    params.add('median', value=mean_fmax)
     
-    plotSigmaByN(stds_actual, params)
+    plotSigmaByN(stds_actual, params, errors=errors)
         
     fmaxDist = fmaxDistAny(params=params)
     return fmaxDist
@@ -666,22 +722,40 @@ def findFinalBoundsParametersSimulated(variant_table, table, concentrations, ret
     parameters = fittingParameters(concentrations)
     good_variants = (variant_table.dG_init < parameters.maxdG)
     tight_binders = variant_table.loc[good_variants]
+    
+    # find median fmax
+    mean_fmax = np.average(tight_binders.fmax_init,
+                           weights=np.sqrt(tight_binders.numTests))
+    max_fmax = tight_binders.fmax_init.max()
+    std_fmax = tight_binders.fmax_init.std()
+    fmax_bins = np.arange(0, max_fmax, mean_fmax/20.)
+
+    
+    # find those clusters associated with good variants and use those it fmaxes
     good_clusters = pd.Series(np.in1d(table.variant_number,
-                                      variant_table.loc[good_variants].index),
+                                      tight_binders.index),
                       index=table.index)
-    other_binders = table.loc[good_clusters, ['fmax']]
-    # for each n, choose n variants
+    fmax_clusters_sub = table.loc[good_clusters, 'fmax']
+    lowerbound, upperbound =  excludeOutliersGaussian(table.loc[good_clusters, 'fmax'],
+                                       loc=mean_fmax,
+                                       std=std_fmax,
+                                       fmax_bins=fmax_bins,
+                                       return_bounds=True)
+    
+    # for each n, randomly sample n clusters and find median fmax. std for that n
+    # is distribution of doing this multiple times
     stds = pd.Series(index=np.arange(1, 101, 4))
     for n in stds.index:
         print n
-        n_reps = np.ceil(float(len(other_binders))/n)
-        index = np.random.permutation(np.tile(np.arange(n_reps), n))[:len(other_binders)]
-        other_binders.loc[:, 'faux_variant'] = index
-        stds.loc[n] = seqfun.remove_outlier(other_binders.groupby('faux_variant').
-                                            median().fmax).std()
+        n_reps = np.ceil(float(len(fmax_clusters_sub))/n)
+        index = pd.Series(np.random.permutation(np.tile(np.arange(n_reps), n))[:len(fmax_clusters_sub)],
+                          index = fmax_clusters_sub.index, name='faux_variant')
+        other_binders = pd.concat([index, fmax_clusters_sub], axis=1)
+        fmaxes = other_binders.groupby('faux_variant').median().fmax
+        stds.loc[n] = fmaxes.loc[(fmaxes >= lowerbound)&(fmaxes<=upperbound)].std()
     stds.dropna(inplace=True)
     
-    
+    # fit 
     x = stds.index
     y = stds.values
     if return_vals:
