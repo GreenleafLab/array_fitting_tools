@@ -41,6 +41,14 @@ subresults2.loc[:, 'id'] = ('wc11_' +
                            subresults2.length.astype(int).astype(str) + '_' +
                            subresults2.helix_one_length.astype(int).astype(str))
 
+wc11bpFile = '/lab/sarah/RNAarray/final_WC/flowWC_11bp.1506025.results.pkl'
+results = pd.concat([libChar, pd.read_pickle(wc11bpFile)], axis=1)
+subresults2 = results.loc[results.sublibrary=='junction_conformations'].copy()
+subresults2.sort(['effective_length', 'offset'], inplace=True)
+subresults2.loc[:, 'id'] = ('wc11_' +
+                           subresults2.length.astype(int).astype(str) + '_' +
+                           subresults2.helix_one_length.astype(int).astype(str))
+
 newresults = pd.concat([subresults, subresults2])
 
 junction_seq_ref = 'UGAUCU_AGAUCA'
