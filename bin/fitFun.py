@@ -195,33 +195,34 @@ def findErrorBarsBindingCurve(subSeries):
         eminus, eplus = [np.ones(subSeries.shape[1])*np.nan]*2
     return eminus, eplus
 
-def enforceFmaxDistribution(median_fluorescence, fitParameters, verbose=None):
+def enforceFmaxDistribution(median_fluorescence, fmaxDist, verbose=None, cutoff=None):
     # decide whether to enforce fmax distribution or let it float
     # cutoff is whether the last point of the (median) fluorescence is
     # above the lower bound for fmax.
     if verbose is None:
         verbose = False
     
+    if cutoff is None:
+        cutoff = 0.025 # only 2.5% of distribution falls beneath this value
+    
+    lowerbound = fmaxDist.ppf(cutoff)
+    
     median_fluorescence = median_fluorescence.astype(float).values
-    if median_fluorescence[-1] < fitParameters.loc['lowerbound', 'fmax']:
+    if median_fluorescence[-1] < lowerbound:
         redoFitFmax = True
         if verbose:
             print (('last concentration is below lb for fmax (%4.2f out of '
                    '%4.2f (%d%%). Doing bootstrapped fit with fmax'
                    'samples from dist')
-                %(median_fluorescence[-1],
-                  fitParameters.loc['lowerbound', 'fmax'],
-                  median_fluorescence[-1]*100/
-                    fitParameters.loc['lowerbound', 'fmax']))
+                %(median_fluorescence[-1], lowerbound,
+                  median_fluorescence[-1]*100/lowerbound))
     else:
         redoFitFmax = False
         if verbose:
             print (('last concentration is above lb for fmax (%4.2f out of %4.2f '+
                    '(%d%%). Proceeding by varying fmax')
-                %(median_fluorescence[-1],
-                  fitParameters.loc['lowerbound', 'fmax'],
-                  median_fluorescence[-1]*100/
-                    fitParameters.loc['lowerbound', 'fmax']))
+                %(median_fluorescence[-1], lowerbound,
+                  median_fluorescence[-1]*100/lowerbound))
     return redoFitFmax
 
 
@@ -238,15 +239,19 @@ def bootstrapCurves(concentrations, subSeries, fitParameters, fmaxDist=None,
     # if last point in binding series is below fmax constraints, do by method B
     median_fluorescence = subSeries.median()
 
-    if enforce_fmax is None:
-        # if enforce_fmax is not set, decide based on median fluorescence in last binding point
-        enforce_fmax = enforceFmaxDistribution(median_fluorescence,
-                                               fitParameters, verbose=verbose)
-        
     if fmaxDist is None:
         print ('Error: if you wish to enforce fmax, need to define "fmaxDist"\n'
                'which is a instance of a normal distribution with mean and sigma\n'
                'defining the expected distribution of fmax')
+        
+    if enforce_fmax is None:
+        # if enforce_fmax is not set, decide based on median fluorescence in last binding point
+        enforce_fmax = enforceFmaxDistribution(median_fluorescence,
+                                               fmaxDist, verbose=verbose)
+    else:
+        if verbose:
+            print "using enforced fmax because of user settings"
+
     if use_default is None:
         use_default = False # if flagged, use only default errors
     
@@ -363,11 +368,13 @@ def plotFitDistributions(results, singles, fitParameters):
         plt.tight_layout()
     return
 
-def getParamsFromResults(results, fitParameters):
-    param_names = fitParameters.columns.tolist()
+def returnParamsFromResults(final_params, param_names=None):
+    # make a parameters structure that works for objective functions
+    if param_names is None:
+        param_names = ['fmax', 'dG', 'fmin']
     params = Parameters()
     for param in param_names:
-        params.add(param, value=results.loc[param])
+        params.add(param, value=final_params.loc[param])
     return params
 
 def plotFitCurve(concentrations, subSeries, results,
@@ -443,7 +450,7 @@ def plotFitCurve(concentrations, subSeries, results,
         more_concentrations = np.linspace(concentrations.min(),
                                           concentrations.max(), 100)
     param_names = fitParameters.columns.tolist()
-    params = getParamsFromResults(results, fitParameters)
+    params = returnParamsFromResults(results, param_names)
     fit = func(params, more_concentrations)
     plt.plot(more_concentrations, fit, 'r')
 
@@ -604,144 +611,6 @@ def plotSigmaByN(stds_actual, params, min_sigma=None, errors=None):
     plt.xlabel('number of tests')
     plt.ylabel('std of fit fmaxes in bin')
     return
-
-def excludeOutliersGaussian(vec, loc=None, fmax_bins=None, std=None, return_bounds=None):
-    if loc is None:
-        loc = vec.median()
-    if std is None:
-        std = vec.std()
-    if fmax_bins is None:
-        fmax_bins = np.arange(0, vec.max(), loc/100.)
-    if return_bounds is None:
-        return_bounds = False
-    
-    # calculate, assuming gaussian, where outliers are likely to be
-    if not np.isnan(std):
-        # remove outliers
-        pdf = st.norm.pdf(fmax_bins, loc=loc, scale=std)
-        cutoff = 1E-4
-        lowerbound, upperbound = np.percentile(fmax_bins[pdf > cutoff], [0, 100])
-        if return_bounds:
-            return lowerbound, upperbound
-        else:
-            return vec.loc[(vec >= lowerbound)&(vec <= upperbound)]
-    else:
-        # no outliers to remove
-        if return_bounds:
-            return vec.min(), vec.max()
-        else:
-            return vec
-    
-    
-
-def findFinalBoundsParameters(variant_table, concentrations, bootstrap_errors=None):
-    if bootstrap_errors is None:
-        bootstrap_errors = False
-    parameters = fittingParameters(concentrations=concentrations)
-
-    # actual data
-    tight_binders = variant_table.loc[variant_table.dG_init <= parameters.maxdG]
-    
-    # has mean (weighted average of fmax)
-    mean_fmax = np.average(tight_binders.fmax_init,
-                           weights=np.sqrt(tight_binders.numTests))
-    max_fmax = tight_binders.fmax_init.max()
-    fmax_bins = np.arange(0, max_fmax, mean_fmax/20.)
-    fmax_sub = excludeOutliersGaussian(tight_binders.fmax_init, loc=mean_fmax,
-                                       fmax_bins=fmax_bins)
-    n_tests = tight_binders.loc[fmax_sub.index].numTests
-    n_tests_counts = n_tests.value_counts().sort_index()
-    
-    # find relationship of std and number of tests
-    min_num_to_fit = 10
-    all_ns = np.array(n_tests_counts.loc[n_tests_counts >= min_num_to_fit].index.tolist())
-    stds_actual = pd.Series(index=all_ns)
-    weights     = pd.Series(index=all_ns)
-    errors = pd.DataFrame(index=all_ns, columns=['eminus', 'eplus'])
-    
-    for n in all_ns:
-        # find std
-        stds_actual.loc[n] = fmax_sub.loc[n_tests==n].std()
-        weights.loc[n] = np.sqrt((tight_binders.numTests==n).sum())
-        # if that was successful, evaluate confidence interval
-        if not np.isnan(stds_actual.loc[n]) and bootstrap_errors:
-            try:
-                lowerbound, upperbound  = bootstrap.ci(fmax_sub.loc[n_tests==n],
-                                                      statfunction=np.std)
-                errors.loc[n] = [stds_actual.loc[n] - lowerbound, upperbound - stds_actual.loc[n]]
-            except:
-                pass
-
-    stds_actual.dropna(inplace=True)
-
-    x = stds_actual.index
-    y = stds_actual.values
-    weights_fit = weights.loc[stds_actual.index]
-
-    params = fitSigmaDist(x, y, weights=weights_fit)
-    
-    # save fitting parameters
-    params.add('median', value=mean_fmax)
-    
-    plotSigmaByN(stds_actual, params, errors=errors)
-        
-    fmaxDist = fmaxDistAny(params=params)
-    return fmaxDist
-        
-
-def findFinalBoundsParametersSimulated(variant_table, table, concentrations, return_vals=None):
-    if return_vals is None:
-        return_vals = False
-    parameters = fittingParameters(concentrations)
-    good_variants = (variant_table.dG_init < parameters.maxdG)
-    tight_binders = variant_table.loc[good_variants]
-    
-    # find median fmax
-    mean_fmax = np.average(tight_binders.fmax_init,
-                           weights=np.sqrt(tight_binders.numTests))
-    max_fmax = tight_binders.fmax_init.max()
-    std_fmax = tight_binders.fmax_init.std()
-    fmax_bins = np.arange(0, max_fmax, mean_fmax/20.)
-
-    
-    # find those clusters associated with good variants and use those it fmaxes
-    good_clusters = pd.Series(np.in1d(table.variant_number,
-                                      tight_binders.index),
-                      index=table.index)
-    fmax_clusters_sub = table.loc[good_clusters, 'fmax']
-    lowerbound, upperbound =  excludeOutliersGaussian(table.loc[good_clusters, 'fmax'],
-                                       loc=mean_fmax,
-                                       std=std_fmax,
-                                       fmax_bins=fmax_bins,
-                                       return_bounds=True)
-    
-    # for each n, randomly sample n clusters and find median fmax. std for that n
-    # is distribution of doing this multiple times
-    stds = pd.Series(index=np.arange(1, 101, 4))
-    for n in stds.index:
-        fmaxes = returnSimulatedFmaxes(fmax_clusters_sub, n)
-        stds.loc[n] = fmaxes.loc[(fmaxes >= lowerbound)&(fmaxes<=upperbound)].std()
-    stds.dropna(inplace=True)
-    
-    # fit 
-    x = stds.index
-    y = stds.values
-    if return_vals:
-        return x, y
-    
-    params = fitSigmaDist(x, y, weights=None)
-    
-    # save fitting parameters
-    params.add('median', value=np.average(tight_binders.fmax_init,
-                                          weights=np.sqrt(tight_binders.numTests)))
-    min_sigma = seqfun.remove_outlier(tight_binders.fmax_init).std()
-    params.add('min_sigma', value=min_sigma, vary=False)
-    
-    plotSigmaByN(stds, params, min_sigma=min_sigma)
-        
-    fmaxDist = fmaxDistAny(params=params)
-    return fmaxDist
-
     
 def errorPropagationKdFromKoffKobs(koff, kobs, c, sigma_koff, sigma_kobs):
     koff = koff.astype(float)
