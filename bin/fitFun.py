@@ -91,55 +91,6 @@ class fittingParameters():
     def find_Kd_from_frac_bound_concentration(self, frac_bound, concentration):
         return concentration/float(frac_bound) - concentration
     
-class fmaxDistAny():
-    # for fitting stde of fmaxes
-    def __init__(self, params=None):
-        self.params = params
-        
-    def sigma_by_n_fit(self, params, x, y=None, weights=None):
-
-        parvals = params.valuesdict()
-        sigma = parvals['sigma']
-        c   = parvals['c']
-        fit = sigma/np.sqrt(x) + c
-        if y is None:
-            return fit
-        elif weights is None:
-            return y-fit
-        else:
-            return (y - fit)*weights
-    
-    def find_fmax_bounds_given_n(self, n, alpha=None, return_dist=None, do_gamma=None):
-        if alpha is None: alpha = 0.99
-        if return_dist is None: return_dist = False
-        if do_gamma is None:
-            do_gamma = False
-        
-        if self.params is None:
-            print 'Error: define popts'
-            return
-        params = self.params
-         
-        sigma = self.sigma_by_n_fit(params, n)
-        mean = params.valuesdict()['median']
-
-        if 'min_sigma' in params.keys():
-            if sigma < params['min_sigma'].value:
-                sigma = params['min_sigma'].value
-
-        if return_dist:
-            if do_gamma:
-                k, theta = skewDist.returnGammaParams(mean, std)
-                return st.gamma(k, scale=theta)
-            else:
-                return st.norm(loc=mean, scale=sigma)
-        else:
-            if do_gamma:
-                k, theta = skewDist.returnGammaParams(mean, std)
-                interval = st.gamma.interval(alpha, k, scale=theta)
-            else:
-                interval = st.norm.interval(alpha, loc=mean, scale=sigma)
-            return interval[0], mean, interval[1]
         
 def bindingCurveObjectiveFunction(params, concentrations, data=None, weights=None):
     parameters = fittingParameters()
@@ -328,7 +279,7 @@ def bootstrapCurves(concentrations, subSeries, fitParameters, fmaxDist=None,
         indices = [list(i) for i in itertools.product(*[subSeries.index]*numTests)]
     else:
         if verbose:
-            print ('making %d randomly selected (with replacement) '
+            print ('making %4.0f randomly selected (with replacement) '
                    'bootstrapped median binding curves')%n_samples
         indices = np.random.choice(subSeries.index,
                                    size=(n_samples, len(subSeries)), replace=True)
@@ -736,24 +687,6 @@ def findFinalBoundsParameters(variant_table, concentrations, bootstrap_errors=No
         
     fmaxDist = fmaxDistAny(params=params)
     return fmaxDist
-
-def returnSimulatedFmaxes(fmax_clusters, n, n_samples=None):
-    if n_samples is None:
-        n_samples = 1000
-    max_num_variants = np.floor(len(fmax_clusters)/float(n))
-    if max_num_variants < n_samples:
-        n_samples = max_num_variants
-        
-    clusters = np.random.choice(fmax_clusters.index, [n_samples, n], replace=False)
-    indices = np.transpose(np.tile(np.arange(n_samples), [n,1]))
-
-    fmax_df = pd.concat([fmax_clusters, pd.Series(index=fmax_clusters.index)],
-        axis=1, keys=['fmax', 'group'])
-    
-    fmax_df.loc[np.ravel(clusters), 'group'] = np.ravel(indices)
-    return fmax_df.groupby('group').median().fmax
-
-
         
 
 def findFinalBoundsParametersSimulated(variant_table, table, concentrations, return_vals=None):
@@ -809,27 +742,6 @@ def findFinalBoundsParametersSimulated(variant_table, table, concentrations, ret
     fmaxDist = fmaxDistAny(params=params)
     return fmaxDist
 
-def fitSigmaDist(x, y, weights=None, set_c=None, at_n=None):
-    
-    fmaxDist = fmaxDistAny()
-    params = Parameters()
-    params.add('sigma', value=y.max(), min=0)
-    if set_c is None:
-        params.add('c',     value=y.min(),   min=0)
-    else:
-        params.add('c', expr="%4.5f-sigma/sqrt(%4.5f)"%(set_c, at_n))
-    minimize(fmaxDist.sigma_by_n_fit, params,
-                                   args=(x,),
-                                   kws={'y':y,
-                                        'weights':weights},
-                                   xtol=1E-6, ftol=1E-6, maxfev=10000)
-    return params
-
-    # save fitting parameters
-    params.add('median', value=np.average(tight_binders.fmax_init,
-                                          weights=np.sqrt(tight_binders.numTests)))
-    min_sigma = seqfun.remove_outlier(tight_binders.fmax_init).std()
-    params.add('min_sigma', value=min_sigma, vary=False)
     
 def errorPropagationKdFromKoffKobs(koff, kobs, c, sigma_koff, sigma_kobs):
     koff = koff.astype(float)
