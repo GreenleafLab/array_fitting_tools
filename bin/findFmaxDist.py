@@ -5,6 +5,7 @@ from lmfit import Parameters, minimize
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
+import fitFun
 
 class fmaxDistAny():
     # for fitting stde of fmaxes
@@ -24,7 +25,7 @@ class fmaxDistAny():
         else:
             return (y-fit)*weights
     
-    def find_fmax_bounds_given_n(self, n, alpha=None, return_dist=None, do_gamma=None):
+    def getDist(self, n, do_gamma=None):
 
         if self.params is None:
             print 'Error: define popts'
@@ -35,9 +36,11 @@ class fmaxDistAny():
         mean = params.valuesdict()['median']
         
         return self.find_fmax_bounds(mean, sigma,
-                                     alpha=alpha,
-                                     return_dist=return_dist,
+                                     alpha=None,
+                                     return_dist=True,
                                      do_gamma=do_gamma)
+    
+    
 
     def find_fmax_bounds(self, mean, sigma, alpha=None, return_dist=None, do_gamma=None):
         if alpha is None: alpha = 0.99
@@ -166,15 +169,6 @@ def fitGammaDistribution(vec, plot=None, set_mean=None, set_offset=None):
         plotGammaFunction(vec, params=params)
     return final_params
 
-def returnParamsFromResults(final_params, param_names=None):
-    # make a parameters structure that works for objective functions
-    if param_names is None:
-        param_names = ['mean', 'std', 'offset']
-    params = Parameters()
-    for param in param_names:
-        params.add(param, value=final_params.loc[param])
-    return params
-
 def returnGammaParams(mean, std):
     # moments of distrubtion mean, std are related to shape and scale parameters
     k = (mean/std)**2
@@ -193,7 +187,7 @@ def plotGammaFunction(vec, results=None, params=None):
         print "need to define either results or params to plot fit"
     else:
         if params is None:
-            params = returnParamsFromResults(results)
+            params = fitFun.returnParamsFromResults(results, param_names=['mean', 'std', 'offset'])
         plt.plot(more_x, gammaObjective(params, more_x, return_pdf=True), 'r')
     
 
