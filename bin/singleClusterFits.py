@@ -44,8 +44,6 @@ parser = argparse.ArgumentParser(description='fit single clusters to binding cur
 group = parser.add_argument_group('required arguments for fitting single clusters')
 group.add_argument('-cs', '--cpsignal', metavar="CPsignal.pkl",
                     help='reduced CPsignal file. Use this if binding curves file not given')
-group.add_argument('-b', '--binding_curves', metavar="bindingCurves.pkl",
-                   help='file containining the binding curve information')
 group.add_argument('-c', '--concentrations', required=True, metavar="concentrations.txt",
                     help='text file giving the associated concentrations')
 
@@ -92,7 +90,7 @@ def getInitialFitParameters(concentrations):
 
 def splitAndFit(bindingSeries, concentrations, fitParameters, numCores,
                 index=None, change_params=None):
-    
+    """ Given a table of binding curves, split and parallelize fit. """
     if index is None:
         index = bindingSeries.index
     
@@ -112,6 +110,7 @@ def splitAndFit(bindingSeries, concentrations, fitParameters, numCores,
 
 def fitSetClusters(concentrations, subBindingSeries, fitParameters, print_bool=None,
                    change_params=None):
+    """ Fit a set of binding curves. """
     if print_bool is None: print_bool = True
 
     #print print_bool
@@ -131,6 +130,7 @@ def fitSetClusters(concentrations, subBindingSeries, fitParameters, print_bool=N
     return pd.concat(singles)
 
 def perCluster(concentrations, fluorescence, fitParameters, plot=None, change_params=None):
+    """ Fit a single binding curve. """
     if plot is None:
         plot = False
     if change_params is None:
@@ -161,6 +161,7 @@ def perCluster(concentrations, fluorescence, fitParameters, plot=None, change_pa
 # define functions
 def bindingSeriesByCluster(concentrations, bindingSeries, 
                            numCores=None,  subset=None, fitParameters=None):
+    """ Initialize fitting. """
     if subset is None:
         subset = False
 
@@ -196,7 +197,6 @@ if __name__=="__main__":
     args = parser.parse_args()
     
     pickleCPsignalFilename = args.cpsignal
-    bindingCurveFilename   = args.binding_curves
     fitParametersFilename  = args.fit_parameters
     outFile  = args.out_file
     numCores = args.numCores
@@ -206,15 +206,10 @@ if __name__=="__main__":
         fitParameters = pd.read_table(fitParametersFilename, index_col=0)
     else:
         fitParameters = None
+        
     #  check proper inputs
     if outFile is None:
-        if bindingCurveFilename is None:
-            # make bindingCurve file 
-            outFile = os.path.splitext(
-                    pickleCPsignalFilename[:pickleCPsignalFilename.find('.pkl')])[0]
-            bindingCurveFilename = outFile + '.bindingSeries.pkl'
-        else:
-            outFile = os.path.splitext(
+        outFile = os.path.splitext(
                     bindingCurveFilename[:bindingCurveFilename.find('.pkl')])[0]
     
     print '\tLoading binding series and all RNA signal:'; sys.stdout.flush()
