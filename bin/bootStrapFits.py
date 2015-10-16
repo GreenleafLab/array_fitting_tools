@@ -30,7 +30,8 @@ import lmfit
 import itertools
 import fitFun
 import plotFun
-
+import findFmaxDist
+import singleClusterFits
 ### MAIN ###
 
 ################ Parse input parameters ################
@@ -127,51 +128,43 @@ def plotSingleVariantFits(table, results, variant, concentrations, plot_init=Non
                     fontsize=12)
                 
         
-def getInitialFitParameters(concentrations, initial_points=None, fmaxDist=None):
-    parameters = fitFun.fittingParameters(concentrations=concentrations)
-    fitParameters = pd.DataFrame(index=['lowerbound', 'initial', 'upperbound'],
-                                 columns=['fmax', 'dG', 'fmin'])
-    # find dG
-    fitParameters.loc[:, 'dG'] = [parameters.find_dG_from_Kd(
-                parameters.find_Kd_from_frac_bound_concentration(frac_bound, concentration))
-                                  for frac_bound, concentration in itertools.izip(
-                                    [0.99, 0.5, 0.01],
-                                    [concentrations[0], concentrations[-1], concentrations[-1]])]
-    if fmaxDist is not None:
-        # find fmax
-        fitParameters.loc[:, 'fmax'] = fmaxDist.find_fmax_bounds_given_n(1)
-        
-    if initial_points is not None:
-        # find fmin
-        loose_binders = initial_points.loc[initial_points.dG > parameters.mindG]
-        
-        fitParameters.loc[:, 'fmin'] = fitFun.getBoundsGivenDistribution(
-                loose_binders.fmin, label='fmin'); plt.close()
+def getInitialFitParameters(concentrations):
+    fitParameters = singleClusterFits.getInitialFitParameters(concentrations)
+    return pd.concat([fitParameters.astype(object),
+                      pd.DataFrame(True, columns=fitParameters.columns,
+                                         index=['vary'], dtype=bool)])
+    ## find fmax
+    #fmaxDist = fmaxDistObject.getDist(1)
+    #fitParameters.loc[:, 'fmax'] = fmaxDist.ppf([.025, .50, 0.975])
+    #
+    ## find fmin
+    #loose_binders = initial_points.loc[initial_points.dG > parameters.mindG]
+    #
+    #fitParameters.loc[:, 'fmin'] = fitFun.getBoundsGivenDistribution(
+    #        loose_binders.fmin, label='fmin'); plt.close()
+    #
+    #fitParameters.loc['vary'] = True
+    #fitParameters.loc['vary', 'fmin'] = False
+    #
+    #return fitParameters
 
-        fitParameters.loc['vary'] = True
-        fitParameters.loc['vary', 'fmin'] = False
-    
-    return fitParameters
-
-def perVariant(concentrations, subSeries, fitParameters, fmaxDist, initial_points=None,
+def perVariant(concentrations, subSeries, fitParameters, fmaxDistObject, initial_points=None,
                plot=None, n_samples=None, enforce_fmax=None):
     if plot is None:
         plot = False
 
     fitParametersPer = fitParameters.copy()
-    rows_to_change = ['lowerbound', 'initial', 'upperbound']
-    cols_to_change = fitParametersPer.loc['vary'].astype(bool)
+    params_to_change = fitParameters.loc[:, fitParametersPer.loc['vary'].astype(bool)].columns
     
-    # change bound of fmax given fmaxDist and number of measurements
-    #fitParameters.loc[rows_to_change, 'fmax'] = fmaxDist.find_fmax_bounds_given_n(len(subSeries))
+    # change initial guess based on previous fit
     if initial_points is not None:
-        fitParametersPer.loc['initial', cols_to_change] = (
-            initial_points.loc[cols_to_change.loc[cols_to_change].index])
+        fitParametersPer.loc['initial', params_to_change] = (initial_points.loc[params_to_change])
+        
+    fmaxDist = fmaxDistObject.getDist(len(subSeries)) 
     results, singles = fitFun.bootstrapCurves(concentrations, subSeries, fitParameters,
-                                              func=None, enforce_fmax=enforce_fmax,
-                                              fmaxDist=
-                                              fmaxDist.find_fmax_bounds_given_n(len(subSeries),
-                                                       return_dist=True),
+                                              func=None,
+                                              enforce_fmax=enforce_fmax,
+                                              fmaxDist=fmaxDist,
                                               n_samples=n_samples,
                                               verbose=plot)
     if plot:
@@ -180,48 +173,27 @@ def perVariant(concentrations, subSeries, fitParameters, fmaxDist, initial_point
                                      results,
                                      fitParameters,
                                      log_axis=True)
+        more_concentrations = np.logspace(0, 4)
+        fit = fitFun.bindingCurveObjectiveFunction(fitFun.returnParamsFromResults(initial_points),
+                                                   more_concentrations)
+        plt.plot(more_concentrations, fit, 'k--')
+        plt.figure(figsize=(4,4));
+        sns.distplot(singles.fmax, hist_kws={'histtype':'stepfilled'}, color='b')
+        plt.xlim(0, 2)
+        plt.tight_layout()
     return results
+
+def getMedianFirstBindingPoint(table):
+    """ Return the median fluoresence in first binding point of each variant. """
+    return table.groupby('variant_number').median().iloc[:, 0]
+
 
 def initiateFitting(fittedBindingFilename, annotatedClusterFile,
                      bindingCurveFilename, concentrations):
-
+    parameters = fitFun.fittingParameters(concentrations)
     # load initial points and find fitParameters
     initialPointsAll = pd.concat([pd.read_pickle(annotatedClusterFile),
                                 pd.read_pickle(fittedBindingFilename)], axis=1).astype(float)
-    
-
-        
-    # find constraints on fmax 
-    variant_table = findVariantTable(initialPointsAll).astype(float)
-    initialPoints = variant_table.loc[:, ['fmax_init', 'dG_init', 'fmin_init', 'numTests']]
-    initialPoints.columns = ['fmax', 'dG', 'fmin', 'numTests']
-    
-    # only use those clusters corresponding to variants that pass fit fraction cutff
-    index = variant_table.pvalue < 0.01
-    plotFun.plotFmaxVsKd(variant_table, concentrations, index)
-    
-    if fitFun.useSimulatedOrActual(variant_table.loc[index], concentrations):
-        print 'Using median fmaxes of variants to measure stderr'
-        fmaxDist = fitFun.findFinalBoundsParameters(
-                   variant_table.loc[index], concentrations)
-        x, y = fitFun.findFinalBoundsParametersSimulated(
-            variant_table.loc[index],
-                                    initialPointsAll,
-                                    concentrations,
-                                    return_vals=True)
-        plt.plot(x, y, 'r:', label='simulated')
-        plt.legend()
-    else:
-        print ('Using median fmaxes of subsampled clusters to measure stderr.\n'
-               'Assuming stde is maximum of [fit std, std of all variants]')
-        # simulate relationship as well
-        fmaxDist = fitFun.findFinalBoundsParametersSimulated(
-            variant_table.loc[index],
-                                    initialPointsAll,
-                                    concentrations)
-
-    # find constraints on fmin and delta G
-    fitParameters = getInitialFitParameters(concentrations, initialPointsAll, fmaxDist)
     
     # load binding series information with variant numbers
     table = (pd.concat([pd.read_pickle(annotatedClusterFile),
@@ -233,6 +205,37 @@ def initiateFitting(fittedBindingFilename, annotatedClusterFile,
 
     # fit only clusters that are not all NaN
     table.dropna(axis=0, subset=table.columns[1:], how='all',inplace=True)
+
+    # find constraints on fmin and delta G
+    fitParameters = getInitialFitParameters(concentrations)
+    
+    # set fmin to one value
+    initial_dG = initialPointsAll.groupby('variant_number')['dG'].median()
+    firstBindingPoint = getMedianFirstBindingPoint(table)
+    fitParameters.loc['vary', 'fmin'] = False
+    fitParameters.loc['initial', 'fmin'] = (
+        firstBindingPoint.loc[initial_dG.index].loc[initial_dG> parameters.mindG].median())
+    
+    # find fmax dist by correcting variant table fmax
+    initialPointsCorr = initialPointsAll.copy()
+    initialPointsCorr.loc[:, 'fmax'] += (initialPointsAll.loc[:, 'fmin'] -
+                                        fitParameters.loc['initial', 'fmin'])
+    variant_table = findVariantTable(initialPointsCorr).astype(float)
+    initialPoints = variant_table.loc[:, ['fmax_init', 'dG_init', 'fmin_init', 'numTests']]
+    initialPoints.columns = ['fmax', 'dG', 'fmin', 'numTests']
+    
+    # only use those clusters corresponding to variants that pass fit fraction cutff
+    index = variant_table.pvalue < 0.01
+    plotFun.plotFmaxVsKd(variant_table, concentrations, index)
+    
+    use_actual = fitFun.useSimulatedOrActual(variant_table.loc[index], concentrations)
+    tight_binders = variant_table.loc[(variant_table.pvalue < 0.01)&
+                                      (variant_table.dG_init<parameters.maxdG)]
+    fmaxDistObject = findFmaxDist.findParams(tight_binders,
+                                       use_simulated=not use_actual,
+                                       table=initialPointsAll)
+    # update fitParametersDict
+    fitParameters.loc['initial', 'fmax'] = fmaxDistObject.getDist(1).stats(moments='m')
     
     print '\tDividing table into groups...'
     groupDict = {}
@@ -244,7 +247,7 @@ def initiateFitting(fittedBindingFilename, annotatedClusterFile,
                         [np.logical_not(np.in1d(groupDict.keys(), initialPoints.index))])
     initialPoints = pd.concat([initialPoints, pd.DataFrame(index=missing_variants,
                                                            columns=initialPoints.columns)])
-    return groupDict, initialPoints, variant_table, fmaxDist, fitParameters
+    return groupDict, initialPoints, variant_table, fmaxDistObject, fitParameters
 
 def fitBindingCurves(fittedBindingFilename, annotatedClusterFile,
                      bindingCurveFilename, concentrations,
@@ -351,8 +354,9 @@ if __name__ == '__main__':
     
     else:
         # subtract binding points
-        groupDict, initialPoints, variant_table, fmaxDist, fitParameters = initiateFitting(
-            fittedBindingFilename, annotatedClusterFile, bindingCurveFilename, concentrations)
+        groupDict, initialPoints, variant_table, fmaxDistObject, fitParameters = (
+            initiateFitting(fittedBindingFilename, annotatedClusterFile,
+                            bindingCurveFilename, concentrations))
         
         variant_table = pd.read_table(outFile + '.CPvariant', index_col=0)
         sys.exit()
