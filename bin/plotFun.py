@@ -25,32 +25,55 @@ sns.set_style("white", {'xtick.major.size': 4,  'ytick.major.size': 4,
 import fitFun
 import seqfun
   
-def plotFmaxVsKd(variant_table, concentrations, index, subset=None):
-    if subset is None: subset=True
+def plotFmaxVsKd(variant_table, concentrations, index, subset=None, kde_plot=None,
+                 plot_fmin=None, xlim=None, ylim=None):
+    if kde_plot is None: kde_plot=False
+    if subset is None:
+        if kde_plot: subset = True
+        else: subset = False
+    if plot_fmin is None:
+        plot_fmin = False
     parameters = fitFun.fittingParameters(concentrations=concentrations)
-    cutoff = np.log10(parameters.find_Kd_from_dG(parameters.maxdG))
+    cutoff = parameters.find_Kd_from_dG(parameters.maxdG)
     index = index.loc[index].index
     
     kds = parameters.find_Kd_from_dG(variant_table.dG_init)
-    fmax = variant_table.fmax_init
-    kds_bounds = np.percentile(seqfun.remove_outlier(np.log10(kds.loc[index])), [0, 100])
-    fmax_bounds = [0, np.percentile(seqfun.remove_outlier(fmax.loc[index]), 100)]
-
+    if plot_fmin:
+        fmax = variant_table.fmin_init
+    else:
+        fmax = variant_table.fmax_init
+    if xlim is None:
+        kds_bounds = np.percentile(seqfun.remove_outlier(np.log10(kds.loc[index])), [0, 100])
+    else:
+        kds_bounds = [np.log10(i) for i in xlim]
+    if ylim is None:
+        fmax_bounds = [0, np.percentile(seqfun.remove_outlier(fmax.loc[index]), 100)]
+    else:
+        fmax_bounds = ylim
     plt.figure(figsize=(3,3))
     ax = plt.gca()
     if subset:
-        x = np.log10(kds.loc[index[::100]])
+        x = kds.loc[index[::100]]
         y = fmax.loc[index[::100]]
     else:
-        x = np.log10(kds.loc[index])
+        x = kds.loc[index]
         y = fmax.loc[index]
-                     
-    sns.kdeplot(x,
-                y,
-                shade=True, shade_lowest=False, n_levels=20, clip=[kds_bounds, fmax_bounds],
-                cmap="binary")
-    xticks = ax.get_xticks()
-    ax.set_xticklabels(['$10^%d$'%x for x in xticks])
+    
+    if kde_plot:   
+        sns.kdeplot(np.log10(x),
+                    y,
+                    shade=True, shade_lowest=False, n_levels=20, clip=[kds_bounds, fmax_bounds],
+                    cmap="binary")
+        xticks = ax.get_xticks()
+        ax.set_xticklabels(['$10^%d$'%x for x in xticks])
+        cutoff = np.log10(cutoff)
+    else:
+        ax.hexbin(x,
+                  y, xscale='log',
+                  extent=np.hstack([kds_bounds, fmax_bounds]),
+                  cmap="Spectral_r", mincnt=1)
+    
+    ax.tick_params(which='minor', top='off', right='off')
     ax.tick_params(top='off', right='off')
     plt.xlabel('$K_d$ (nM)')
     plt.ylabel('initial $f_{max}$')
@@ -352,10 +375,12 @@ def histogramKds(variant_table):
                  fontsize=10)
     plt.tight_layout()
     
-def plotScatterPlotColoredByFlag(results, results_dropped, concentrations, numPointsLost):
+def plotScatterPlotColoredByFlag(results, results_dropped, concentrations, numPointsLost, plotAll=None):
+    if plotAll is None:
+        plotAll = False
     parameters = fitFun.fittingParameters()
     # use the flag to determine the color
-    c = results_dropped.flag
+    c = results_dropped.flag.copy()
     c.loc[results.flag == 1] = -1
     
     kd_original = parameters.find_Kd_from_dG(results.dG.astype(float))
@@ -367,8 +392,23 @@ def plotScatterPlotColoredByFlag(results, results_dropped, concentrations, numPo
     ax = fig.add_subplot(111, aspect='equal')
     xlim = [1E0, 5E2]
     
-    plt.scatter(kd_original, kd_dropped, marker='.', alpha=0.5, s=20,
-                c=c.astype(float), vmin=-1, vmax=1, cmap=cmap, linewidth=0)
+    index = (results.flag == 0)&(results_dropped.flag==1)
+    plt.scatter(kd_original.loc[index], kd_dropped.loc[index], marker='.', alpha=0.8, s=20,
+                facecolors="#26AFE5", edgecolors="#26AFE5", linewidth=0.1)   
+
+    if plotAll:
+        index = (results.flag == 0)&(results_dropped.flag==0)
+        plt.scatter(kd_original, kd_dropped, marker='.', alpha=0.5, s=20,
+                    facecolors="k", edgecolors="k", linewidth=0.1)
+        
+        index = (results.flag == 1)&(results_dropped.flag==1)
+        plt.scatter(kd_original, kd_dropped, marker='.', alpha=0.5, s=20,
+                    facecolors="EF4036", edgecolors="EF4036", linewidth=0.1)
+        plotted_x = np.log10(kd_original)
+        plotted_y = np.log10(kd_dropped)
+    else:
+        plotted_x = np.log10(kd_original.loc[index])
+        plotted_y = np.log10(kd_dropped.loc[index])
     
     #plt.xticks(np.arange(xlim[0], xlim[1]))
     plt.xlim(xlim); plt.xlabel('$K_d$ (nM) all')
@@ -381,7 +421,7 @@ def plotScatterPlotColoredByFlag(results, results_dropped, concentrations, numPo
     ax.tick_params(which="minor", top='off', right='off')
     ax.set_xscale('log')
     ax.set_yscale('log')
-    plt.annotate('$R^2$=%4.2f'%(st.pearsonr(np.log10(kd_original), np.log10(kd_dropped))[0]**2),
+    plt.annotate('$R^2$=%4.2f'%(st.pearsonr(plotted_x,plotted_y)[0]**2),
                  xy=(0.95, 0.05),
                  xycoords='axes fraction',
                  horizontalalignment='right', verticalalignment='bottom',
@@ -458,7 +498,7 @@ def plotDeltaAbsFluorescence(bindingSeries, bindingSeriesBackground, concentrati
     pass
 
 def plotReplicatesKd(variant_tables,
-                   log=None, vmax=None, scatter=None):
+                   log=None, vmax=None, scatter=None, enforce_numTests=None):
 
     if log is None:
         log = False
@@ -468,22 +508,31 @@ def plotReplicatesKd(variant_tables,
         bins = None
     if scatter is None:
         scatter = False
+    if enforce_numTests is None:
+        enforce_numTests = True
     
     parameters = fitFun.fittingParameters()
     cutoff = parameters.cutoff_dG
-    index = (pd.concat(variant_tables, axis=1).loc[:, 'numTests'] >=5).all(axis=1)
     
-    x = np.log10(parameters.find_Kd_from_dG(variant_tables[0].loc[index].dG.astype(float)))
-    y = np.log10(parameters.find_Kd_from_dG(variant_tables[1].loc[index].dG.astype(float)))
+    if enforce_numTests:
+        index = (pd.concat(variant_tables, axis=1).loc[:, 'numTests'] >=5).all(axis=1)
+    else:
+        index = pd.concat(variant_tables, axis=1).index
+    
+    x = parameters.find_Kd_from_dG(variant_tables[0].loc[index].dG.astype(float))
+    y = parameters.find_Kd_from_dG(variant_tables[1].loc[index].dG.astype(float))
         
     fig = plt.figure(figsize=(4,2.5))
     ax = fig.add_subplot(111, aspect='equal')
     if scatter:
         ax.scatter(x, y, alpha=0.1, marker='.', c='k', s=1)
+        ax.set_xscale('log')
+        ax.set_yscale('log')
     else:
-        im = ax.hexbin(x, y, bins=bins, mincnt=0, vmin=0, vmax=vmax,
-               #extent=[-12, cutoff, -12, cutoff],
-               gridsize=75)
+        im = ax.hexbin(x, y, bins=bins, mincnt=1, xscale='log', yscale='log',
+                       cmap='Spectral_r',
+                       #extent=[-12, cutoff, -12, cutoff],
+                        gridsize=75)
     
     plt.xlabel('$K_d$ rep 1 (nM)')
     plt.ylabel('$K_d$ rep 2 (nM)')
@@ -492,8 +541,10 @@ def plotReplicatesKd(variant_tables,
     xlim = np.array(ax.get_xlim())
     ylim = np.array(ax.get_ylim())
     
+    xlim = [np.min([xlim[0], ylim[0]]), np.max([xlim[1], ylim[1]])]
+    
     index = (pd.concat(variant_tables, axis=1).loc[index, 'dG'] < cutoff).all(axis=1)
-    slope, intercept, r_value, p_value, std_err = st.linregress(x.loc[index],y.loc[index])
+    slope, intercept, r_value, p_value, std_err = st.linregress(np.log10(x.loc[index]), np.log10(y.loc[index]))
     plt.plot(xlim, slope*xlim+intercept, 'r:', linewidth=1)
 
     plt.annotate('$R^2$=%4.2f'%(r_value**2),
@@ -501,14 +552,17 @@ def plotReplicatesKd(variant_tables,
                  xycoords='axes fraction',
                  horizontalalignment='left', verticalalignment='bottom',
                  fontsize=12)
-    #plt.xlim(xlim[0], x.max())
-    #plt.ylim(ylim[0], y.max())
-    xticks = ax.get_xticks()
-    plt.xticks(xticks, ['$10^{%d}$'%x for x in xticks])
-    plt.yticks(xticks, ['$10^{%d}$'%x for x in xticks])
     
-    plt.plot([np.log10(parameters.find_Kd_from_dG(cutoff))]*2, ylim, 'k--', linewidth=1)
-    plt.plot(xlim, [np.log10(parameters.find_Kd_from_dG(cutoff))]*2, 'k--', linewidth=1)
+    plt.xlim(xlim)
+    plt.ylim(xlim)
+
+    ax.tick_params(top='off', right='off')
+    ax.tick_params(which='minor', top='off', right='off')
+    #plt.xticks(xticks, ['$10^{%d}$'%x for x in xticks])
+    #plt.yticks(xticks, ['$10^{%d}$'%x for x in xticks])
+    
+    plt.plot([parameters.find_Kd_from_dG(cutoff)]*2, ylim, 'k--', linewidth=1)
+    plt.plot(xlim, [parameters.find_Kd_from_dG(cutoff)]*2, 'k--', linewidth=1)
     if not scatter:
         plt.colorbar(im)
     #plt.yticks(np.arange(0, 60, 10))
@@ -686,25 +740,35 @@ def plotReplicates(variant_tables, cutoff=None, relative=None, variant=None,
     #plt.yticks(np.arange(0, 60, 10))
     plt.tight_layout()
 
-def plotColoredByLength(variant_tables, cutoff=None):
+def plotColoredByLength(variant_tables, cutoff=None, density=None):
     if cutoff is None:
         cutoff = -7
+    if density is None:
+        density=False
     index = ((pd.concat(variant_tables, axis=1).loc[:, 'dG'] < cutoff).all(axis=1)&
         ((pd.concat(variant_tables, axis=1).loc[:, 'numTests']) >=5).all(axis=1))
 
     colors =  ["#e74c3c", "#3498db", "#34495e", "#9b59b6","#2ecc71"]
-    fig = plt.figure(figsize=(4, 2.5))
+    fig = plt.figure(figsize=(3.5, 2.5))
     ax = fig.add_subplot(111)
     for i, length in enumerate([10, 9, 11]):
         index2 = index&(variant_tables[0].length == length)
-        plt.scatter(variant_tables[0].loc[index2].dG, variant_tables[1].loc[index2].dG,
-                marker='.', alpha=0.5, facecolors=colors[i], edgecolors='none', label='%dbp'%length)
+        if density:
+            plt.hexbin(variant_tables[0].loc[index2].dG, variant_tables[1].loc[index2].dG,
+                       alpha=0.5,
+                       label='%dbp'%length,
+                       cmap=sns.light_palette(colors[i], as_cmap=True),
+                       mincnt=1,
+                       bins='log')
+        else:
+            plt.scatter(variant_tables[0].loc[index2].dG, variant_tables[1].loc[index2].dG,
+                    marker='.', alpha=0.5, facecolors=colors[i], edgecolors='none', label='%dbp'%length)
     plt.legend()
     
     plt.xlabel('$\Delta$$G$ rep 1 (kcal/mol)')
     plt.ylabel('$\Delta$$G$ rep 2 (kcal/mol)')
     ax.tick_params(right='off', top='off')
-    ax.set_position([0.2, 0.25, 0.5, 0.75])
+    ax.set_position([0.2, 0.25, 0.5, 0.65])
     
     # Put a legend to the right of the current axis
     ax.legend(loc='center left', bbox_to_anchor=(1, 0.5))
