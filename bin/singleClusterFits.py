@@ -1,9 +1,21 @@
 #!/usr/bin/env python
-#
-# Uses CPsignal file to normalize data (if allRNA image has data)
-# and fit all single clusters with minimal constraints.
-#
-# Sarah Denny
+""" Fit all single clusters with minimal constraints.
+
+Extracts data from merged, CPsignal file.
+Normalizes by all cluster signal if this was given.
+Fits all single clusters.
+
+Input:
+CPsignal file
+concentrations file
+
+Output:
+normalized binding series file
+fit results
+
+Sarah Denny
+
+"""
 
 import os
 import numpy as np
@@ -50,7 +62,11 @@ group.add_argument('--subset',action="store_true", default=False,
 
 
 def getInitialFitParameters(concentrations):
-
+    """ Return fitParameters object with minimal constraints.
+    
+    Input: concentrations
+    Uses concencetration to provide constraints on dG
+    """
     parameters = fittingParameters(concentrations=concentrations)
     
     fitParameters = pd.DataFrame(index=['lowerbound', 'initial', 'upperbound'],
@@ -58,7 +74,7 @@ def getInitialFitParameters(concentrations):
     
     # find fmin
     param = 'fmin'
-    fitParameters.loc[:, param] = [0, np.nan, np.inf]
+    fitParameters.loc[:, param] = [0, 0, np.inf]
 
     # find fmax
     param = 'fmax'
@@ -118,12 +134,12 @@ def perCluster(concentrations, fluorescence, fitParameters, plot=None, change_pa
     if plot is None:
         plot = False
     if change_params is None:
-        change_params = False
+        change_params = True
     try:
         if change_params:
             a, b = np.percentile(fluorescence.dropna(), [0, 100])
             fitParameters = fitParameters.copy()
-            fitParameters.loc['initial', ['fmin', 'fmax']] = [a, b]
+            fitParameters.loc['initial', 'fmax'] = b
         
         index = np.isfinite(fluorescence)
         single = fitFun.fitSingleCurve(concentrations[index.values],
