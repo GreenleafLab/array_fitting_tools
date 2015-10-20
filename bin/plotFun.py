@@ -350,25 +350,30 @@ def plotFractionFit(variant_table, binedges=None):
     g.fig.subplots_adjust(hspace=.2, bottom=0.35)
     
 def histogramKds(variant_table):
-    
+    """ Find density of set of 'background' Kds to define cutoff. """
     parameters = fitFun.fittingParameters()
     kds = parameters.find_Kd_from_dG(variant_table.dG.astype(float))
     cutoff = np.percentile(kds, 1)
-    binedges = np.logspace(0, 6, 100)
+    cutoff_1 = np.percentile(kds, 0.1)
+    binedges = np.linspace(0, 6, 100)
     plt.figure(figsize=(4,3))
-    plt.hist(kds.values, binedges, histtype='stepfilled', color='grey', normed=True,
+    plt.hist(np.log10(kds).values, binedges, histtype='stepfilled', color='grey', normed=True,
              alpha=0.5)
 
     ax = plt.gca()
-    ax.set_xscale('log')
     ax.tick_params(top='off', right='off')
+    xticks = np.arange(0, 6)
+    plt.xticks(xticks, ['$10^{%d}$'%x for x in xticks])
     ylim = ax.get_ylim()
-    plt.plot([cutoff]*2, ylim, 'r:')
+    plt.plot([np.log10(cutoff)]*2, ylim, 'r:', linewidth=1)
+    plt.plot([np.log10(cutoff_1)]*2, ylim, 'r--', linewidth=1)
     plt.xlabel('fit $K_d$')
     plt.ylabel('probability')
     plt.ticklabel_format(style='sci', axis='y', scilimits=(0,0))
-    plt.annotate('cutoff = %d nM, %4.2f kcal/mol'%(cutoff,
-                                                   parameters.find_dG_from_Kd(cutoff)),
+    plt.annotate(('cutoff (1%% FDR) = %d nM, %4.2f kcal/mol\n'
+                  'cutoff (0.1%% FDR) = %d nM, %4.2f kcal/mol')
+                  %(cutoff, parameters.find_dG_from_Kd(cutoff),
+                    cutoff_1, parameters.find_dG_from_Kd(cutoff_1)),
                  xy=(0.05, 0.95),
                  xycoords='axes fraction',
                  horizontalalignment='left', verticalalignment='top',
@@ -541,11 +546,13 @@ def plotReplicatesKd(variant_tables,
     xlim = np.array(ax.get_xlim())
     ylim = np.array(ax.get_ylim())
     
-    xlim = [np.min([xlim[0], ylim[0]]), np.max([xlim[1], ylim[1]])]
+    xlim = np.array([np.min([xlim[0], ylim[0]]), np.max([xlim[1], ylim[1]])])
     
-    index = (pd.concat(variant_tables, axis=1).loc[index, 'dG'] < cutoff).all(axis=1)
-    slope, intercept, r_value, p_value, std_err = st.linregress(np.log10(x.loc[index]), np.log10(y.loc[index]))
-    plt.plot(xlim, slope*xlim+intercept, 'r:', linewidth=1)
+    index_sub = (pd.concat(variant_tables, axis=1).loc[index, 'dG'] < cutoff).all(axis=1)
+    slope, intercept, r_value, p_value, std_err = st.linregress(
+        np.log10(x.loc[index_sub]),
+        np.log10(y.loc[index_sub]))
+    plt.plot(xlim, np.power(10, slope*np.log10(xlim)+intercept), 'r:', linewidth=1)
 
     plt.annotate('$R^2$=%4.2f'%(r_value**2),
                  xy=(0.15, 0.01),
