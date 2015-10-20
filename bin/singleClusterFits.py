@@ -210,7 +210,8 @@ if __name__=="__main__":
     #  check proper inputs
     if outFile is None:
         outFile = os.path.splitext(
-                    bindingCurveFilename[:bindingCurveFilename.find('.pkl')])[0]
+                    pickleCPsignalFilename[:pickleCPsignalFilename.find('.pkl')])[0]
+    bindingCurveFilename = outFile + '.bindingSeries.pkl'
     
     print '\tLoading binding series and all RNA signal:'; sys.stdout.flush()
     bindingSeries, allClusterSignal = IMlibs.loadBindingCurveFromCPsignal(
