@@ -55,7 +55,8 @@ group = parser.add_argument_group('optional arguments for fitting')
 group.add_argument('-fit', '--fit', action="store_true", default=False,
                     help='whether to actually fit')
 group.add_argument('-s', '--subsample', type=int, default=100, metavar="N",
-                    help='subsampling amount. Default it to take 1 in 100 (-s 100)') 
+                    help='subsampling amount. Default it to take 1 in 100 (-s 100). '
+                    'Set flag "-s 1" to use all clusters') 
 group.add_argument('-t', '--single_cluster_fits', 
                    help='file with single cluster fits of good clusters')
 group.add_argument('-a', '--annotated_clusters',
@@ -159,7 +160,7 @@ if __name__=="__main__":
         libCharFile = '/lab/sarah/RNAarray/150311_library_v2/all_10expts.library_characterization.txt'
         
         # find q values
-        for bindingPoint in range(7):
+        for bindingPoint in range(len(concentrations)):
             backgroundInLast = (bindingSeriesBackground.iloc[:, bindingPoint]/
                                 allClusterSignal.median()).dropna()
             ecdf = ECDF(backgroundInLast)
@@ -181,7 +182,7 @@ if __name__=="__main__":
                                  bindingSeries], axis=1).dropna(axis=0, thresh=5).
                        loc[:, 'variant_number']).dropna().copy()
         annotations.sort('variant_number', inplace=True)
-        
+    
         # choose subset of clusters
         numClusters = len(bindingSeriesBackground)
         numVariants = int(numClusters/annotations.value_counts().median())
@@ -195,10 +196,9 @@ if __name__=="__main__":
             np.divide(bindingSeriesBackground, allClusterSignal.median()))
         
         bindingSeriesNorm.to_pickle(backgroundFilename)
-        
+
         # now fit
-        if not args.all:
-            variants = variants[::100]
+        variants = variants[::args.subsample]
         variant_table = bootStrapFits.fitBindingCurves(fittedBindingFilename, annotatedClusterFile,
                          backgroundFilename, concentrations,
                          numCores=20, n_samples=None, variants=variants,
