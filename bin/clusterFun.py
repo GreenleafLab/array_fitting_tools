@@ -25,6 +25,16 @@ def clusterHierarchical(M, k, return_z=None):
     else:
         return labels
     
+def clusterHierarchicalCorr(M, k, return_z=None):
+    if return_z is None:
+        return_z = False
+    z = sch.linkage(M, method='average', metric='correlation')
+    labels = pd.Series(sch.fcluster(z, k, 'maxclust'), index=M.index)
+    if return_z:
+        return labels, z
+    else:
+        return labels
+    
 def scrubInput(ddG):
     # normalize rows or columns here?
     a = ddG.dropna(how='any', axis=0).astype(float)
@@ -91,7 +101,7 @@ def findConnectivity(D, indices, method, k, transpose=None):
     for index in indices:
         subD = D.loc[index]
         if transpose:
-            clusters = pd.Series(method(subD.trasnpose(), k), index=index_all)
+            clusters = pd.Series(method(subD.transpose(), k), index=index_all)
         else:
             clusters = pd.Series(method(subD, k), index=index)
         m, n = computeConnectivity(clusters, index=index_all)
