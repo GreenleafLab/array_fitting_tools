@@ -64,6 +64,7 @@ group.add_argument('--init', action="store_true", default=False,
 
 ##### functions #####
 def findVariantTable(table, parameter=None, name=None, concentrations=None):
+    """ Find per-variant information from single cluster fits. """
     # define defaults
     if parameter is None: parameter = 'dG'
     if name is None:
@@ -98,7 +99,7 @@ def findVariantTable(table, parameter=None, name=None, concentrations=None):
     
     # null model is that all the fits are bad. bad fits happen ~15% of the time
     #p = 1-variant_table.loc[(variant_table.numTests>=5)&(variant_table.dG < -10), 'fitFraction'].mean()
-    p = 0.25
+    p = 0.4
     for n in np.unique(variant_table.loc[:, 'numTests'].dropna()):
         # do one tailed t test
         x = (variant_table.loc[:, 'fitFraction']*
@@ -107,80 +108,105 @@ def findVariantTable(table, parameter=None, name=None, concentrations=None):
     
     return variant_table
 
-def plotSingleVariantFits(table, results, variant, concentrations, plot_init=None,
-                          annotate=None):
-    if annotate:
-        subresults = results.loc[variant]
-        if int(subresults.flag) == 0:
-            fitting_method = 'A'
-        else:
-            fitting_method = 'B'
-            
-        annotateText = ('variant %d\n' +
-                        'fitting method %s\n' +
-                        '$\Delta$G = %4.2f (%4.2f, %4.2f)\n' +
-                        '%d measurements')%(
-            variant, fitting_method,
-            subresults.dG, subresults.dG_lb, subresults.dG_ub, subresults.numClusters)
-        plt.annotate(annotateText, xy=(0.05, 0.95),
-                    xycoords='axes fraction',
-                    horizontalalignment='left', verticalalignment='top',
-                    fontsize=12)
-                
-        
+
+def findMaxProbability(x, numBins=None):
+    """ Return the value of a distribution that maximizes the probability distribution.
+    
+    Also assume that the first bin isn't interesting. """
+    
+    # number of bins can be tuned. should think about having a kde estimation instead.
+    if numBins is None:
+        numBins = 200
+    counts, binedges = np.histogram(x, bins=np.linspace(x.min(), x.max(), numBins))
+    counts = counts[1:]; binedges=binedges[1:] # ignore first bin
+    idx_max = np.argmax(counts)
+    if idx_max != 0 and idx_max != len(counts)-1:
+        return binedges[idx_max+1]
+    else:
+        return None
+
+
+def getBoundsGivenDistribution(values, label=None, saturation_level=None,
+                               use_max_prob=None):
+    """ Get lowerbound, median, and upperbound of a distribution. """
+    if saturation_level is None:
+        saturation_level = 1 # i.e. assume max is max. 
+    if use_max_prob is None:
+        use_max_prob = False
+    
+    # return as a Series object with keys
+    fitParameters = pd.Series(index=['lowerbound', 'initial', 'upperbound'])
+    
+    # remove the outliers from the distribution by MAD
+    fDist = seqfun.remove_outlier(values)
+    
+    # lowerbound is the min
+    fitParameters.loc['lowerbound'] = fDist.min()
+    
+    # upperbound is the max over some tunable scale factor 'saturation_level'
+    fitParameters.loc['upperbound'] = fDist.max()/saturation_level
+    
+    # find the initial either by median or by maximum of prob distribution
+    maxProb = findMaxProbability(fDist)
+    if (maxProb is not None) and use_max_prob:
+        fitParameters.loc['initial'] = maxProb
+    else:
+        fitParameters.loc['initial'] = fDist.median()
+    
+    # plot the initial point
+    ax = plotFmaxMinDist(fDist, fitParameters);
+    if label is not None:
+        ax.set_xlabel(label)
+    return fitParameters
+
 def getInitialFitParameters(concentrations):
+    """ Return initial fit parameters from single cluster fits.
+    
+    Add a row 'vary' that indicates whether parameter should vary or not. """
     fitParameters = singleClusterFits.getInitialFitParameters(concentrations)
     return pd.concat([fitParameters.astype(object),
                       pd.DataFrame(True, columns=fitParameters.columns,
                                          index=['vary'], dtype=bool)])
-    ## find fmax
-    #fmaxDist = fmaxDistObject.getDist(1)
-    #fitParameters.loc[:, 'fmax'] = fmaxDist.ppf([.025, .50, 0.975])
-    #
-    ## find fmin
-    #loose_binders = initial_points.loc[initial_points.dG > parameters.mindG]
-    #
-    #fitParameters.loc[:, 'fmin'] = fitFun.getBoundsGivenDistribution(
-    #        loose_binders.fmin, label='fmin'); plt.close()
-    #
-    #fitParameters.loc['vary'] = True
-    #fitParameters.loc['vary', 'fmin'] = False
-    #
-    #return fitParameters
+
 
 def perVariant(concentrations, subSeries, fitParameters, fmaxDistObject, initial_points=None,
                plot=None, n_samples=None, enforce_fmax=None):
+    """ Fit a variant to objective function by bootstrapping median fluorescence. """
+    
+    # default id to not plot results
     if plot is None:
         plot = False
 
+    # change initial guess on fit parameters if given previous fit
     fitParametersPer = fitParameters.copy()
     params_to_change = fitParameters.loc[:, fitParametersPer.loc['vary'].astype(bool)].columns
-    
-    # change initial guess based on previous fit
     if initial_points is not None:
         fitParametersPer.loc['initial', params_to_change] = (initial_points.loc[params_to_change])
-        
-    fmaxDist = fmaxDistObject.getDist(len(subSeries)) 
+    
+    # find actual distribution of fmax given number of measurements
+    fmaxDist = fmaxDistObject.getDist(len(subSeries))
+    
+    # fit variant
     results, singles = fitFun.bootstrapCurves(concentrations, subSeries, fitParameters,
                                               func=None,
                                               enforce_fmax=enforce_fmax,
                                               fmaxDist=fmaxDist,
                                               n_samples=n_samples,
                                               verbose=plot)
+    
+    # plot
     if plot:
         fitFun.plotFitCurve(concentrations,
                                      subSeries,
                                      results,
                                      fitParameters,
                                      log_axis=True)
+        # also plot initial
         more_concentrations = np.logspace(0, 4)
         fit = fitFun.bindingCurveObjectiveFunction(fitFun.returnParamsFromResults(initial_points),
                                                    more_concentrations)
         plt.plot(more_concentrations, fit, 'k--')
-        plt.figure(figsize=(4,4));
-        sns.distplot(singles.fmax, hist_kws={'histtype':'stepfilled'}, color='b')
-        plt.xlim(0, 2)
-        plt.tight_layout()
+
     return results
 
 def getMedianFirstBindingPoint(table):
@@ -228,12 +254,12 @@ def initiateFitting(fittedBindingFilename, annotatedClusterFile,
     index = variant_table.pvalue < 0.01
     plotFun.plotFmaxVsKd(variant_table, concentrations, index)
     
-    use_actual = fitFun.useSimulatedOrActual(variant_table.loc[index], concentrations)
+    use_actual = findFmaxDist.useSimulatedOrActual(variant_table.loc[index], concentrations)
     tight_binders = variant_table.loc[(variant_table.pvalue < 0.01)&
                                       (variant_table.dG_init<parameters.maxdG)]
     fmaxDistObject = findFmaxDist.findParams(tight_binders,
                                        use_simulated=not use_actual,
-                                       table=initialPointsAll)
+                                       table=initialPointsCorr)
     # update fitParametersDict
     fitParameters.loc['initial', 'fmax'] = fmaxDistObject.getDist(1).stats(moments='m')
     
@@ -336,6 +362,7 @@ if __name__ == '__main__':
             
         # make plots
         plt.savefig(os.path.join(figDirectory, 'fmax_stde_vs_n.pdf')); plt.close()
+        plt.savefig(os.path.join(figDirectory, 'fmax_passing_pvalue_and_fit.pdf')); plt.close()
         plt.savefig(os.path.join(figDirectory, 'fmax_vs_Kd_init.pdf')); plt.close()
         
         
