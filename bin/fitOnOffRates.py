@@ -1,9 +1,10 @@
 #!/usr/bin/env python
-#
-# Using the binned times & binding series from binTimes.py,
-# bootstraps the medians to fit the on or off rates.
-#
-# Sarah Denny
+""" Fit on or off rates.
+
+Using the binned times & binding series from binTimes.py,
+bootstraps the medians to fit the on or off rates.
+
+Sarah Denny """
 
 ##### IMPORT #####
 import numpy as np
@@ -28,22 +29,22 @@ import itertools
 ################ Parse input parameters ################
 
 #set up command line argument parser
-parser = argparse.ArgumentParser(description='bootstrap fits')
-parser.add_argument('-a', '--annotated_clusters', required=True, metavar=".CPannot.pkl",
-                   help='file with clusters annotated by variant number')
-parser.add_argument('-out', '--out_file', 
-                   help='output filename. default is basename of annotated_clusters filename')
-parser.add_argument('-ft', '--fittype', default='off', metavar="[off | on]",
-                   help='fittype ["off" | "on"]. Default is "off" for off rates')
+parser = argparse.ArgumentParser(description='bootstrap on off rate fits')
 
-group = parser.add_argument_group('inputs starting from time-binned binding series file') 
-group.add_argument('-b', '--binding_curves', metavar=".bindingSeries.pkl",
+group = parser.add_argument_group('inputs starting from time-binned binding series file')
+group.add_argument('-b', '--binding_curves', required=True, metavar=".bindingSeries.pkl",
                    help='file containining the binding curve information'
                    ' binned over time.')
+group.add_argument('-a', '--annotated_clusters', required=True, metavar=".CPannot.pkl",
+                   help='file with clusters annotated by variant number')
 group.add_argument('-t', '--times', metavar="times.txt",
                    help='file containining the binned times')
+group.add_argument('-ft', '--fittype', default='off', metavar="[off | on]",
+                   help='fittype ["off" | "on"]. Default is "off" for off rates')
 
 group = parser.add_argument_group('additional option arguments')
+group.add_argument('-out', '--out_file', 
+                   help='output filename. default is basename of annotated_clusters filename')
 group.add_argument('--n_samples', default=100, type=int, metavar="N",
                    help='number of times to bootstrap samples')
 group.add_argument('-n', '--numCores', default=20, type=int, metavar="N",
@@ -52,6 +53,7 @@ group.add_argument('--init', action="store_true", default=False,
                    help='flag if you wish to simply initiate fitting, not actually fit')
 
 def objectiveFunctionOffRates(params, times, data=None, weights=None):
+    """ Return fit value, residuals, or weighted residuals of off rate objective function. """
     parvals = params.valuesdict()
     fmax = parvals['fmax']
     koff = parvals['koff']
@@ -66,6 +68,7 @@ def objectiveFunctionOffRates(params, times, data=None, weights=None):
         return (fracbound - data)*weights
     
 def objectiveFunctionOnRates(params, times, data=None, weights=None):
+    """ Return fit value, residuals, or weighted residuals of on rate objective function. """
     parvals = params.valuesdict()
     fmax = parvals['fmax']
     koff = parvals['kobs']
@@ -80,7 +83,12 @@ def objectiveFunctionOnRates(params, times, data=None, weights=None):
         return (fracbound - data)*weights   
 
 def getInitialParameters(times, fittype=None):
+    """ Get standard set of fit parameters across all variants depending on fittype."""
+    
+    # default fittype is 'off'
     if fittype is None: fittype = 'off'
+    
+    # different lifetime name for association vs dissociation
     if fittype == 'off':
         param_name = 'koff'
     elif fittype == 'on':
@@ -88,37 +96,57 @@ def getInitialParameters(times, fittype=None):
     else:
         print 'Error: "fittype" not recognized. Valid options are "on" or "off".'
         sys.exit()
-    
+        
+    # fit parameters structure has three parameters (fmax, lifeftime, fmin),
+    # each has a lowerbound, upperbound, and initialization
     fitParameters = pd.DataFrame(index=['lowerbound', 'initial', 'upperbound'],
                                  columns=['fmax', param_name, 'fmin'])
+    
+    # fmin cannot be less than zero. Initial condition will be set based on
+    # min median fluorescence of variant
     param = 'fmin'
     fitParameters.loc[:, param] = [0, np.nan, np.inf]
+    
+    # fmax cannot be less than zero. Initial condition will be set based on
+    # max median fluorescence of variant
     param = 'fmax'
     fitParameters.loc[:, param] = [0, np.nan, np.inf]
     
-    # rate parameters
+    # rate parameter constraints.
+    # (1) min lifetime (slowest) is that given by only 1% dropoff after the full time span.
+    # (2) initial lifteime is that given by 50% dropoff within half the time span.
+    # (3) max lifetime (fastest) is that given by 99% dropoff after 1/10 of the first
+    # time interval.
+    # note that 'min fraction bound' is 1 - the dropoff amount quoted above.
     fitParameters.loc[:, param_name] = [-np.log(min_fraction_decreased)/t_delta
      for t_delta, min_fraction_decreased in itertools.izip(
         [times.max()-times.min(), (times.max()-times.min())/2, (times[1]-times[0])/10.],
         [0.99,                    0.5,                         0.01])]
-
 
     return fitParameters
 
 
 def perVariant(times, subSeries, fitParameters, func=None, plot=None,
                fittype=None, default_errors=None, n_samples=None):
+    """ Fit a variant to objective function by bootstrapping median fluorescence. """
+    
+    # by default, don't plot results
     if plot is None:
         plot = False
+    
+    # estimate initial conditions based on min and max of median fluorescence of
+    # all clusters
     a, b = np.percentile(subSeries.median().dropna(), [1, 99])
-    fitParameters = fitParameters.copy()
-    fitParameters.loc['initial', ['fmin', 'fmax']] = [a, b-a]
-
-    results, singles = fitFun.bootstrapCurves(times, subSeries, fitParameters,
+    fitParametersPer = fitParameters.copy()
+    fitParametersPer.loc['initial', ['fmin', 'fmax']] = [a, b-a]
+    
+    # fit by least squares fitting
+    results, singles = fitFun.bootstrapCurves(times, subSeries, fitParametersPer,
                                               func=func, enforce_fmax=False,
                                               default_errors=default_errors,
                                               n_samples=n_samples,
                                               use_default=True)
+    # plot results
     if plot:
         fitFun.plotFitCurve(times,
                                      subSeries,
@@ -130,7 +158,10 @@ def perVariant(times, subSeries, fitParameters, func=None, plot=None,
     return results
 
 def initiateFits(bindingCurveFilename, timesFilename, annotatedClusterFile):
+    """ Loads all relevant data for fitting. """
     print "Loading time series and splitting by variants..."
+    
+    # load time series data
     table = (pd.concat([pd.read_pickle(annotatedClusterFile),
                         pd.read_pickle(bindingCurveFilename)], axis=1).
              sort('variant_number'))
@@ -148,7 +179,7 @@ def initiateFits(bindingCurveFilename, timesFilename, annotatedClusterFile):
     times = np.loadtxt(timesFilename)
     fitParameters = getInitialParameters(times,
                                          fittype=fittype)
-    # group by variant number
+    # group by variant number for bootstrapping fits.
     grouped = table.groupby('variant_number')
     groupDict = {}
     for name, group in grouped:
@@ -156,26 +187,29 @@ def initiateFits(bindingCurveFilename, timesFilename, annotatedClusterFile):
     return times, groupDict, fitParameters, table, default_errors
 
 def fitRates(bindingCurveFilename, timesFilename, annotatedClusterFile,
-                fittype=None, n_samples=None, variants=None):
+             func, fittype=None, n_samples=None, variants=None):
+    """ Initiate fits and parallelize fitting of each variant. """
+    
+    # default fittype is 'off' for plotting
     if fittype is None: fittype = 'off'
-    if fittype == 'off':
-        func = objectiveFunctionOffRates
-    elif fittype == 'on':
-        func = objectiveFunctionOnRates
-    else:
-        print ('Error: fittype "%s" not recognized. Valid options are '
-               '"on" or "off".')%fittype
-
+        
+    # load relevant data for fitting
     times, groupDict, fitParameters, table, default_errors = (
         initiateFits(bindingCurveFilename, timesFilename, annotatedClusterFile))
-    print '\tMultiprocessing bootstrapping...'
+    
+    # if 'variants' is provided, only fit a subset of the data 
     if variants is None:
         variants = groupDict.keys()
+        
+    # call each variant-level fit with function perVariant, in a parallelized framework.
+    print '\tMultiprocessing bootstrapping...'
     results = (Parallel(n_jobs=numCores, verbose=10)
                 (delayed(perVariant)(times, groupDict[name], fitParameters,
                                      func=func, n_samples=n_samples,
                                      default_errors=default_errors, fittype=fittype)
                  for name in variants))
+    
+    # concatenate results of parallelized fits.
     results = pd.concat(results, keys=variants, axis=1).transpose()
     return results
 
@@ -222,23 +256,35 @@ if __name__ == '__main__':
     
     if bindingCurveFilename is None:
         bindingCurveFilename = outFile + '.bindingCurve.pkl'
-
+        
+    # depending on fittype, use one of two provided objective functions
+    if fittype == 'off':
+        func = objectiveFunctionOffRates
+    elif fittype == 'on':
+        func = objectiveFunctionOnRates
+    else:
+        print ('Error: fittype "%s" not recognized. Valid options are '
+               '"on" or "off".')%fittype
+        sys.exit()
+        
     # fit curves
     if not args.init:
         results = fitRates(bindingCurveFilename, timesFilename, annotatedClusterFile,
-                    fittype=fittype, n_samples=n_samples)
+                           func, fittype=fittype, n_samples=n_samples)
     
         results.to_csv(outFile+'.CPresults', sep='\t')
         sys.exit()
     else:
-        times, groupDict, fitParameters, table, default_errors = initiateFits(bindingCurveFilename,
-                                                       timesFilename,
-                                                       annotatedClusterFile)
+        # just initiate fitting
+        times, groupDict, fitParameters, table, default_errors = (
+            initiateFits(bindingCurveFilename,
+                         timesFilename,
+                         annotatedClusterFile))
         results = pd.read_table(outFile+'.CPresults', index_col=0)
     sys.exit()
     
     # plot all variants
-    figDirectory = 'offRates/figs_2015-08-16/off_rate_curves'
+    figDirectory = './'
     for variant in results.index:
         try:
             fitFun.plotFitCurve(times, groupDict[variant],
