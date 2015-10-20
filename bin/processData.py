@@ -1,20 +1,17 @@
 #!/usr/bin/env python
+""" Process data into CPsignal file.
 
-# Processing data into CPsignal file
-#
-# This script requires you to already have quantified images with another pipeline.
-#
-# Inputs:
-#   Sequence data (.CPseq files)
-#   CPfluor files (.CPfluor files or directories)
-#   filter for which clusters you wish to further analyze
-#
-# Outputs:
-#   CPsignal files 
-#
-# Sarah Denny
+ This script requires you to already have quantified images with another pipeline.
 
+ Inputs:
+   Sequence data (.CPseq files)
+   CPfluor files (.CPfluor files or directories)
+   filter for which clusters you wish to further analyze
 
+ Outputs:
+   CPsignal files 
+
+ Sarah Denny """
 
 import sys
 import os
