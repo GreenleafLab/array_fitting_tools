@@ -537,7 +537,7 @@ def plotReplicatesKd(variant_tables,
         im = ax.hexbin(x, y, bins=bins, mincnt=1, xscale='log', yscale='log',
                        cmap='Spectral_r',
                        #extent=[-12, cutoff, -12, cutoff],
-                        gridsize=75)
+                        gridsize=150)
     
     plt.xlabel('$K_d$ rep 1 (nM)')
     plt.ylabel('$K_d$ rep 2 (nM)')
