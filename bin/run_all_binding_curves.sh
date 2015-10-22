@@ -54,7 +54,7 @@ else
     exit
 fi
 
-basename=$(echo $output | awk '{print substr($1, 1, length($1)-9)}')
+basename=$(echo $output | awk '{print substr($1, 1, length($1)-13)}')
 
 # annotate data
 if [ -f $basename".CPannot.pkl" ];
