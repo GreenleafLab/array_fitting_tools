@@ -81,7 +81,7 @@ class fmaxDistAny():
 def useSimulatedOrActual(variant_table, concentrations):
     # if at least 20 data points have at least 10 counts in that bin, use actual
     # data. This statistics seem reasonable for fitting
-    parameters = fittingParameters(concentrations=concentrations)
+    parameters = fitFun.fittingParameters(concentrations=concentrations)
     index = variant_table.dG_init < parameters.maxdG
     counts, binedges = np.histogram(variant_table.loc[index].numTests,
                                     np.arange(1, variant_table.numTests.max()))
