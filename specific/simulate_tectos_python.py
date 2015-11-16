@@ -78,36 +78,53 @@ CHIP_SECONDARY_STRUCTURE_BY_LENGTH = (
     49:'(((((((..(((((((((((((....)))))))))))))...)))))))',
     51:'(((((((..((((((((((((((....))))))))))))))...)))))))'})
 
-def send_to_script(str_command, enforce_find=False):
+def send_to_script(str_command):
+    # try catch loop for the command
+    try:
+        # find results of command
+        output = subprocess.check_output(str_command, shell=True).strip()
+        try:
+            # most of the time, output is a single integer (Nbound)
+            num_success = int(output)
+        except ValueError:
+            # sometimes the output is three numbers: distance, rot_distance, score
+            num_success = np.array(output.split()).astype(float)
+        # command did not fail
+        failure = False
+    except subprocess.CalledProcessError:
+        # command failed
+        num_success = None
+        failure = True
+    return num_success, failure
+
+def send_to_script_smart(str_command, enforce_find=False):
     """ Run the formatted command. """
     if enforce_find:
         # if enforced, it will keep running the command until it is successful
         failure = True
         max_num_iter = 20
         iters = 0
-        while failure:
-            try:
-                num_success = int(subprocess.check_output(str_command, shell=True).strip())
-                failure = False
-            except:
-                # add to the count but otherwise do nothing
-                iters +=1
-                
-            # before restastring, check number of iterations
-            if iters > max_num_iter:
+        for i in range(max_num_iter):
+            # run command a number of times
+            num_success, failure = send_to_script(str_command)
+            if not failure:
+                # if it worked this iteration, stop iterating
                 break
-            
-        return num_success
     
     # if not enforced, just run it and return nothing if failed
-    try:
-        num_success = int(subprocess.check_output(str_command, shell=True).strip())
+    num_success, failure = send_to_script(str_command)
+    
+    if failure:
+        return
+    else:
         return num_success
-    except:
-        return 
     
 def simulate_tectos(fseq, cseq, numReps, numCores=None, enforce_find=None, optional_args=None):
-    """ Find number of bound states of flow, chip sequence over some iterations. """ 
+    """ Find number of bound states of flow, chip sequence over some iterations. """
+    if not (len(fseq) in FLOW_SECONDARY_STRUCTURE_BY_LENGTH.keys() and
+            len(cseq) in CHIP_SECONDARY_STRUCTURE_BY_LENGTH.keys()):
+        return pd.Series([np.nan])
+    
     fss = FLOW_SECONDARY_STRUCTURE_BY_LENGTH[len(fseq)]
     css = CHIP_SECONDARY_STRUCTURE_BY_LENGTH[len(cseq)]
     str_command = 'simulate_tectos_devel -cseq \'' + cseq + '\' -css \'' + css + '\' -fseq \'' + fseq + '\' -fss \'' + fss + '\''
@@ -121,11 +138,11 @@ def simulate_tectos(fseq, cseq, numReps, numCores=None, enforce_find=None, optio
     print str_command
     if numCores is None:
         # don't parallelize
-        successes = [send_to_script(str_command, enforce_find=enforce_find) for i in range(numReps)]
+        successes = [send_to_script_smart(str_command, enforce_find=enforce_find) for i in range(numReps)]
     
     else:
         successes = (Parallel(n_jobs=numCores, verbose=10)
-                (delayed(send_to_script)(str_command, enforce_find=enforce_find) for i in range(numReps)))
+                (delayed(send_to_script_smart)(str_command, enforce_find=enforce_find) for i in range(numReps)))
     
     return pd.Series(successes)
 
@@ -143,7 +160,7 @@ if __name__ == '__main__':
                     'weight_distance':  '-wd',
                     'steric_radius':    '-sr',
                     'steps':            '-s',
-                    'static':           '--steric',
+                    'static':           '--static',
                     'record':           '-r',
                     'record_file':      '-rf',
                     'temperature':      '-t'}
@@ -167,7 +184,7 @@ if __name__ == '__main__':
         flow_seqs = [args.flow_seq]
     
     # optimized parallelization: parallelize by variant if many variants, otherwise parallelize by reps  
-    if (numCores > numReps) or (numCores <= len(flow_seqs)*len(chip_seqs)):
+    if (numCores <= len(flow_seqs)*len(chip_seqs)):
         successes = (Parallel(n_jobs=numCores, verbose=10)
             (delayed(simulate_tectos)(fseq, cseq, numReps, numCores=None,
                                       enforce_find=args.enforce_find,
@@ -201,6 +218,7 @@ if __name__ == '__main__':
     successes = pd.read_table('simulations/simulate_tectos/every_26th_flow_piece.chip_pieces_10.dat', index_col=0)
     
     successes.loc[:, 'ddG'] = -0.582*np.log(successes.average_count/ref.loc[10, 'average_count'])
+    ref_vec = -0.582*np.log(ref.average_count/ref.loc[10, 'average_count']).iloc[::2]
     pivoted = successes.pivot(index='flow_seq_ind', columns='chip_seq_ind', values='ddG')
     
     # process the data
@@ -220,3 +238,37 @@ if __name__ == '__main__':
                          col_wrap=5, size=1.5, )
     grid.map(plt.plot, "chip_seq_ind", "ddG", marker="o", ms=4)
     grid.fig.tight_layout(w_pad=.1)
+    
+    # plot
+    cluster_list = clusters.value_counts().iloc[:6].index.tolist()
+    with sns.axes_style('darkgrid'):
+        plt.figure(figsize=(4,3))
+        for i in cluster_list:
+            plt.plot(pivoted.loc[indices].loc[clusters==i].mean(), 'o-', label=i)
+        plt.legend(loc='upper left')
+        plt.xlabel('chip seq ind')
+        plt.ylabel('predicted ddG (kcal/mol)')
+        plt.tight_layout()
+        
+    # choose most stable variant that follows trend
+    i = 10
+    ind = 3455
+    with sns.axes_style('darkgrid'):
+        plt.figure(figsize=(4,3))
+        plt.plot(pivoted.loc[indices].loc[clusters==i].mean(), 'ro-', label='mean of cluster %d'%i)
+        plt.plot(pivoted.loc[ind], 'ks', label='flow seq %d'%ind)
+        plt.legend(loc='upper left')
+        plt.xlabel('chip seq ind')
+        plt.ylabel('predicted ddG (kcal/mol)')
+        plt.tight_layout()
+        
+    with sns.axes_style('darkgrid'):
+        i = 13
+        plt.figure(figsize=(4,3))
+        plt.plot(pivoted.loc[indices].loc[clusters==i].mean(), 'ro-', label='mean of cluster %d'%i)
+        plt.plot(ref_vec, 'ks', label='flow seq WC')
+        plt.legend(loc='upper left')
+        plt.xlabel('chip seq ind')
+        plt.ylabel('predicted ddG (kcal/mol)')
+        plt.tight_layout() 
+    
