@@ -53,14 +53,21 @@ parser.add_argument('-out', '--out_file',
 group = parser.add_argument_group('additional option arguments')
 group.add_argument('--n_samples', default=100, type=int, metavar="N",
                    help='number of times to bootstrap samples')
-group.add_argument('--enforce_fmax', type=bool,  
+group.add_argument('--kd_cutoff', type=float,  
+                   help='highest kd for tight binders (nM). default is 99% bound at '
+                   'highest concentration')
+group.add_argument('--use_simulated', type=int,
+                   help='set to 0 or 1 if you want to use simulated distribution (1) or'
+                   'not (0). Otherwise program will decide.')
+group.add_argument('--enforce_fmax', type=int,  
                    help='set to 0 or 1 if you want to always enforce fmax (1) or'
                    'never enforce it (0). Otherwise the program will decide. ')
 group.add_argument('-n', '--numCores', default=20, type=int, metavar="N",
                    help='number of cores')
 group.add_argument('--init', action="store_true", default=False,
                    help="flag if you just want to initiate fitting, not actually fit")
-
+group.add_argument('--dont_load', action="store_true", default=False,
+                   help="flag if you don't want to load data")
 
 ##### functions #####
 def findVariantTable(table, parameter=None, name=None, concentrations=None):
@@ -213,105 +220,171 @@ def getMedianFirstBindingPoint(table):
     """ Return the median fluoresence in first binding point of each variant. """
     return table.groupby('variant_number').median().iloc[:, 0]
 
+def loadGroupDict(fittedBindingFilename, annotatedClusterFile):
+    """ Return the fluorescence values, split by variant. """
+    
+    # load binding series information with variant numbers
+    print "Loading binding fluorescence..."
+    fluorescenceMat = (pd.concat([pd.read_pickle(annotatedClusterFile),
+                                  pd.read_pickle(bindingCurveFilename).astype(float)], axis=1).
+        sort('variant_number'))
 
-def initiateFitting(fittedBindingFilename, annotatedClusterFile,
-                     bindingCurveFilename, concentrations):
-    parameters = fitFun.fittingParameters(concentrations)
-    # load initial points and find fitParameters
+    # fit all labeled variants
+    fluorescenceMat.dropna(axis=0, subset=['variant_number'], inplace=True)
+
+    # fit only clusters that are not all NaN
+    fluorescenceMat.dropna(axis=0, subset=fluorescenceMat.columns[1:], how='all',inplace=True)
+    
+    print "\tSplitting..."
+    fluorescenceMatSplit = {}
+    for name, group in fluorescenceMat.groupby('variant_number'):
+        fluorescenceMatSplit[name] = group.iloc[:, 1:]
+    return fluorescenceMat, fluorescenceMatSplit
+
+def returnCorrectedInitialPoints(initialPointsAll, fmin_fixed):
+    """ Correct initial points by fmin. """
+    initialPointsCorr = initialPointsAll.copy()
+    initialPointsCorr.loc[:, 'fmax'] += (initialPointsAll.loc[:, 'fmin'] -
+                                         fmin_fixed)
+    return initialPointsCorr
+
+def findInitialPoints(variant_table):
+    """ Return initial points with different column names. """
+    initialPoints = variant_table.loc[:, ['fmax_init', 'dG_init', 'fmin_init', 'numTests']]
+    initialPoints.columns = ['fmax', 'dG', 'fmin', 'numTests']  
+    return initialPoints
+
+def returnFminFromFluorescence(initialPointsAll, fluorescenceMat, cutoff):
+    """ Return the estimated fixed fmin based on affinity and fluroescence. """
+    # if cutoff is not given, use parameters
+
+    initial_dG = initialPointsAll.groupby('variant_number')['dG'].median()
+
+    firstBindingPoint = getMedianFirstBindingPoint(fluorescenceMat)
+    return firstBindingPoint.loc[initial_dG.index].loc[initial_dG > cutoff].median()
+
+def findFmaxDistObject(variant_table, initialPointsCorr, affinity_cutoff, use_simulated=None):
+    """ Find the fmax distribution. """
+    parameters = fitFun.fittingParameters()
+    kd_cutoff = parameters.find_Kd_from_dG(affinity_cutoff)
+    index = variant_table.pvalue < 0.01
+    plotFun.plotFmaxVsKd(variant_table, kd_cutoff, index)
+    
+    # if use_simulated is not given, decide
+    if use_simulated is None:
+        use_simulated = not findFmaxDist.useSimulatedOrActual(variant_table.loc[index], affinity_cutoff)
+    if use_simulated:
+        print 'Using fmaxes drawn randomly from clusters'
+    else:
+        print 'Using median fmaxes of variants'
+    tight_binders = variant_table.loc[index&
+                                      (variant_table.dG_init<affinity_cutoff)]
+    fmaxDistObject = findFmaxDist.findParams(tight_binders,
+                                       use_simulated=use_simulated,
+                                       table=initialPointsCorr)
+    return fmaxDistObject
+
+def loadData(fittedBindingFilename, annotatedClusterFile,bindingCurveFilename):
+    # load initial fitting parameters
     initialPointsAll = pd.concat([pd.read_pickle(annotatedClusterFile),
                                 pd.read_pickle(fittedBindingFilename)], axis=1).astype(float)
     
-    # load binding series information with variant numbers
-    table = (pd.concat([pd.read_pickle(annotatedClusterFile),
-                       pd.read_pickle(bindingCurveFilename).astype(float)], axis=1).
-                sort('variant_number'))
+    # load fluoresceence values
+    fluorescenceMat, fluorescenceMatSplit = loadGroupDict(fittedBindingFilename, annotatedClusterFile)
+    return initialPointsAll, fluorescenceMat, fluorescenceMatSplit
 
-    # fit all labeled variants
-    table.dropna(axis=0, subset=['variant_number'], inplace=True)
+def initiateFitting(initialPointsAll, fluorescenceMat, fluorescenceMatSplit, concentrations,
+                    kd_cutoff=None, use_simulated=None):
+    
+    # get parameters
+    parameters = fitFun.fittingParameters(concentrations)
+    if kd_cutoff is not None:
+        # adjust cutoff to reflect this fraction bound at last concentration
+        maxdG = parameters.find_dG_from_Kd(kd_cutoff)
+        print ('Tight binding for kd less than %4.2f nM, or %4.1f%% bound at %4.2f nM'
+               %(kd_cutoff, 100./(1+kd_cutoff/concentrations[-1]), concentrations[-1]))
+    else:
+        maxdG = parameters.maxdG
+        print 'Tight binding for kd less than %4.2f nM'%parameters.find_Kd_from_dG(maxdG)
 
-    # fit only clusters that are not all NaN
-    table.dropna(axis=0, subset=table.columns[1:], how='all',inplace=True)
-
+    # find fmin
+    fmin_fixed = returnFminFromFluorescence(initialPointsAll, fluorescenceMat, parameters.mindG)
+    
+    # find variant_table
+    initialPointsCorr = returnCorrectedInitialPoints(initialPointsAll, fmin_fixed)
+    variant_table = findVariantTable(initialPointsCorr).astype(float)
+    
+    # find fmax Dist
+    fmaxDistObject = findFmaxDistObject(variant_table, initialPointsCorr, maxdG,
+                                        use_simulated=use_simulated)
+    
     # find constraints on fmin and delta G
     fitParameters = getInitialFitParameters(concentrations)
-    
-    # set fmin to one value
-    initial_dG = initialPointsAll.groupby('variant_number')['dG'].median()
-    firstBindingPoint = getMedianFirstBindingPoint(table)
     fitParameters.loc['vary', 'fmin'] = False
-    fitParameters.loc['initial', 'fmin'] = (
-        firstBindingPoint.loc[initial_dG.index].loc[initial_dG> parameters.mindG].median())
-    
-    # find fmax dist by correcting variant table fmax
-    initialPointsCorr = initialPointsAll.copy()
-    initialPointsCorr.loc[:, 'fmax'] += (initialPointsAll.loc[:, 'fmin'] -
-                                        fitParameters.loc['initial', 'fmin'])
-    variant_table = findVariantTable(initialPointsCorr).astype(float)
-    initialPoints = variant_table.loc[:, ['fmax_init', 'dG_init', 'fmin_init', 'numTests']]
-    initialPoints.columns = ['fmax', 'dG', 'fmin', 'numTests']
-    
-    # only use those clusters corresponding to variants that pass fit fraction cutff
-    index = variant_table.pvalue < 0.01
-    plotFun.plotFmaxVsKd(variant_table, concentrations, index)
-    
-    use_actual = findFmaxDist.useSimulatedOrActual(variant_table.loc[index], concentrations)
-    tight_binders = variant_table.loc[(variant_table.pvalue < 0.01)&
-                                      (variant_table.dG_init<parameters.maxdG)]
-    fmaxDistObject = findFmaxDist.findParams(tight_binders,
-                                       use_simulated=not use_actual,
-                                       table=initialPointsCorr)
-    # update fitParametersDict
+    fitParameters.loc['initial', 'fmin'] = fmin_fixed
     fitParameters.loc['initial', 'fmax'] = fmaxDistObject.getDist(1).stats(moments='m')
-    
-    print '\tDividing table into groups...'
-    groupDict = {}
-    for name, group in table.groupby('variant_number'):
-        groupDict[name] = group.iloc[:, 1:]
         
     # make sure initial points have all of keys that table does
-    missing_variants = (np.array(groupDict.keys())
-                        [np.logical_not(np.in1d(groupDict.keys(), initialPoints.index))])
+    initialPoints = findInitialPoints(variant_table)
+    missing_variants = (np.array(fluorescenceMatSplit.keys())
+                        [np.logical_not(np.in1d(fluorescenceMatSplit.keys(), initialPoints.index))])
     initialPoints = pd.concat([initialPoints, pd.DataFrame(index=missing_variants,
                                                            columns=initialPoints.columns)])
-    return groupDict, initialPoints, variant_table, fmaxDistObject, fitParameters
+    return variant_table, initialPoints, fmaxDistObject, fitParameters
 
 def fitBindingCurves(fittedBindingFilename, annotatedClusterFile,
                      bindingCurveFilename, concentrations,
                      numCores=None, n_samples=None, variants=None,
-                     use_initial=None, enforce_fmax=None):
+                     use_initial=None, enforce_fmax=None, kd_cutoff=None, use_simulated=None,
+                     figDirectory=None):
     if numCores is None:
         numCores = 20
     if use_initial is None:
         use_initial = False
     
-    groupDict, initialPoints, variant_table, fmaxDist, fitParameters = initiateFitting(
-        fittedBindingFilename, annotatedClusterFile, bindingCurveFilename, concentrations)
+    # load data
+    initialPointsAll, fluorescenceMat, fluorescenceMatSplit = loadData(
+        fittedBindingFilename, annotatedClusterFile,bindingCurveFilename)
+    
+    # process before fitting
+    variant_table, initialPoints, fmaxDistObject, fitParameters = initiateFitting(
+        initialPointsAll, fluorescenceMat, fluorescenceMatSplit, concentrations,
+        kd_cutoff=kd_cutoff, use_simulated=use_simulated)
+    
+    # save figs
+    if figDirectory is not None:
+        plt.savefig(os.path.join(figDirectory, 'fmax_stde_vs_n.pdf')); plt.close()
+        plt.savefig(os.path.join(figDirectory, 'fmax_passing_pvalue_and_fit.pdf')); plt.close()
+        plt.savefig(os.path.join(figDirectory, 'fmax_vs_Kd_init.pdf')); plt.close()
     
     if variants is None:
-        variants = groupDict.keys()
+        variants = fluorescenceMatSplit.keys()
     
     print '\tMultiprocessing bootstrapping...'
     if use_initial:
+        # parallelize fitting
         results = (Parallel(n_jobs=numCores, verbose=10)
                     (delayed(perVariant)(concentrations,
-                                            groupDict[variant],
+                                            fluorescenceMatSplit[variant],
                                             fitParameters,
-                                            fmaxDist,
-                                            initialPoints.loc[variant],
+                                            fmaxDistObject,
+                                            initial_points=initialPoints.loc[variant],
                                             n_samples=n_samples,
                                             enforce_fmax=enforce_fmax)
-                     for variant in variants if variant in groupDict.keys()))
+                     for variant in variants if variant in fluorescenceMatSplit.keys()))
     else:
+        # parallelize fitting
         results = (Parallel(n_jobs=numCores, verbose=10)
                     (delayed(perVariant)(concentrations,
-                                            groupDict[variant],
+                                            fluorescenceMatSplit[variant],
                                             fitParameters,
-                                            fmaxDist,
+                                            fmaxDistObject,
                                             n_samples=n_samples,
                                             enforce_fmax=enforce_fmax)
-                     for variant in variants if variant in groupDict.keys()))        
+                     for variant in variants if variant in fluorescenceMatSplit.keys()))        
+     
     results = pd.concat(results, axis=1).transpose()
-    results.index = [variant for variant in variants if variant in groupDict.keys()]
+    results.index = [variant for variant in variants if variant in fluorescenceMatSplit.keys()]
 
     # save final results as one dataframe
     variant_final = pd.DataFrame(
@@ -336,13 +409,15 @@ if __name__ == '__main__':
     n_samples = args.n_samples
     numCores = args.numCores
     outFile  = args.out_file
+    kd_cutoff = args.kd_cutoff
     enforceFmax = args.enforce_fmax
+    use_simulated = args.use_simulated
     concentrations = np.loadtxt(args.concentrations)
-
+    
     # find out file
     if outFile is None:
         outFile = os.path.splitext(
-            annotatedClusterFile[:annotatedClusterFile.find('.pkl')])[0]
+            fittedBindingFilename[:fittedBindingFilename.find('.pkl')])[0]
 
     # make fig directory    
     figDirectory = os.path.join(os.path.dirname(annotatedClusterFile),
@@ -355,37 +430,34 @@ if __name__ == '__main__':
         variant_table = fitBindingCurves(fittedBindingFilename, annotatedClusterFile,
                          bindingCurveFilename, concentrations,
                          numCores=numCores, n_samples=n_samples,
-                         use_initial=True, enforce_fmax=enforceFmax)
+                         use_initial=True, enforce_fmax=enforceFmax,
+                         kd_cutoff=kd_cutoff, use_simulated=use_simulated,
+                         figDirectory=figDirectory)
     
     
         variant_table.to_csv(outFile + '.CPvariant', sep='\t', index=True)
             
-        # make plots
-        plt.savefig(os.path.join(figDirectory, 'fmax_stde_vs_n.pdf')); plt.close()
-        plt.savefig(os.path.join(figDirectory, 'fmax_passing_pvalue_and_fit.pdf')); plt.close()
-        plt.savefig(os.path.join(figDirectory, 'fmax_vs_Kd_init.pdf')); plt.close()
-        
-        
+        # make plots    
         plotFun.plotFmaxInit(variant_table)
         plt.savefig(os.path.join(figDirectory, 'initial_Kd_vs_final.colored_by_fmax.pdf'))
         
         plotFun.plotErrorInBins(variant_table, xdelta=10)
         plt.savefig(os.path.join(figDirectory, 'error_in_bins.dG.pdf'))
         
-        plotFun.plotPercentErrorInBins(variant_table, xdelta=10)
-        plt.savefig(os.path.join(figDirectory, 'error_in_bins.Kd.pdf'))
-        
         plotFun.plotNumberInBins(variant_table, xdelta=10)
         plt.savefig(os.path.join(figDirectory, 'number_in_bins.Kd.pdf'))
         sys.exit()
     
     else:
-        # subtract binding points
-        groupDict, initialPoints, variant_table, fmaxDistObject, fitParameters = (
-            initiateFitting(fittedBindingFilename, annotatedClusterFile,
-                            bindingCurveFilename, concentrations))
+        # load data
+        if not args.dont_load:
+            initialPointsAll, fluorescenceMat, fluorescenceMatSplit = loadData(
+                fittedBindingFilename, annotatedClusterFile,bindingCurveFilename)
         
-        variant_table = pd.read_table(outFile + '.CPvariant', index_col=0)
+            # process before fitting
+            variant_table, initialPoints, fmaxDistObject, fitParameters = initiateFitting(
+                initialPointsAll, fluorescenceMat, fluorescenceMatSplit, concentrations,
+                kd_cutoff=kd_cutoff, use_simulated=use_simulated)
         sys.exit()
     
     # other stuff you can do
