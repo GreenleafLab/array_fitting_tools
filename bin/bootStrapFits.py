@@ -54,7 +54,7 @@ group = parser.add_argument_group('additional option arguments')
 group.add_argument('--n_samples', default=100, type=int, metavar="N",
                    help='number of times to bootstrap samples')
 group.add_argument('--kd_cutoff', type=float,  
-                   help='highest kd for tight binders (nM). default is 99% bound at '
+                   help='highest kd for tight binders (nM). default is 0.99 bound at '
                    'highest concentration')
 group.add_argument('--use_simulated', type=int,
                    help='set to 0 or 1 if you want to use simulated distribution (1) or'
