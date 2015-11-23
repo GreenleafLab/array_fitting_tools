@@ -77,6 +77,9 @@ if __name__ == '__main__':
             print 'Error: no clusters on chip with this variant number!'
             sys.exit()
     else:
+        if args.lib_characterization is None:
+            print 'Error: need to supply lib characterization if using variant sequence or index'
+            sys.exit()
         libChar = pd.read_table(args.lib_characterization)
         results = pd.concat([libChar, variant_table], axis=1)
         
