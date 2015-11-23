@@ -28,7 +28,7 @@ sns.set_style("white", {'xtick.major.size': 4,  'ytick.major.size': 4})
 import plotFun
 import findFmaxDist
 import fitFun
-plt.rc('text', usetex=True)
+#plt.rc('text', usetex=True)
 ### MAIN ###
 
 ################ Parse input parameters ################
@@ -48,7 +48,7 @@ parser.add_argument('-l', '--lib_characterization',
                    'sequence of variant index name')
 parser.add_argument('-out', '--out_file', 
                    help='output filename. default is variant number + ".pdf"')
-parser.add_argument('--annotation', action="store_true",
+parser.add_argument('--annotate', action="store_true",
                    help='flag if you want the plot annotated')
 
 group = parser.add_mutually_exclusive_group(required=True)
@@ -123,16 +123,16 @@ if __name__ == '__main__':
                         fitParameters, ax=ax)
     # annotate info
     if args.annotate:
-        annotationText = ['$\Delta G$=\t%4.2f (%4.2f, %4.2f)'%(variant_table.loc[variant].dG,
+        annotationText = ['dG=\t%4.2f (%4.2f, %4.2f)'%(variant_table.loc[variant].dG,
                                                               variant_table.loc[variant].dG_lb,
                                                               variant_table.loc[variant].dG_ub),
-                          '$f_{max}$=\t%4.2f (%4.2f, %4.2f)'%(variant_table.loc[variant].fmax,
+                          'fmax=\t%4.2f (%4.2f, %4.2f)'%(variant_table.loc[variant].fmax,
                                                             variant_table.loc[variant].fmax_lb,
                                                             variant_table.loc[variant].fmax_ub),
-                          '$N_{clusters}$=\t%d'%variant_table.loc[variant].numTests,
-                          '$p_{value}$=\t%.1e'%variant_table.loc[variant].pvalue,
-                          '$f_{max}$ enforced=%d'%variant_table.loc[variant].flag,
-                          'average $R^2$=%4.2f'%variant_table.loc[variant].rsq,
+                          'Nclusters=\t%d'%variant_table.loc[variant].numTests,
+                          'pvalue=\t%.1e'%variant_table.loc[variant].pvalue,
+                          'fmax enforced=%d'%variant_table.loc[variant].flag,
+                          'average Rsq=%4.2f'%variant_table.loc[variant].rsq,
                           ]
     
         ax.annotate('\n'.join(annotationText), xy=(.05, .95), xycoords='axes fraction',
