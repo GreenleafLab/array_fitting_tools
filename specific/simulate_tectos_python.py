@@ -43,25 +43,36 @@ parser.add_argument('-o', '--out_file', metavar="out.txt",
 parser.add_argument('-e', '--enforce_find',action="store_true",
                     help='flag if you want to force call until value is found.')
 
-group = parser.add_argument_group('additional arguments for simulate_tectos_devel')
+group = parser.add_argument_group('additional agruments to change simulation parameters.')
 group.add_argument('-s', '--steps', metavar="N", 
                    help='number of iterations. default is 1E6')
-group.add_argument('-c', '--cutoff', metavar="N", 
-                   help='change the cutoff for counting formation (default 4.5)')
+group.add_argument('-c', '--cutoff', metavar="N", default='12.425051356420052',
+                   help='change the cutoff for counting formation (default 12.42)')
 group.add_argument('-t', '--temperature', metavar="N", 
                    help='change the temperature of the simulate (default 298.15K)')
 group.add_argument('-sr', '--steric_radius', metavar="N", 
                    help='change the current steric radius  (default 2.2)')
 group.add_argument('-wd', '--weight_distance', metavar="N",
                    help='change contribution of distance to cutoff (default 1)')
-group.add_argument('-wr', '--weight_rotation', metavar="N", 
-                   help='change contribution of rotation to cutoff (default 1)')
-group.add_argument('--static', metavar="0", 
-                   help='no ensembles  (default 0)')
+group.add_argument('-wr', '--weight_rotation', metavar="N", default='10.348727083108423',
+                   help='change contribution of rotation to cutoff (default 10.349)')
+
+group = parser.add_argument_group('additional agruments to save more information')
 group.add_argument('-r', '--record', metavar="0", 
                    help='record the distance, rotation and cutoff each step of the final basepair. (default 0)')
 group.add_argument('-rf', '--record_file', metavar="filename", 
                    help='change the name of the file to record in (default "test.out" )')
+group.add_argument('-rs', '--record_state', metavar="0", 
+                   help='records the name of the motif at each basepair step position')
+group.add_argument('-en', '--ensembles', metavar="0", 
+                   help='prints out the name of each motif and energy to files. this can be used for reference for recording state')
+group.add_argument('-ra', '--record_all', metavar="0", 
+                   help='records r/d for each basepair step in simulation')
+group.add_argument('--static', metavar="0", 
+                   help='no ensembles  (default 0)')
+group.add_argument('--pdbs', metavar="0", 
+                   help='prints out the starting conformation to pdbs')
+
 
 # Define 
 FLOW_SECONDARY_STRUCTURE_BY_LENGTH = (
@@ -155,15 +166,20 @@ if __name__ == '__main__':
         numCores = numReps
         
     # other args
-    args_to_joes_args = {'cutoff':          '-c',
-                     'weight_rotation': '-wr',
-                    'weight_distance':  '-wd',
-                    'steric_radius':    '-sr',
+    args_to_joes_args = {
                     'steps':            '-s',
-                    'static':           '--static',
+                    'cutoff':          '-c',
+                    'temperature':      '-t',
+                    'steric_radius':    '-sr',
+                    'weight_distance':  '-wd',
+                    'weight_rotation': '-wr',
                     'record':           '-r',
                     'record_file':      '-rf',
-                    'temperature':      '-t'}
+                    'record_state':     '-rs',
+                    'ensembles':        '-ensembles',
+                    'record_all':       '-rall',
+                    'static':           '--static',
+                    'pdbs':             '-pdbs',}
     joes_args_to_values = {}
     for name, joe_arg in args_to_joes_args.items():
         joes_args_to_values[joe_arg] = vars(args)[name]
