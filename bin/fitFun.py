@@ -386,7 +386,7 @@ def returnParamsFromResults(final_params, param_names=None):
 
 def plotFitCurve(concentrations, subSeries, results,
                           fitParameters, log_axis=None, func=None, use_default=None,
-                          fittype=None, errors=None, default_errors=None):
+                          fittype=None, errors=None, default_errors=None, ax=None):
     # default is to log axis
     if log_axis is None:
         log_axis = True
@@ -427,14 +427,15 @@ def plotFitCurve(concentrations, subSeries, results,
         eminus = eplus = default_errors/np.sqrt(numTests)
     
     # plot binding points
-    plt.figure(figsize=(2.5,2.3));
-    plt.errorbar(concentrations, fluorescence,
+    if ax is None:
+        fig = plt.figure(figsize=(2.5,2.3));
+        ax = fig.add_subplot(111)
+    ax.errorbar(concentrations, fluorescence,
                  yerr=[eminus, eplus], fmt='.', elinewidth=1,
                  capsize=2, capthick=1, color='k', linewidth=1)
     
     # plot fit
     if log_axis:
-        ax = plt.gca()
         ax.set_xscale('log')
         more_concentrations = np.logspace(np.log10(concentrations.min()/2),
                                           np.log10(concentrations.max()*2),
@@ -445,7 +446,7 @@ def plotFitCurve(concentrations, subSeries, results,
     param_names = fitParameters.columns.tolist()
     params = returnParamsFromResults(results, param_names)
     fit = func(params, more_concentrations)
-    plt.plot(more_concentrations, fit, 'r')
+    ax.plot(more_concentrations, fit, 'r')
 
     try:
         # find upper bound
@@ -479,7 +480,7 @@ def plotFitCurve(concentrations, subSeries, results,
                          label='95% conf int', alpha=0.5)
     except:
         pass
-    ax = plt.gca()
+
     ax.tick_params(right='off', top='off')
     ax.tick_params(which="minor", right='off', top='off')
     ylim = ax.get_ylim()
