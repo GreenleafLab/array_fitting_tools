@@ -54,11 +54,25 @@ group.add_argument('--save_text', default=False, action="store_true",
                    help='default is to save output as binary. Flag if you wish to save as text'
                    ' file instead')
 
-def findSequenceRepresentation(consensus_sequences, compare_to, exact_match=None):
+def findSequenceRepresentation(consensus_sequences, compare_to, exact_match=False):
+    """ Find the sequence matches between two lists of sequences.
+    
+    Inputs:
+    consensus_sequences: is the list of sequencing results, sorted
+    compare_to: the list of designed variants
+    exact_match: if set, the designed variant sequence must be an exact match of
+        the sequencing result. The default is that the designed variant must be
+        entirely contained in the sequencing result and must start at the first
+        index. This less stringent default criteria should work in most cases and
+        avoids having to truncate the sequencing results to the designed variant
+        lengths.
+    Outputs:
+    num_bc_per_variant: list of the same length as compare_to giving the
+        number of sequenceing results that match a designed library variant.
+    is_designed: list of the same length as consensus_sequences giving which
+        designed variant it alighnes to.
+    """
     # initialize
-    if exact_match is None:
-        exact_match = False # default is to search for whether it contains the sequence .
-                            # set to True if the sequences must match exactly
     num_bc_per_variant = pd.Series(index=compare_to.index, dtype=int) # number consensus sequences per designed sequence
     is_designed = np.ones(len(consensus_sequences))*np.nan # -1 if no designed sequence is found that matches. else index
     
@@ -97,9 +111,28 @@ def findSequenceRepresentation(consensus_sequences, compare_to, exact_match=None
     return num_bc_per_variant, is_designed
 
 def findSeqMap(libCharacterizationFile, cpSignalFile, uniqueBarcodesFile=None,
-         reverseComplement=None, seqCol=None, barcodeCol=None, mapToBarcode=None):
-    if reverseComplement is None:
-        reverseComplement = True
+         reverseComplement=True, seqCol=None, barcodeCol=None, mapToBarcode=None):
+    """ Processes inputs to send to findSequenceRepresentation.
+    
+    Inputs:
+    libCharacterizationFile: file containing a column 'sequence' that contains the
+        designed library variants.
+    cpSignalFile: file containing sequencing output that you wish to map to
+        designed sequences.
+    uniqueBarcordesFile: (optional) the barcode map file.
+    reverseComplement: (default True) whether to reverse complement the designed
+        library variants
+    seqCol: if barcode map file is not given, need to define which column of CPsignal
+        file contains sequencing output you wish to map.
+    barcodeCol: if barcode map file IS given, need to define which column of CPsignal
+        file contains the barcode
+    mapToBarcode: (default True if barcode map file is given) whether to use the
+        barcode map or to map directly to seqCol in CPsignal file.
+        
+    Outputs:
+    
+    """
+
     if mapToBarcode is None:
         if uniqueBarcodesFile is not None:
             mapToBarcode = True
@@ -202,6 +235,15 @@ def findSeqMap(libCharacterizationFile, cpSignalFile, uniqueBarcodesFile=None,
     print '\n'.join(logText)
 
     return seqMap
+
+def plotNumberClustersPerVariant(seqMap):
+    """ Plot a histogram of number of clusters per variant. """
+    # aggregate seqMap data by variant
+    counts = seqMap.fillna(0).variant_number.value_counts()
+    plt.figure()
+    sns.distplot(counts, bins=1, kde=False)
+    return
+
 
 ##### SCRIPT #####
 if __name__ == '__main__':
