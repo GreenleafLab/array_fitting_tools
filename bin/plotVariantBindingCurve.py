@@ -123,16 +123,16 @@ if __name__ == '__main__':
                         fitParameters, ax=ax)
     # annotate info
     if args.annotate:
-        annotationText = ['dG=\t%4.2f (%4.2f, %4.2f)'%(variant_table.loc[variant].dG,
+        annotationText = ['dG= %4.2f (%4.2f, %4.2f)'%(variant_table.loc[variant].dG,
                                                               variant_table.loc[variant].dG_lb,
                                                               variant_table.loc[variant].dG_ub),
-                          'fmax=\t%4.2f (%4.2f, %4.2f)'%(variant_table.loc[variant].fmax,
+                          'fmax= %4.2f (%4.2f, %4.2f)'%(variant_table.loc[variant].fmax,
                                                             variant_table.loc[variant].fmax_lb,
                                                             variant_table.loc[variant].fmax_ub),
-                          'Nclusters=\t%d'%variant_table.loc[variant].numTests,
-                          'pvalue=\t%.1e'%variant_table.loc[variant].pvalue,
-                          'fmax enforced=%d'%variant_table.loc[variant].flag,
-                          'average Rsq=%4.2f'%variant_table.loc[variant].rsq,
+                          'Nclusters= %d'%variant_table.loc[variant].numTests,
+                          'pvalue= %.1e'%variant_table.loc[variant].pvalue,
+                          'fmax enforced= %d'%variant_table.loc[variant].flag,
+                          'average Rsq= %4.2f'%variant_table.loc[variant].rsq,
                           ]
     
         ax.annotate('\n'.join(annotationText), xy=(.05, .95), xycoords='axes fraction',
