@@ -24,8 +24,13 @@ sns.set_style("white", {'xtick.major.size': 4,  'ytick.major.size': 4,
 
 import fitFun
 import seqfun
-  
-def plotFmaxVsKd(variant_table, concentrations, index, subset=None, kde_plot=None,
+
+def fix_axes(ax):
+    ax.tick_params(top='off', right='off', pad=2, labelsize=12, labelcolor='k')
+    return ax
+
+
+def plotFmaxVsKd(variant_table, cutoff, index, subset=None, kde_plot=None,
                  plot_fmin=None, xlim=None, ylim=None):
     if kde_plot is None: kde_plot=False
     if subset is None:
@@ -33,8 +38,8 @@ def plotFmaxVsKd(variant_table, concentrations, index, subset=None, kde_plot=Non
         else: subset = False
     if plot_fmin is None:
         plot_fmin = False
-    parameters = fitFun.fittingParameters(concentrations=concentrations)
-    cutoff = parameters.find_Kd_from_dG(parameters.maxdG)
+    
+    parameters = fitFun.fittingParameters()
     index = index.loc[index].index
     
     kds = parameters.find_Kd_from_dG(variant_table.dG_init)

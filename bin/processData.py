@@ -34,7 +34,7 @@ import glob
 import IMlibs
 import findSeqDistribution
 import singleClusterFits
-import bootStrapFits
+
 sns.set_style("white", {'xtick.major.size': 4,  'ytick.major.size': 4})
 
 ### MAIN ###
