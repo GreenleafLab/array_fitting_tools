@@ -1,6 +1,7 @@
 import datetime
 import scipy.cluster.hierarchy as sch
 import scipy.cluster as sc
+import scipy.spatial.distance as ssd
 import pandas as pd
 import matplotlib.pyplot as plt
 import sys
@@ -223,3 +224,15 @@ def getDeltaK(cdfs):
             deltaK.loc[k] = (areasPrime.loc[k+1] - areasPrime.loc[k])/areasPrime.loc[k]
             
     return deltaK
+
+def getWeightedDistance(observations, errors):
+    """ return condensed, weighted distance matrix.
+    
+    'errors' are the 95% confidence interval widths.
+    'weight will be the inverse variance ([error/(2*1.96)]**2)"""
+    sigma = errors/(2*1.96)
+    
+
+    return ssd.pdist(observations, metric='wminkowski', p=2, w=1./sigma**2)
+    
+    
