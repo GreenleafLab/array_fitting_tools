@@ -34,6 +34,7 @@ sns.set_style("white", {'xtick.major.size': 4,  'ytick.major.size': 4})
 import lmfit
 import fitFun
 from fitFun import fittingParameters
+import findFmaxDist
 ### MAIN ###
 
 ################ Parse input parameters ################
@@ -140,7 +141,6 @@ def perCluster(concentrations, fluorescence, fitParameters, plot=None, change_pa
             a, b = np.percentile(fluorescence.dropna(), [0, 100])
             fitParameters = fitParameters.copy()
             fitParameters.loc['initial', 'fmax'] = b
-        
         index = np.isfinite(fluorescence)
         single = fitFun.fitSingleCurve(concentrations[index.values],
                                                        fluorescence.loc[index],
@@ -168,6 +168,10 @@ def bindingSeriesByCluster(concentrations, bindingSeries,
     # find initial parameters
     if fitParameters is None:
         fitParameters = getInitialFitParameters(concentrations)
+        
+    # change fmin initial
+    fitParameters.loc['initial', 'fmin'] = findFmaxDist.fitGammaDistribution(
+        bindingSeries.iloc[:, 0].dropna(), plot=True, set_offset=0).loc['mean']
 
     # sort by fluorescence in null_column to try to get groups of equal
     # distributions of binders/nonbinders
@@ -190,8 +194,19 @@ def bindingSeriesByCluster(concentrations, bindingSeries,
 
     return fitResults
     
-
-
+def checkFitResults(fitResults):
+    # did any of the stde work?
+    param_names = ['fmax', 'dG', 'fmin']
+    numClusters = fitResults.dropna(subset=param_names).shape[0]
+    print ('%4.2f%% clusters have rsq>50%%'
+           %(100*(fitResults.rsq > 0.5).sum()/float(numClusters)))
+    print ('%4.2f%% clusters have stde in dG < 1'
+           %(100*(fitResults.dG_stde < 1).sum()/float(numClusters)))
+    print ('%4.2f%% clusters have stde in fmax < fmax'
+           %(100*(fitResults.fmax_stde < fitResults.fmax).sum()/float(numClusters)))
+    print ('%4.2f%% clusters have stde = 0  for all fit parameters'
+           %(100*(fitResults.loc[:, ['%s_stde'%param for param in param_names]]==0).all(axis=1).sum()/float(numClusters)))
+    
 
 if __name__=="__main__":    
     args = parser.parse_args()
@@ -230,3 +245,4 @@ if __name__=="__main__":
     
     fitResults.to_pickle(outFile+'.CPfitted.pkl')
     
+    checkFitResults(fitResults)
