@@ -45,7 +45,7 @@ y = pd.read_pickle(processedResultsFile)
 #y = tectoThreeWay.findVariantsByLengthAndCircularlyPermutedSeq(subtable)
 
 # only fit the subset of the data in 'to_include'
-lengths = [4,5,6]
+lengths = [3,4,5,6]
 groups = [['__'], ['A__','_A_', '__A'], ['AA__','_AA_', '__AA']]
 results = (Parallel(n_jobs=len(groups), verbose=10)
             (delayed(tectoThreeWay.fitThreeWay)(y, to_include={'loop':['GGAA_UUCG'],
