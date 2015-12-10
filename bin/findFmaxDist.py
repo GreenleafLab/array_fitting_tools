@@ -78,11 +78,10 @@ class fmaxDistAny():
             percentiles = self._get_percentiles_given_alpha(alpha)
             return dist.ppf(percentiles)
         
-def useSimulatedOrActual(variant_table, concentrations):
+def useSimulatedOrActual(variant_table, cutoff):
     # if at least 20 data points have at least 10 counts in that bin, use actual
     # data. This statistics seem reasonable for fitting
-    parameters = fitFun.fittingParameters(concentrations=concentrations)
-    index = variant_table.dG_init < parameters.maxdG
+    index = variant_table.dG_init < cutoff
     counts, binedges = np.histogram(variant_table.loc[index].numTests,
                                     np.arange(1, variant_table.numTests.max()))
     if (counts > 10).sum() >= 20:
@@ -130,11 +129,15 @@ def gammaObjective(params, x, data=None, weights=None, return_pdf=None):
         return (cdf - data)*weights   
    
 
-def fitGammaDistribution(vec, plot=None, set_mean=None, set_offset=None):
+def fitGammaDistribution(vec, plot=None, set_mean=None, set_offset=None, initial_mean=None):
     """ Fit the CDF of a vector to the gamma distribution. """
     
     if plot is None:
         plot = False
+    
+    if initial_mean is None:
+        # set initial mean for fit
+        initial_mean = vec.median() 
     
     # fit the cdf of vec to find parameters that best represent the distribution
     x, y = seqfun.getCDF(vec)
@@ -143,12 +146,12 @@ def fitGammaDistribution(vec, plot=None, set_mean=None, set_offset=None):
     
     # distribution has mean (first moment)
     if set_mean is None:
-        params.add('mean', value=vec.mean(), vary=True, min=0, max=1.5)
+        params.add('mean', value=initial_mean, vary=True, min=0, max=np.inf)
     else:
         params.add('mean', value=set_mean, vary=False)
 
     # distribution has standard deviation (sqrt of second moment)
-    params.add('std',  value=vec.std(), vary=True, min=0, max=1)
+    params.add('std',  value=vec.std(), vary=True, min=0, max=np.inf)
 
     # gamma distribution can have offset (probably centered at 0)
     if set_offset is None:
@@ -194,10 +197,12 @@ def returnGammaParams(mean, std):
 def plotGammaFunction(vec, results=None, params=None):
     """ Take vector and fit and plot distribution. """
     # plot pdf 
-    more_x = np.linspace(0, 2, 100)
+    more_x = np.linspace(0, 5, 100)
     plt.figure(figsize=(4,4))
     sns.distplot(vec, hist_kws={'histtype':'stepfilled'}, color='0.5')
-    plt.xlim(0, 2)
+    ax = plt.gca()
+    xlim = ax.get_xlim()
+    plt.xlim(0, xlim[1])
     plt.tight_layout()
     
     if results is None and params is None:
@@ -214,7 +219,7 @@ def getFmaxMeanAndBounds(tight_binders, cutoff=None):
         cutoff = 1E-12 # fraction of distribution that represents outliers
     # find defined mean shared by all variants by fitting all
     fmaxes = tight_binders.fmax_init
-    fmaxAllFit = fitGammaDistribution(fmaxes, set_offset=0)
+    fmaxAllFit = fitGammaDistribution(fmaxes, set_offset=0, initial_mean=fmaxes.max())
     
     # use fit to also define upper and lower bound of expected values
     mean_fmax = fmaxAllFit.loc['mean']
@@ -307,7 +312,7 @@ def findMinStd(fmaxes, n_tests, mean_fmax, fraction_of_data=None):
 def findStdParams(fmaxes, n_tests, mean_fmax, min_std, at_n):
     """ Find the relationship between number of tests and std. """
     n_test_counts = n_tests.value_counts().sort_index()
-    min_num_to_fit = 5
+    min_num_to_fit = 4  # need four measurements to fit distribution
     all_ns = n_test_counts.loc[n_test_counts>=min_num_to_fit].index.tolist()
     
     stds_actual = {}
@@ -357,10 +362,12 @@ def findParams(tight_binders, use_simulated=None, table=None):
     y_fit = fmaxDist.sigma_by_n_fit(params, x_fit)
     plt.figure(figsize=(4,3))
     if use_simulated:
-        params1, x1, y1, stds_not_sim = findStdParams(fmaxes_data, n_tests_data, mean_fmax, None, None)
-        plt.scatter(x1, y1, s=5, marker='.', color='0.5')
-        y1_fit = fmaxDist.sigma_by_n_fit(params1, x_fit)
-        plt.plot(x_fit, y1_fit, ':', color='0.5', label='using variant fmaxes')
+        try:
+            params1, x1, y1, stds_not_sim = findStdParams(fmaxes_data, n_tests_data, mean_fmax, None, None)
+            plt.scatter(x1, y1, s=5, marker='.', color='0.5')
+            y1_fit = fmaxDist.sigma_by_n_fit(params1, x_fit)
+            plt.plot(x_fit, y1_fit, ':', color='0.5', label='using variant fmaxes')
+        except: pass
         
     plt.scatter(x, y, s=10, marker='o', color='k')
     plt.plot(x_fit, y_fit, 'c')
@@ -369,17 +376,19 @@ def findParams(tight_binders, use_simulated=None, table=None):
     plt.xlim(0, x_fit.max())
     plt.tight_layout()
     
-    # also plot offsets
-    plt.figure(figsize=(4,3))
-    sns.distplot(stds_actual.offset)
-    
-    y_smoothed = gaussian_filter(stds_actual.offset, 2)
-    plt.figure(figsize=(4,3));
-    plt.errorbar(x, stds_actual.offset, yerr=stds_actual.offset_stde)
-    #plt.plot(x, y_smoothed, 'c')
-    plt.xlabel('number of measurements')
-    plt.ylabel('offset')
-    plt.tight_layout()
+    plot=False
+    if plot:
+        # also plot offsets
+        plt.figure(figsize=(4,3))
+        sns.distplot(stds_actual.offset)
+        
+        y_smoothed = gaussian_filter(stds_actual.offset, 2)
+        plt.figure(figsize=(4,3));
+        plt.errorbar(x, stds_actual.offset, yerr=stds_actual.offset_stde)
+        #plt.plot(x, y_smoothed, 'c')
+        plt.xlabel('number of measurements')
+        plt.ylabel('offset')
+        plt.tight_layout()
     return fmaxDist
 
 def resultsFromFmaxDist(fmaxDist, n):
