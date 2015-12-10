@@ -48,8 +48,10 @@ output=$(find $od -maxdepth 1  -name "*CPsignal.pkl" -type f)
 # check success
 if [ $? -eq 0 -a -f $output ];
 then
+    date
     echo "Successfully processed data"
 else
+    date
     echo "Error processing data"
     exit
 fi
@@ -67,8 +69,10 @@ else
     # check success
     if [ $? -eq 0 ]
     then
+        date
         echo "Successfully annotated data"
     else
+        date
         echo "Error annotating data"
         exit
     fi
@@ -85,8 +89,10 @@ else
     # check success
     if [ $? -eq 0 ]
     then
+        date
         echo "Successfully fit single clusters."
     else
+        date
         echo "Error fitting single clusters"
         exit
     fi
@@ -103,8 +109,10 @@ else
     # check success
     if [ $? -eq 0 ]
     then
+        date
         echo "Successfully bootstrapped fits."
     else
+        date
         echo "Error fitting bootstrapping fits"
         exit
     fi
