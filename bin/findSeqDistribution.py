@@ -20,6 +20,7 @@ import seqfun
 import IMlibs
 import seaborn as sns
 import matplotlib.pyplot as plt
+import fileFun
 sns.set_style("white", {'xtick.major.size': 4,  'ytick.major.size': 4})
 
 ### MAIN ###
@@ -32,8 +33,8 @@ parser.add_argument('-lc', '--library_characterization', required=True,
                    help='file that lists unique variant sequences')
 parser.add_argument('-out', '--out_file', 
                    help='output filename')
-parser.add_argument('-cs', '--cpsignal', required=True,
-                   help='reduced CPsignal file containing sequence information.')
+parser.add_argument('-cs', '--cpseq', required=True,
+                   help='reduced CPseq file containing sequence information.')
 parser.add_argument('-bar', '--unique_barcodes',
                    help='barcode map file. if given, the variant sequences are '
                    'mapped to the barcode rather than directly on to the sequence data')
@@ -50,9 +51,6 @@ group.add_argument('--noReverseComplement', default=False, action="store_true",
                    help='when looking for variants, default is to look for the'
                    'reverse complement. Flag if you want to look for forward sequence')
 
-group.add_argument('--save_text', default=False, action="store_true",
-                   help='default is to save output as binary. Flag if you wish to save as text'
-                   ' file instead')
 
 def findSequenceRepresentation(consensus_sequences, compare_to, exact_match=False):
     """ Find the sequence matches between two lists of sequences.
@@ -153,11 +151,10 @@ def findSeqMap(libCharacterizationFile, cpSignalFile, uniqueBarcodesFile=None,
         # if using the unique barcode map, the unique identifier is the barcode
         identifyingColumn = 'barcode'
     elif cpSignalFile is not None:
-        consensus = IMlibs.loadCPseqSignal(cpSignalFile, index_col='tileID')
+        consensus = fileFun.loadFile(cpSignalFile)
         consensus.loc[:, 'sequence'] = consensus.loc[:, seqCol]
-        consensus.loc[:, 'tileID'] = consensus.index
         # if using the cpsignal, the unique identifier is the cluster Id
-        identifyingColumn = 'tileID'
+        identifyingColumn = 'clusterID'
     
     # sort by sequence to do sorted search later on
     consensus.sort('sequence', inplace=True)
@@ -205,10 +202,9 @@ def findSeqMap(libCharacterizationFile, cpSignalFile, uniqueBarcodesFile=None,
     print 'Mapping to cluster IDs...'
     cols = ['variant_number']
     if mapToBarcode:
-        identifyingColumn = 'tileID'
-        table = IMlibs.loadCPseqSignal(cpSignalFile, usecols=[identifyingColumn, barcodeCol],
-                                       index_col=identifyingColumn)
-        
+        identifyingColumn = 'clusterID'
+        table = fileFun.loadFile(cpSignalFile)
+        table.index = table.loc[:, identifyingColumn]
         
         seqMap = pd.DataFrame(index=table.index, columns=cols)
         index = table.loc[:, barcodeCol].dropna()
@@ -251,7 +247,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
     
     libCharacterizationFile = args.library_characterization
-    cpSignalFile = args.cpsignal
+    cpSignalFile = args.cpseq
     uniqueBarcodesFile = args.unique_barcodes
     reverseComplement = not args.noReverseComplement
     seqCol = args.seqCol
@@ -263,15 +259,13 @@ if __name__ == '__main__':
             cpSignalFile[:cpSignalFile.find('.pkl')])[0]
     
     
-    seqMap = findSeqMap(args.library_characterization, args.cpsignal,
+    seqMap = findSeqMap(args.library_characterization, args.cpseq,
                   uniqueBarcodesFile=args.unique_barcodes,
                       reverseComplement=not args.noReverseComplement,
                       seqCol=args.seqCol,
                       barcodeCol=args.barcodeCol)
 
-    if args.save_text:
-        seqMap.to_csv(outFile + '.CPannot', index=True, float_format='%4.0f', sep='\t')
-    else:
-        seqMap.to_pickle(outFile + '.CPannot.pkl')
+
+    seqMap.to_pickle(outFile + '.CPannot.pkl')
 
  
