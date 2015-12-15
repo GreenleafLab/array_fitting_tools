@@ -26,43 +26,49 @@ import fitFun
 import seqfun
 
 def fix_axes(ax):
+    ax.tick_params(which='minor', top='off', right='off')
     ax.tick_params(top='off', right='off', pad=2, labelsize=12, labelcolor='k')
     return ax
 
 
-def plotFmaxVsKd(variant_table, cutoff, index, subset=None, kde_plot=None,
-                 plot_fmin=None, xlim=None, ylim=None):
-    if kde_plot is None: kde_plot=False
+def plotFmaxVsKd(variant_table, cutoff, subset=None, kde_plot=False,
+                 plot_fmin=False, xlim=None, ylim=None):
     if subset is None:
         if kde_plot: subset = True
         else: subset = False
-    if plot_fmin is None:
-        plot_fmin = False
     
     parameters = fitFun.fittingParameters()
-    index = index.loc[index].index
     
     kds = parameters.find_Kd_from_dG(variant_table.dG_init)
     if plot_fmin:
         fmax = variant_table.fmin_init
+        ylabel_text = 'min'
     else:
         fmax = variant_table.fmax_init
+        ylabel_text = 'max'
+        
+    # find extent in x
     if xlim is None:
-        kds_bounds = np.percentile(seqfun.remove_outlier(np.log10(kds.loc[index])), [0, 100])
+        log_kds = np.log10(kds)
+        kds_bounds = [np.floor(log_kds.min()), log_kds.median() + log_kds.std()*3]
     else:
         kds_bounds = [np.log10(i) for i in xlim]
+    
+    #find extent in y
     if ylim is None:
-        fmax_bounds = [0, np.percentile(seqfun.remove_outlier(fmax.loc[index]), 100)]
+        fmax_bounds = [0, fmax.median() + 3*fmax.std()]
     else:
         fmax_bounds = ylim
+    
+    # initiate plot
     plt.figure(figsize=(3,3))
     ax = plt.gca()
     if subset:
-        x = kds.loc[index[::100]]
-        y = fmax.loc[index[::100]]
+        x = kds.iloc[::100]
+        y = fmax.iloc[::100]
     else:
-        x = kds.loc[index]
-        y = fmax.loc[index]
+        x = kds
+        y = fmax
     
     if kde_plot:   
         sns.kdeplot(np.log10(x),
@@ -78,16 +84,84 @@ def plotFmaxVsKd(variant_table, cutoff, index, subset=None, kde_plot=None,
                   extent=np.hstack([kds_bounds, fmax_bounds]),
                   cmap="Spectral_r", mincnt=1)
     
-    ax.tick_params(which='minor', top='off', right='off')
-    ax.tick_params(top='off', right='off')
+    fix_axes(ax)
     plt.xlabel('$K_d$ (nM)')
-    plt.ylabel('initial $f_{max}$')
+    
+    plt.ylabel('initial $f_{%s}$'%ylabel_text)
     ylim=ax.get_ylim()
     plt.plot([cutoff]*2, ylim, 'r:', label='cutoff for 95% bound')
     plt.tight_layout()
+
+def plotFmaxStdeVersusN(fmaxDist, stds_object, maxn, ax=None):
+    # plot
+    x = stds_object.index.tolist()
+    y = stds_object.loc[:, 'std']
+    params = fmaxDist.params
+    x_fit = np.arange(1, maxn)
+    y_fit = fmaxDist.sigma_by_n_fit(params, x_fit)
+    if ax is None:
+        fig = plt.figure(figsize=(4,3))
+        ax = fig.add_subplot(111)
+        marker='o'
+        color='k'
+        linestyle='-'
+        linecolor = 'c'
+    else:
+        marker='.'
+        color='0.5'
+        linestyle=':'
+        linecolor =color     
+    ax.scatter(x, y, s=10, marker=marker, color=color)
+    ax.plot(x_fit, y_fit, linestyle=linestyle, color=linecolor)
+    plt.xlabel('number of measurements')
+    plt.ylabel('standard deviation of median fmax')
+    plt.xlim(0, maxn)
+    fix_axes(ax)
+    plt.subplots_adjust(left=0.2, bottom=0.2, right=0.95, top=0.95)
+    return ax
+
+def plotFmaxOffsetVersusN(fmaxDist, stds_object, maxn, ax=None):
+    x = stds_object.index.tolist()
+    y = stds_object.offset
+    yerr = stds_object.offset_stde
+
+    if ax is None:
+        fig = plt.figure(figsize=(4,3))
+        ax = fig.add_subplot(111)
+        marker='o'
+        color='k'
+        linestyle='-'
+        linecolor = 'c'
+    else:
+        marker='.'
+        color='0.5'
+        linestyle=':'
+        linecolor =color    
+
+    plt.errorbar(x, y, yerr=yerr, fmt='.', color=color, marker=marker, markersize=3)
+    plt.axhline(0, color=linecolor, linestyle=linestyle)
+    #plt.plot(x, y_smoothed, 'c')
+    plt.xlabel('number of measurements')
+    plt.ylabel('offset')
+    plt.xlim(0, maxn)
+    plt.subplots_adjust(left=0.2, bottom=0.2, right=0.95, top=0.95)
+    fix_axes(plt.gca())
+    return
+
+def plotNumberVersusN(n_tests, maxn):
+    plt.figure(figsize=(4, 3))
+    sns.distplot(n_tests, bins=np.arange(maxn), kde=False, color='grey',
+                 hist_kws={'histtype':'stepfilled'})
+    plt.xlabel('number of measurements')
+    plt.ylabel('count')
+    plt.xlim(0, maxn)
+    plt.subplots_adjust(left=0.2, bottom=0.2, right=0.95, top=0.95)
+    fix_axes(plt.gca())
     
 
 def plotFmaxInit(variant_table):
+    fmax_subset = variant_table.loc[~variant_table.flag.astype(bool)].fmax
+    bounds = [fmax_subset.median()-3*fmax_subset.std(), fmax_subset.median() + 3*fmax_subset.std()]
     parameters = fitFun.fittingParameters()
     detection_limit = -6.93
     cmap = sns.diverging_palette(220, 20, center="dark", as_cmap=True)
@@ -100,7 +174,7 @@ def plotFmaxInit(variant_table):
     fig = plt.figure(figsize=(4.5,3.75))
     ax = fig.add_subplot(111, aspect='equal')
     im = ax.scatter(x, y, marker='.', alpha=0.5,
-                    c=variant_table.loc[index].fmax_init, vmin=0.5, vmax=1.5, cmap=cmap, linewidth=0)
+                    c=variant_table.loc[index].fmax_init, vmin=bounds[0], vmax=bounds[1], cmap=cmap, linewidth=0)
     plt.plot(xlim, xlim, 'c:', linewidth=1)
     plt.plot([detection_limit]*2, xlim, 'r:', linewidth=1)
     plt.plot(xlim, [detection_limit]*2, 'r:', linewidth=1)
@@ -112,6 +186,23 @@ def plotFmaxInit(variant_table):
     ax.set_yscale('log')
     plt.tight_layout()
     return
+
+def plotBoundFluorescence(signal, bounds):
+    """ Plot histogram of all RNA fluorescence and bounds imposed on distribution."""
+    lowerbound, upperbound  = bounds
+    binwidth = (upperbound - lowerbound)/50.
+    plt.figure(figsize=(4,3))
+    sns.distplot(signal.dropna(), bins = np.arange(signal.min(), signal.max()+binwidth, binwidth), color='seagreen')
+    ax = plt.gca()
+    ylim = ax.get_ylim()
+    plt.plot([lowerbound]*2, ylim, 'k:')
+    plt.plot([upperbound]*2, ylim, 'k:')
+    plt.xlim(0, upperbound + 2*signal.std())
+    plt.xlabel('all cluster fluorescence')
+    plt.ylabel('probability density')
+    plt.ticklabel_format(style='sci', axis='y', scilimits=(0,0))
+    fix_axes(ax)
+    plt.tight_layout()
 
 def plotErrorInBins(variant_table, xdelta=None):
     parameters = fitFun.fittingParameters()
@@ -329,30 +420,35 @@ def plotErrorTotal(variant_table, variant_table2=None):
     ylim = ax.get_ylim()
     plt.plot([5]*2, ylim, 'k--', linewidth=1, alpha=0.5)
 
-def plotFractionFit(variant_table, binedges=None):
+def plotFractionFit(variant_table, binedges=np.arange(-12, -6, 0.5), param='dG_init', pvalue_threshold=0.05):
     # plot
     binwidth=0.01
     bins=np.arange(0,1+binwidth, binwidth)
     plt.figure(figsize=(4, 3.5))
-    plt.hist(variant_table.loc[variant_table.pvalue <= 0.05].fitFraction.values, alpha=0.5, color='red', bins=bins)
-    plt.hist(variant_table.loc[variant_table.pvalue > 0.05].fitFraction.values, alpha=0.5, color='grey', bins=bins)
+    plt.hist(variant_table.loc[variant_table.pvalue <= pvalue_threshold].fitFraction.values,
+             alpha=0.5, color='red', bins=bins, label='passing cutoff')
+    plt.hist(variant_table.loc[variant_table.pvalue > pvalue_threshold].fitFraction.values,
+             alpha=0.5, color='grey', bins=bins,  label='fails cutoff')
     plt.ylabel('number of variants')
     plt.xlabel('fraction fit')
+    plt.legend(loc='upper left')
     plt.tight_layout()
-    
-    if binedges is None:
-        binedges = np.arange(-12, -6, 0.5)
+    fix_axes(plt.gca())    
+
     subtable = pd.DataFrame(index=variant_table.index,
                             columns=['binned_dGs', 'pvalueFilter'],
-                            data=np.column_stack([np.digitize(variant_table.dG, binedges),
-                                                  variant_table.pvalue <= 0.05]))
+                            data=np.column_stack([np.digitize(variant_table.loc[:, param], binedges),
+                                                  variant_table.pvalue <= pvalue_threshold]))
     g = sns.factorplot(x="binned_dGs", y="pvalueFilter", data=subtable,
                 order=np.unique(subtable.binned_dGs),
                 color="r", kind='bar');
-    g.set(ylim=(0, 1.1), );
-    g.set_xticklabels(['%3.1f:%3.1f'%(i, j) for i, j in itertools.izip(binedges[:-1], binedges[1:])]+['>%4.1f'%binedges[-1]], rotation=90)
-    g.set(xticks=np.arange(len(binedges)))
+    g.set(ylim=(0, 1.1), ylabel='fraction pass pvalue cutoff');
+    g.set_xticklabels(['<%4.1f'%binedges[0]] +
+        ['%3.1f:%3.1f'%(i, j) for i, j in itertools.izip(binedges[:-1], binedges[1:])]+
+        ['>%4.1f'%binedges[-1]], rotation=90)
+    g.set(xticks=np.arange(len(binedges)+1))
     g.fig.subplots_adjust(hspace=.2, bottom=0.35)
+    fix_axes(plt.gca())
     
 def histogramKds(variant_table):
     """ Find density of set of 'background' Kds to define cutoff. """
