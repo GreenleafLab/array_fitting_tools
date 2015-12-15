@@ -1,8 +1,6 @@
 #!/usr/bin/env python
 """ Fit all single clusters with minimal constraints.
 
-Extracts data from merged, CPsignal file.
-Normalizes by all cluster signal if this was given.
 Fits all single clusters.
 
 Input:
@@ -25,13 +23,9 @@ import sys
 import seqfun
 import itertools
 import scipy.stats as st
-import IMlibs
-import seaborn as sns
-import matplotlib.pyplot as plt
 from joblib import Parallel, delayed
-from statsmodels.distributions.empirical_distribution import ECDF               
-sns.set_style("white", {'xtick.major.size': 4,  'ytick.major.size': 4})
 import lmfit
+import fileFun
 import fitFun
 from fitFun import fittingParameters
 import findFmaxDist
@@ -43,8 +37,8 @@ import findFmaxDist
 parser = argparse.ArgumentParser(description='fit single clusters to binding curve')
 
 group = parser.add_argument_group('required arguments for fitting single clusters')
-group.add_argument('-cs', '--cpsignal', metavar="CPsignal.pkl",
-                    help='reduced CPsignal file. Use this if binding curves file not given')
+group.add_argument('-b', '--binding_series', metavar="CPseries.pkl",
+                    help='reduced [normalized] CPseries file.')
 group.add_argument('-c', '--concentrations', required=True, metavar="concentrations.txt",
                     help='text file giving the associated concentrations')
 
@@ -192,7 +186,7 @@ def bindingSeriesByCluster(concentrations, bindingSeries,
                                         change_params=True)
 
 
-    return fitResults
+    return fitResults, fitParameters
     
 def checkFitResults(fitResults):
     # did any of the stde work?
@@ -204,45 +198,36 @@ def checkFitResults(fitResults):
            %(100*(fitResults.dG_stde < 1).sum()/float(numClusters)))
     print ('%4.2f%% clusters have stde in fmax < fmax'
            %(100*(fitResults.fmax_stde < fitResults.fmax).sum()/float(numClusters)))
-    print ('%4.2f%% clusters have stde = 0  for all fit parameters'
-           %(100*(fitResults.loc[:, ['%s_stde'%param for param in param_names]]==0).all(axis=1).sum()/float(numClusters)))
+    print ('%4.2f%% clusters have stde != 0 for at least one fit parameters'
+           %(100 -100*(fitResults.loc[:, ['%s_stde'%param for param in param_names]]==0).all(axis=1).sum()/float(numClusters)))
     
 
 if __name__=="__main__":    
     args = parser.parse_args()
     
-    pickleCPsignalFilename = args.cpsignal
+    bindingSeriesFilename = args.binding_series
     fitParametersFilename  = args.fit_parameters
     outFile  = args.out_file
     numCores = args.numCores
     concentrations = np.loadtxt(args.concentrations)
     
+    # load fit parameters if given
     if fitParametersFilename is not None:
         fitParameters = pd.read_table(fitParametersFilename, index_col=0)
     else:
         fitParameters = None
-        
-    #  check proper inputs
+    
+    # define out file
     if outFile is None:
-        outFile = os.path.splitext(
-                    pickleCPsignalFilename[:pickleCPsignalFilename.find('.pkl')])[0]
-    bindingCurveFilename = outFile + '.bindingSeries.pkl'
-    
-    print '\tLoading binding series and all RNA signal:'; sys.stdout.flush()
-    bindingSeries, allClusterSignal = IMlibs.loadBindingCurveFromCPsignal(
-        pickleCPsignalFilename, concentrations=concentrations)
-    
-    # make normalized binding series
-    allClusterSignal = IMlibs.boundFluorescence(allClusterSignal, plot=True)   
-    bindingSeriesNorm = np.divide(bindingSeries, np.vstack(allClusterSignal))
-    
-    # save
-    bindingSeriesNorm.to_pickle(bindingCurveFilename)
-    
-    fitResults = bindingSeriesByCluster(concentrations, bindingSeriesNorm, 
+        outFile = fileFun.stripExtension(bindingSeriesFilename)
+        
+    bindingSeries = fileFun.loadFile(bindingSeriesFilename)
+        
+    fitResults, fitParameters = bindingSeriesByCluster(concentrations, bindingSeries, 
                            numCores=numCores, subset=args.subset,
                            fitParameters=fitParameters)
     
     fitResults.to_pickle(outFile+'.CPfitted.pkl')
+    fitParameters.to_csv(outFile+'.fitParameters', sep='\t')
     
     checkFitResults(fitResults)
