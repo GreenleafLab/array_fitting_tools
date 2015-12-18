@@ -35,7 +35,7 @@ import IMlibs
 import fileFun
 
 parser = argparse.ArgumentParser(description='bootstrap fits')
-parser.add_argument('-t', '--single_cluster_fits', required=True, metavar=".CPfitted.pkl",
+parser.add_argument('-cf', '--single_cluster_fits', required=True, metavar=".CPfitted.pkl",
                    help='file with single cluster fits')
 parser.add_argument('-a', '--annotated_clusters', required=True, metavar=".CPannot.pkl",
                    help='file with clusters annotated by variant number')
@@ -125,7 +125,7 @@ class fmaxDistAny():
             percentiles = self._get_percentiles_given_alpha(alpha)
             return dist.ppf(percentiles)
 
-def findVariantTable(table, parameter='dG', min_fraction_fit=0.25):
+def findVariantTable(table, parameter='dG', min_fraction_fit=0.25, filterFunction=IMlibs.filterFitParameters):
     """ Find per-variant information from single cluster fits. """
     
     # define columns as all the ones between variant number and fraction consensus
@@ -134,7 +134,7 @@ def findVariantTable(table, parameter='dG', min_fraction_fit=0.25):
     other_cols = ['numTests', 'fitFraction', 'pvalue', 'numClusters',
                   'fmax_lb','fmax', 'fmax_ub',
                   '%s_lb'%parameter, parameter, '%s_ub'%parameter,
-                  'fmin', 'rsq', 'numIter', 'flag']
+                  'fmin_lb', 'fmin', 'fmin_ub', 'rsq', 'numIter', 'flag']
     
     table.dropna(axis=0, inplace=True)
     grouped = table.groupby('variant_number')
@@ -144,12 +144,13 @@ def findVariantTable(table, parameter='dG', min_fraction_fit=0.25):
     # filter for nan, barcode, and fit
     variant_table.loc[:, 'numTests'] = grouped.count().loc[:, parameter]
     
-    fitFilteredTable = IMlibs.filterFitParameters(table)
+    fitFilteredTable = filterFunction(table)
     fitFilterGrouped = fitFilteredTable.groupby('variant_number')
     index = variant_table.loc[:, 'numTests'] > 0
+    
     variant_table.loc[index, 'fitFraction'] = (fitFilterGrouped.count().loc[index, parameter]/
                                            variant_table.loc[index, 'numTests'])
-    
+    variant_table.loc[index, 'fitFraction'].fillna(0)
     # then save parameters
     old_test_stats = grouped.median().loc[:, test_stats]
     old_test_stats.columns = test_stats_init

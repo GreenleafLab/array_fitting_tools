@@ -68,17 +68,21 @@ if __name__=="__main__":
         os.mkdir(figDirectory)
     
     # use only first columns of allCluster signal file
+    print "Loading all RNA signal..."
     allClusterSignal = fileFun.loadFile(args.all_cluster).iloc[:, 0]
     
     # laod whole binding Series
+    print "Loading series..."
     bindingSeries = fileFun.loadFile(args.binding_series)
 
     # make normalized binding series
+    print "Normalizing..."
     if not args.no_bounds:
         allClusterSignal = boundFluorescence(allClusterSignal, plot=True)   
     bindingSeriesNorm = np.divide(bindingSeries, np.vstack(allClusterSignal))
     
     # save
+    print "Saving..."
     bindingSeriesNorm.to_pickle(args.out_file + '.pkl')
     plt.savefig(os.path.join(figDirectory, 'bound_all_cluster_signal.pdf'))
     

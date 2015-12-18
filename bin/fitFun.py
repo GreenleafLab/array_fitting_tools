@@ -10,6 +10,7 @@ import itertools
 import seqfun
 import IMlibs
 import scipy.stats as st
+
 sns.set_style("white", {'xtick.major.size': 4,  'ytick.major.size': 4,
                         'xtick.minor.size': 2,  'ytick.minor.size': 2,
                         'lines.linewidth': 1})
@@ -74,7 +75,36 @@ class fittingParameters():
     
     def find_Kd_from_frac_bound_concentration(self, frac_bound, concentration):
         return concentration/float(frac_bound) - concentration
+
+def objectiveFunctionOffRates(params, times, data=None, weights=None):
+    """ Return fit value, residuals, or weighted residuals of off rate objective function. """
+    parvals = params.valuesdict()
+    fmax = parvals['fmax']
+    koff = parvals['koff']
+    fmin = parvals['fmin']
+    fracbound = fmin + (fmax - fmin)*np.exp(-koff*times)
+
+    if data is None:
+        return fracbound
+    elif weights is None:
+        return fracbound - data
+    else:
+        return (fracbound - data)*weights
     
+def objectiveFunctionOnRates(params, times, data=None, weights=None):
+    """ Return fit value, residuals, or weighted residuals of on rate objective function. """
+    parvals = params.valuesdict()
+    fmax = parvals['fmax']
+    koff = parvals['kobs']
+    fmin = parvals['fmin']
+    fracbound = fmin + fmax*(1 - np.exp(-koff*times));
+
+    if data is None:
+        return fracbound
+    elif weights is None:
+        return fracbound - data
+    else:
+        return (fracbound - data)*weights     
         
 def bindingCurveObjectiveFunction(params, concentrations, data=None, weights=None):
     """  Return fit value, residuals, or weighted residuals of a binding curve.
@@ -183,15 +213,28 @@ def findErrorBarsBindingCurve(subSeries):
     """ Return bootstrapped confidence intervals on columns of an input data matrix.
     
     Assuming rows represent replicate measurments, i.e. clusters. """
-    try:
-        # bootstrap medians 
-        eminus, eplus = np.asarray([np.abs(subSeries.loc[:, i].dropna().median() -
-                                           bootstrap.ci(subSeries.loc[:, i].dropna(),
-                                                        np.median, n_samples=1000))
-                                    for i in subSeries]).transpose()
-    except:
-        # if boostrapping fails, return NaN array
-        eminus, eplus = [np.ones(subSeries.shape[1])*np.nan]*2
+    eminus=[]
+    eplus = [] 
+    for i in subSeries:
+        vec = subSeries.loc[:, i].dropna()
+        success = True
+        if len(vec) > 1:
+            try:
+                bounds = bootstrap.ci(vec, np.median, n_samples=1000)
+            except IndexError:
+                success = False
+        else:
+            success = False
+            
+        if success:
+            eminus.append(vec.median() - bounds[0])
+            eplus.append(bounds[1] - vec.median())
+        else:
+            eminus.append(np.nan)
+            eplus.append(np.nan)
+    eminus = pd.Series(eminus, index=subSeries.columns)
+    eplus = pd.Series(eplus, index=subSeries.columns)
+
     return eminus, eplus
 
 def enforceFmaxDistribution(median_fluorescence, fmaxDist, verbose=None, cutoff=None):
@@ -248,7 +291,10 @@ def bootstrapCurves(x, subSeries, fitParameters, fmaxDist=None,
                                                fmaxDist, verbose=verbose)
     else:
         if verbose:
-            print "using enforced fmax because of user settings"
+            if enforce_fmax:
+                print "using enforced fmax because of user settings"
+            else:
+                print "not enforcing fmax because of user settings"
             
     if enforce_fmax and (fmaxDist is None):
         print ('Error: if you wish to enforce fmax, need to define "fmaxDist"\n'
@@ -384,114 +430,13 @@ def returnParamsFromResults(final_params, param_names=None):
         params.add(param, value=final_params.loc[param])
     return params
 
-def plotFitCurve(concentrations, subSeries, results,
-                          fitParameters, log_axis=None, func=None, use_default=None,
-                          fittype=None, errors=None, default_errors=None):
-    # default is to log axis
-    if log_axis is None:
-        log_axis = True
-        
-    # default is binding curve
-    if func is None:
-        func = bindingCurveObjectiveFunction
-    
-    if fittype is None:
-        fittype = 'binding'
-    
-    if use_default is None:
-        use_default = False
-
-    if default_errors is None:
-        default_errors = np.ones(len(concentrations))*np.nan
-
-    if len(subSeries.shape) == 1:
-        fluorescence = subSeries
-        use_default = True
-        numTests = np.array([1 for col in subSeries])
-    else:
-        fluorescence = subSeries.median()
-        numTests = np.array([len(subSeries.loc[:, col].dropna()) for col in subSeries])
-    
-    # option to use only default errors provdided for quicker runtime
-    if not use_default:
-        try:
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-                eminus, eplus = findErrorBarsBindingCurve(subSeries)
-        except:
-            use_default=True
-        if np.all(np.isnan(eminus)) or np.all(np.isnan(eplus)):
-            use_default=True
-            
-    if use_default:
-        eminus = eplus = default_errors/np.sqrt(numTests)
-    
-    # plot binding points
-    plt.figure(figsize=(2.5,2.3));
-    plt.errorbar(concentrations, fluorescence,
-                 yerr=[eminus, eplus], fmt='.', elinewidth=1,
-                 capsize=2, capthick=1, color='k', linewidth=1)
-    
-    # plot fit
-    if log_axis:
-        ax = plt.gca()
-        ax.set_xscale('log')
-        more_concentrations = np.logspace(np.log10(concentrations.min()/2),
-                                          np.log10(concentrations.max()*2),
-                                          100)
-    else:
-        more_concentrations = np.linspace(concentrations.min(),
-                                          concentrations.max(), 100)
-    param_names = fitParameters.columns.tolist()
-    params = returnParamsFromResults(results, param_names)
-    fit = func(params, more_concentrations)
-    plt.plot(more_concentrations, fit, 'r')
-
-    try:
-        # find upper bound
-        params_ub = Parameters()
-        if fittype == 'binding':
-            ub_vec = ['_ub', '_lb', '']
-            lb_vec = ['_lb', '_ub', '']
-        elif fittype == 'off':
-            ub_vec = ['_ub', '_lb', '_ub']
-            lb_vec = ['_lb', '_ub', '_lb']
-        elif fittype == 'on':
-            ub_vec = ['_ub', '_ub', '_ub']
-            lb_vec = ['_lb', '_lb', '_lb']
-
-        for param in ['%s%s'%(param, suffix) for param, suffix in
-                      itertools.izip(param_names, ub_vec)]:
-            name = param.split('_')[0]
-            params_ub.add(name, value=results.loc[param])
-        ub = func(params_ub, more_concentrations)
-    
-        # find lower bound
-        params_lb = Parameters()
-        for param in ['%s%s'%(param, suffix) for param, suffix in
-                      itertools.izip(param_names, lb_vec)]:
-            name = param.split('_')[0]
-            params_lb.add(name, value=results.loc[param])
-        lb = func(params_lb, more_concentrations)
-        
-        # plot upper and lower bounds
-        plt.fill_between(more_concentrations, lb, ub, color='0.5',
-                         label='95% conf int', alpha=0.5)
-    except:
-        pass
-    ax = plt.gca()
-    ax.tick_params(right='off', top='off')
-    ax.tick_params(which="minor", right='off', top='off')
-    ylim = ax.get_ylim()
-    plt.ylim(0, ylim[1])
-    plt.xlim(more_concentrations[[0, -1]])
-    if fittype=='binding':
-        plt.xlabel('concentration (nM)')
-    else:
-        plt.xlabel('time (s)')
-        plt.ticklabel_format(style='sci', axis='x', scilimits=(0,0))
-    plt.ylabel('normalized fluorescence')
-    plt.subplots_adjust(bottom=0.26, left=0.26, top=0.97)
+def returnParamsFromResultsBounds(final_params, param_names, ub_vec):
+    params_ub = Parameters()
+    for param in ['%s%s'%(param, suffix) for param, suffix in
+                  itertools.izip(param_names, ub_vec)]:
+        name = param.split('_')[0]
+        params_ub.add(name, value=final_params.loc[param])
+    return params_ub
 
 def errorPropagationKdFromKoffKobs(koff, kobs, c, sigma_koff, sigma_kobs):
     koff = koff.astype(float)

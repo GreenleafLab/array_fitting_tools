@@ -27,18 +27,23 @@ def findTileFilesInDirectory(dirPath, extensionList, excludedExtensionList=None)
     # from CPlibs
     dirList = os.listdir(dirPath)
 
-    filenameDict = {}
+    filenameDict = collections.defaultdict(list)
     for currFilename in dirList:
         if (filenameMatchesAListOfExtensions(currFilename,extensionList) and not
             filenameMatchesAListOfExtensions(currFilename,excludedExtensionList)):
             currTileNum = getTileNumberFromFilename(currFilename)
             if currTileNum != '':
-                filenameDict[currTileNum] = os.path.join(dirPath,currFilename)
+                filenameDict[currTileNum].append(os.path.join(dirPath,currFilename))
     if len(filenameDict) == 0:
         print '      NONE FOUND'
     else:
         for currTile,currFilename in filenameDict.items():
-            print '      found tile ' + currTile + ': "' + currFilename + '"'
+            if len(currFilename) == 1:
+                filenameDict[currTile] = currFilename[0]
+                print '      found tile ' + currTile + ': "' + currFilename[0] + '"'
+            elif len(currFilename) > 1:
+                filenameDict[currTile] = np.sort(currFilename)
+
     return filenameDict
 
 def getTileNumberFromFilename(inFilename):
@@ -99,19 +104,17 @@ def getFluorFileNamesOffrates(directories, tileNames):
     """
     return dict whose keys are tile numbers and entries are a list of CPfluor files by concentration
     """
-    filenameDict = {}
     
-    for tile in tileNames:
-        filenameDict[tile] = []
-        for i, directory in enumerate(directories):
-            try:
-                filenames = subprocess.check_output(('find %s -maxdepth 1 -name "*CPfluor" | '+
-                                                     'grep tile%s | sort')%(directory, tile),
-                                                 shell=True).split()
-                for filename in filenames: 
-                    filenameDict[tile].append(filename)
-            except:
-                pass
+    filenameDict = collections.defaultdict(list)
+    for directory in directories:
+        new_dict = (findTileFilesInDirectory(directory, ['CPfluor']))
+        for tile, filenames in new_dict.items():
+            filenameDict[tile].append(filenames)
+    
+    # make sure array is flat
+    for tile, filenames in filenameDict.items():
+        filenameDict[tile] = np.hstack(filenames)
+    
     
     # check time stamps
     timeStampDict = {}
@@ -175,6 +178,15 @@ def getReducedCPsignalFilename(signalFilesByTile, directory, suffix=None):
         postScript = '_reduced.CPseries.pkl'
     else:
         postScript = '_reduced_%s.CPseries.pkl'%suffix
+    startFile = os.path.basename(signalFilesByTile.values()[0])
+    noTileFile = startFile[:startFile.find('tile')] + startFile[startFile.find('tile')+8:]
+    return os.path.join(directory, os.path.splitext(noTileFile[:noTileFile.find('.pkl')])[0] + postScript)
+
+def getTileOutputFilename(signalFilesByTile, directory, suffix=None):
+    if suffix is None:
+        postScript = '_reduced.CPtiles.pkl'
+    else:
+        postScript = '_reduced_%s.CPtiles.pkl'%suffix
     startFile = os.path.basename(signalFilesByTile.values()[0])
     noTileFile = startFile[:startFile.find('tile')] + startFile[startFile.find('tile')+8:]
     return os.path.join(directory, os.path.splitext(noTileFile[:noTileFile.find('.pkl')])[0] + postScript)
@@ -313,15 +325,25 @@ def makeIndexFile(filteredCPseqFilenameDict, filterPos, outputFile):
     return
     
 
-def reduceCPseriesFiles(outputFiles, reducedOutputFile, indices=None):
+def reduceCPseriesFiles(outputFiles, reducedOutputFile, indices=None, tileOutputFile=None):
     # load all files in dict outputFiles
-    a = pd.concat([fileFun.loadFile(filename) for filename in outputFiles.values()])
+    allTiles = [fileFun.loadFile(filename) for filename in outputFiles.values()]
+    a = pd.concat(allTiles)
     
     if indices is None:    
         a.to_pickle(reducedOutputFile)
     else:
-        reduced = a.loc[indices]
-        reduced.to_pickle(reducedOutputFile)
+        a.loc[indices].to_pickle(reducedOutputFile)
+    
+    # find tile dict if tile output file is given
+    if tileOutputFile is not None:
+        tiles = pd.concat([pd.Series(index=s.index, data=tile)
+                           for s, tile in itertools.izip(allTiles, outputFiles.keys())])
+        if indices is None:
+            tiles.to_pickle(tileOutputFile)
+        else:
+            tiles.loc[indices].to_pickle(tileOutputFile)
+
     return
 
 def saveTimeDeltaDict(filename, timeDeltaDict):

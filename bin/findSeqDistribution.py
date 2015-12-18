@@ -160,7 +160,7 @@ def findSeqMap(libCharacterizationFile, cpSignalFile, uniqueBarcodesFile=None,
     consensus.sort('sequence', inplace=True)
 
     print "loading designed sequences..."
-    designed_library = IMlibs.loadLibraryCharacterization(libCharacterizationFile)
+    designed_library = fileFun.loadFile(libCharacterizationFile)
     
     # make library sequences unique
     designed_sequences, unique_indices = np.unique(designed_library['sequence'], return_index=True)
@@ -204,7 +204,6 @@ def findSeqMap(libCharacterizationFile, cpSignalFile, uniqueBarcodesFile=None,
     if mapToBarcode:
         identifyingColumn = 'clusterID'
         table = fileFun.loadFile(cpSignalFile)
-        table.index = table.loc[:, identifyingColumn]
         
         seqMap = pd.DataFrame(index=table.index, columns=cols)
         index = table.loc[:, barcodeCol].dropna()

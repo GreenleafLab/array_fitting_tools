@@ -14,6 +14,9 @@ def stripExtension(filename):
 
 def loadFile(filename):
     """ Find extension and return loaded file. """
+    if filename is None:
+        print "Error: No filename given!"
+        sys.exit()
     ext = os.path.splitext(filename)[-1]
     
     if ext == '.pkl':
@@ -36,6 +39,12 @@ def loadFile(filename):
     
     elif ext == '.CPvariant':
         return _loadCPvariant(filename)
+    
+    elif ext == '.times':
+        return np.loadtxt(filename)
+    
+    elif ext == '.libChar':
+        return pd.read_table(filename)
     else:
         print 'Extension %s not recognized. No file loaded.'%ext
     
@@ -47,7 +56,7 @@ def _loadCPseq(filename):
                                 'read2_seq', 'read2_quality',
                                 'index1_seq','index1_quality',
                                 'index2_seq', 'index2_quality'],
-                         index_col='clusterID')
+                         index_col=0)
 
 def _loadUniqueBarcodes(filename):
     """ Return unique barcodes file. """

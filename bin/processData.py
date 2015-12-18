@@ -73,7 +73,7 @@ print 'Finding CPfluor files in directories given in "%s"...'%args.map_CPfluors
 fluorDirsAll, fluorDirsSignal = IMlibs.loadMapFile(args.map_CPfluors)
 if args.rates:
     fluorNamesByTileDict, timeDeltaDict = IMlibs.getFluorFileNamesOffrates(fluorDirsSignal, tileList)
-    timeDeltaFile = os.path.join(args.output_dir, 'rates.timeDict.pkl')
+    timeDeltaFile = os.path.join(args.output_dir, 'rates.timeDict.p')
     IMlibs.saveTimeDeltaDict(timeDeltaFile, timeDeltaDict)
 else:
     fluorNamesByTileDict = IMlibs.getFluorFileNames(fluorDirsSignal, tileList)
@@ -94,7 +94,7 @@ if not os.path.exists(signalDirectory):
     os.mkdir(signalDirectory)
 if not os.path.exists(redSignalDirectory):
     os.mkdir(redSignalDirectory)
-    
+
 for directory, fluorDirs, outputFiles in itertools.izip([signalDirectory, redSignalDirectory],
                                              [fluorNamesByTileDict, fluorNamesByTileRedDict],
                                              [signalNamesByTileDict, redSignalNamesByTileDict]):
@@ -128,7 +128,7 @@ for directory, fluorDirs, outputFiles in itertools.izip([signalDirectory, redSig
 reducedSignalDirectory = args.output_dir
 reducedCPsignalFile = IMlibs.getReducedCPsignalFilename(signalNamesByTileDict, reducedSignalDirectory)
 reducedRedCPsignalFile = IMlibs.getReducedCPsignalFilename(redSignalNamesByTileDict, reducedSignalDirectory, 'red')
-
+tileOutputFile = IMlibs.getTileOutputFilename(signalNamesByTileDict, reducedSignalDirectory)
 # if file was given that has index of clusters to keep, use only these clusters
 
 fileWithIndexToKeep = args.clusters_to_keep_file
@@ -148,7 +148,12 @@ else:
     indices = fileFun.loadFile(fileWithIndexToKeep).index
 
 print 'Concatenating CPseries files...'
+alreadySavedTiles = False
 for outputFiles, reducedOutputFile in itertools.izip([signalNamesByTileDict, redSignalNamesByTileDict],
                                                      [reducedCPsignalFile, reducedRedCPsignalFile]):
     print '\tSaving to: %s'%reducedOutputFile
-    IMlibs.reduceCPseriesFiles(outputFiles, reducedOutputFile, indices)
+    if not alreadySavedTiles:
+        IMlibs.reduceCPseriesFiles(outputFiles, reducedOutputFile, indices, tileOutputFile)
+        alreadySavedTiles = True
+    else:
+        IMlibs.reduceCPseriesFiles(outputFiles, reducedOutputFile, indices)   

@@ -84,7 +84,7 @@ def getInitialFitParameters(concentrations):
 
 
 def splitAndFit(bindingSeries, concentrations, fitParameters, numCores,
-                index=None, change_params=None):
+                index=None, change_params=None, func=None):
     """ Given a table of binding curves, split and parallelize fit. """
     if index is None:
         index = bindingSeries.index
@@ -95,6 +95,7 @@ def splitAndFit(bindingSeries, concentrations, fitParameters, numCores,
     indicesSplit = [index[i::numCores] for i in range(numCores)]
     bindingSeriesSplit = [bindingSeries.loc[indices] for indices in indicesSplit]
     printBools = [True] + [False]*(numCores-1)
+
     print 'Fitting binding curves:'
     fits = (Parallel(n_jobs=numCores, verbose=10)
             (delayed(fitSetClusters)(concentrations, subBindingSeries,
@@ -104,7 +105,7 @@ def splitAndFit(bindingSeries, concentrations, fitParameters, numCores,
     return pd.concat(fits)
 
 def fitSetClusters(concentrations, subBindingSeries, fitParameters, print_bool=None,
-                   change_params=None):
+                   change_params=None, func=None):
     """ Fit a set of binding curves. """
     if print_bool is None: print_bool = True
 
@@ -120,11 +121,11 @@ def fitSetClusters(concentrations, subBindingSeries, fitParameters, print_bool=N
                 sys.stdout.flush()
         fluorescence = subBindingSeries.loc[idx]
         singles.append(perCluster(concentrations, fluorescence, fitParameters,
-                                  change_params=change_params))
+                                  change_params=change_params, func=func))
 
     return pd.concat(singles)
 
-def perCluster(concentrations, fluorescence, fitParameters, plot=None, change_params=None):
+def perCluster(concentrations, fluorescence, fitParameters, plot=None, change_params=None, func=None):
     """ Fit a single binding curve. """
     if plot is None:
         plot = False
@@ -138,15 +139,15 @@ def perCluster(concentrations, fluorescence, fitParameters, plot=None, change_pa
         index = np.isfinite(fluorescence)
         single = fitFun.fitSingleCurve(concentrations[index.values],
                                                        fluorescence.loc[index],
-                                                       fitParameters)
+                                                       fitParameters, func=func)
     except:
         print 'Error with %s'%fluorescence.name
         single = fitFun.fitSingleCurve(concentrations,
                                                        fluorescence,
                                                        fitParameters,
-                                                       do_not_fit=True)
+                                                       do_not_fit=True, func=func)
     if plot:
-        fitFun.plotFitCurve(concentrations, fluorescence, single, fitParameters) 
+        plotFun.plotFitCurve(concentrations, fluorescence, single, fitParameters, func=func) 
               
     return pd.DataFrame(columns=[fluorescence.name],
                         data=single).transpose()
@@ -154,7 +155,7 @@ def perCluster(concentrations, fluorescence, fitParameters, plot=None, change_pa
 
 # define functions
 def bindingSeriesByCluster(concentrations, bindingSeries, 
-                           numCores=None,  subset=None, fitParameters=None):
+                           numCores=None,  subset=None, fitParameters=None, func=None):
     """ Initialize fitting. """
     if subset is None:
         subset = False

@@ -6,9 +6,8 @@
 ftd=$1
 mf=$2
 od=$3
-lc=$4
-bar=$5
-f=$(echo $@ | awk '{for (i=6; i<=NF; i++) print $i}')
+an=$4
+f=$(echo $@ | awk '{for (i=5; i<=NF; i++) print $i}')
 
 set -e -o nounset
 # help
@@ -20,95 +19,130 @@ then
     (1) a directory of CPseq files,
     (2) a map file of CPfluor dirs,
     (3) an output directory,
-    (4) a library characterization file,
-    (5) a unique barcodes file,
-    (6) a list of filter names to fit."
+    (4) an annotated cluster file per chip
+    (5) a list of filter names to fit."
     echo "Example:"
     echo "run_all_offrates.sh \\
     ../seqData/tiles/filtered_tiles_indexed/ \\
     offRates/offrates.map \\
     offRates \\
-    ../../150311_library_v2/all_10expts.library_characterization.txt \\
-    ../../150608_barcode_mapping_lib2/tecto_lib2.150728.unique_barcodes \\
+    ../seqData/AG3EL_Bottom_filtered_anyRNA.CPannot.pkl \\ 
     anyRNA "
     exit
 fi
 
 # print command
-echo "run_all_offrates.sh $ftd $mf $od $lc $bar $f"
+echo ""
+echo "run_all_offrates.sh $ftd $mf $od $an $f"
+echo "start run at: "
+date
 
 # process data
-python -m processData -fs $ftd -mf $mf -od $od -fp $f -r
-output=$(find $od -maxdepth 1  -name "*CPsignal" -type f)
-
-# check success
-if [ $? -eq 0 -a -f $output ];
+output=$(find $od -maxdepth 1  -name "*reduced.CPseries.pkl" -type f)
+if [ -z $output ];
 then
-    echo "Successfully processed data"
+    echo ""
+    echo "python -m processData -fs $ftd -mf $mf -od $od -fp $f -cf $an -r"
+    python -m processData -fs $ftd -mf $mf -od $od -fp $f -cf $an -r    
+    output=$(find $od -maxdepth 1  -name "*reduced.CPseries.pkl" -type f)
+
+    # check success
+    if [ $? -eq 0 -a -f $output ];
+    then
+        echo "### Successfully processed data ###"
+    else
+        echo "!!! Error processing data !!!"
+        exit
+    fi
+    date
 else
-    echo "Error processing data"
-    exit
+    echo "--> reduced CPseries file exists: "$output
 fi
 
-basename=$(echo $output | awk '{print substr($1, 1, length($1)-9)}')
+basename=$(echo $output | awk '{print substr($1, 1, length($1)-13)}')
 
-# annotate data
-if [ -f $basename".CPannot.pkl" ];
+# normalize data
+extension="_normalized.CPseries.pkl"
+if [ -f $basename$extension ];
 then
-    echo "CPannot file exists: "$basename".CPannot.pkl"
+    echo "--> normalized CPseries file exists: "$basename$extension
 else
-    if [ -f $bar ];
-    then
-        echo "python -m findSeqDistribution -lc $lc -cs $basename".CPsignal.pkl" -bar $bar"
-        python -m findSeqDistribution -lc $lc -cs $basename".CPsignal.pkl" -bar $bar
-    else
-        echo "Warning! Unique barcodes file doesn't exist! Proceeding without it!"
-        echo "python -m findSeqDistribution -lc $lc -cs $basename".CPsignal.pkl""
-        python -m findSeqDistribution -lc $lc -cs $basename".CPsignal.pkl"
-    fi
+    echo ""
+    echo "python -m normalizeSeries -b "$basename".CPseries.pkl -a "$basename"_red.CPseries.pkl"
     
+    python -m normalizeSeries -b $basename.CPseries.pkl -a $basename"_red.CPseries.pkl"
     # check success
     if [ $? -eq 0 ]
     then
-        echo "Successfully annotated data"
+        echo "### Successfully normalized data ###"
     else
-        echo "Error annotating data"
+        echo "!!! Error normalizing data !!!"
         exit
     fi
+    date
+
 fi
 
+normbasename=$basename"_normalized"
+extension=".CPtimeseries.pkl"
 # bin the times
-if [ -f $basename".bindingSeries.pkl" ];
+if [ -f $normbasename$extension ];
 then
-    echo "Time series file exists: "$basename".bindingSeries.pkl"
+    echo "--> time series file exists: "$normbasename$extension
 else
-    echo "python -m binTimes -cs $basename".CPsignal.pkl" -td $od"/rates.timeDict.pkl""
-    python -m binTimes -cs $basename".CPsignal.pkl" -td $od"/rates.timeDict.pkl"
+    echo ""
+    echo "python -m binTimes -cs $normbasename.CPseries.pkl -td $od/rates.timeDict.p -t $basename.CPtiles.pkl"
+    python -m binTimes -cs $normbasename.CPseries.pkl -td $od/rates.timeDict.p -t $basename.CPtiles.pkl
     
     # check success
     if [ $? -eq 0 ]
     then
-        echo "Successfully binned times"
+        echo "### Successfully binned times ###"
     else
-        echo "Error binning times"
+        echo "!!! Error binning times !!!"
         exit
     fi
+    date
 fi
 
-# bin the times
-if [ -f $basename".CPresults" ];
+# fit single clusters
+extension=".CPfitted.pkl"
+if [ -f $normbasename$extension ];
 then
-    echo "Fit results file exists: "$basename".CPresults.pkl"
+    echo "--> fit results file exists: "$normbasename$extension
 else
-    echo "python -m fitOnOffRates -a $basename".CPannot.pkl" -t $basename".times.txt" -b $basename".bindingSeries.pkl" -n 20"
-    python -m fitOnOffRates -a $basename".CPannot.pkl" -t $basename".times.txt" -b $basename".bindingSeries.pkl" -n 20
+    echo ""
+    echo "python -m fitRatesPerCluster -cs $basename.CPseries.pkl -t $basename.CPtiles.pkl -td $od/rates.timeDict.p  -n 20"
+    python -m fitRatesPerCluster -cs $normbasename.CPseries.pkl -t $basename.CPtiles.pkl -td $od/rates.timeDict.p -n 20 
     
     # check success
     if [ $? -eq 0 ]
     then
-        echo "Successfully fit off rates"
+        echo "### Successfully fit off rates ###"
     else
-        echo "Error fitting off rates"
+        echo "!!! Error fitting off rates !!!"
         exit
     fi
+    date
+fi
+
+# bootsrap
+extension=".CPvariant"
+if [ -f $normbasename$extension ];
+then
+    echo "--> per variant file exists: "$normbasename$extension
+else
+    echo ""
+    echo "python -m bootStrapFitFile -cf $normbasename.CPfitted.pkl -a $an -n 20 -p koff"
+    python -m bootStrapFitFile -cf $normbasename.CPfitted.pkl -a $an -n 20 -p koff
+    
+    # check success
+    if [ $? -eq 0 ]
+    then
+        echo "### Successfully fit off rates ###"
+    else
+        echo "!!! Error fitting off rates !!!"
+        exit
+    fi
+    date
 fi

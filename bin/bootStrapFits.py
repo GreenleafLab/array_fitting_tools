@@ -99,7 +99,7 @@ def perVariant(concentrations, subSeries, fitParameters, fmaxDistObject, initial
                                               verbose=plot)
     # plot
     if plot:
-        fitFun.plotFitCurve(concentrations,
+        plotFun.plotFitCurve(concentrations,
                                      subSeries,
                                      results,
                                      fitParameters,

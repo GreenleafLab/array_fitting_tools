@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 import sys
 import os
+import warnings
 import argparse
 import itertools  
 import seaborn as sns
@@ -29,6 +30,120 @@ def fix_axes(ax):
     ax.tick_params(which='minor', top='off', right='off')
     ax.tick_params(top='off', right='off', pad=2, labelsize=12, labelcolor='k')
     return ax
+
+def plotDataErrorbars(concentrations, subSeries, ax, use_default,
+                      default_errors=None, capsize=2):
+    """ Find errorbars on set of cluster fluorescence and plot. """
+
+    if default_errors is None:
+        default_errors = np.ones(len(concentrations))*np.nan
+
+    if len(subSeries.shape) == 1:
+        fluorescence = subSeries
+        use_default = True
+        numTests = np.array([1 for col in subSeries])
+    else:
+        fluorescence = subSeries.median()
+        numTests = np.array([len(subSeries.loc[:, col].dropna()) for col in subSeries])
+    
+    # option to use only default errors provdided for quicker runtime
+    if not use_default:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            eminus, eplus = fitFun.findErrorBarsBindingCurve(subSeries)
+
+    
+    # assumes that if defaults are given, then they represent std. Divide by numTests
+    # to get stderr
+    if use_default:
+        eminus = eplus = default_errors/np.sqrt(numTests)
+    
+    # plot binding points
+    ax.errorbar(concentrations, fluorescence,
+                 yerr=[eminus, eplus], fmt='.', elinewidth=1,
+                 capsize=capsize, capthick=1, color='k', linewidth=1)
+
+def plotFitCurve(concentrations, subSeries, results, fitParameters=None, ax=None,
+                 log_axis=True, func=fitFun.bindingCurveObjectiveFunction, use_default=False,
+                          fittype='binding', default_errors=None):
+    if fittype == 'binding':
+        param_names = ['fmax', 'dG', 'fmin']
+        ub_vec = ['_ub', '_lb', '']
+        lb_vec = ['_lb', '_ub', '']
+        capsize = 2
+        log_axis = True
+        xlabel = 'concentration (nM)'
+    elif fittype == 'off':
+        param_names = ['fmax', 'koff', 'fmin']
+        ub_vec = ['_ub', '_lb', '_ub']
+        lb_vec = ['_lb', '_ub', '_lb']
+        capsize = 0
+        log_axis = False
+        xlabel = 'time (s)'
+    elif fittype == 'on':
+        ub_vec = ['_ub', '_ub', '_ub']
+        lb_vec = ['_lb', '_lb', '_lb']
+        capsize = 2
+        log_axis=False
+        xlabel = 'time (s)'
+        param_names = ['fmax', 'kobs', 'fmin']
+    # allow custom definition of param_names with fitParameters 
+    if fitParameters is not None:
+        param_names = fitParameters.columns.tolist()
+            
+    if ax is None:
+        fig = plt.figure(figsize=(3, 3))
+        ax = fig.add_subplot(111)
+        
+    # plot the data
+    plotDataErrorbars(concentrations, subSeries, ax, use_default=use_default,
+                      default_errors=default_errors, capsize=capsize)
+    
+    # plot fit
+    if log_axis:
+        ax = plt.gca()
+        ax.set_xscale('log')
+        more_concentrations = np.logspace(np.log10(concentrations.min()/2),
+                                          np.log10(concentrations.max()*2),
+                                          100)
+    else:
+        more_concentrations = np.linspace(concentrations.min(),
+                                          concentrations.max(), 100)
+    params = fitFun.returnParamsFromResults(results, param_names)
+    fit = func(params, more_concentrations)
+    plt.plot(more_concentrations, fit, 'r')
+    
+    all_param_names = [['%s%s'%(param, s) for param, s in itertools.izip(param_names, vec)]
+                       for vec in [ub_vec, lb_vec]]
+    
+    if np.all(np.in1d(all_param_names, results.index.tolist())):
+
+        # plot bound fits
+        # find upper bound
+        params_ub = fitFun.returnParamsFromResultsBounds(results, param_names, ub_vec)
+        ub = func(params_ub, more_concentrations)
+    
+        # find lower bound
+        params_lb = fitFun.returnParamsFromResultsBounds(results, param_names, lb_vec)
+        lb = func(params_lb, more_concentrations)
+        
+        # plot upper and lower bounds
+        plt.fill_between(more_concentrations, lb, ub, color='0.5',
+                         label='95% conf int', alpha=0.5)
+
+
+    # format
+    ylim = ax.get_ylim()
+    plt.ylim(0, ylim[1])
+    plt.xlim(more_concentrations[[0, -1]])
+    plt.xlabel(xlabel)
+    if not log_axis:
+        plt.ticklabel_format(style='sci', axis='x', scilimits=(0,0))
+    plt.ylabel('normalized fluorescence')
+    fix_axes(ax)
+    plt.tight_layout()
+    return
+
 
 
 def plotFmaxVsKd(variant_table, cutoff, subset=None, kde_plot=False,
@@ -603,6 +718,38 @@ def plotDeltaAbsFluorescence(bindingSeries, bindingSeriesBackground, concentrati
                  fontsize=12)
     pass
 
+def plotManyExperiments(deltaGs, expts=None, xlim=[-13 -5]):
+    if expts is None:
+        expts = deltaGs.columns.tolist()
+
+    numgrid = len(expts)-1
+    fig = plt.figure(figsize=(10,10))
+    gs = gridspec.GridSpec(numgrid, numgrid)
+    for i in np.arange(0, len(expts)):
+        for j in np.arange(0, i):
+            index = deltaGs.loc[:, expts].dropna().index
+            x = deltaGs.loc[index, expts[j]]
+            y = deltaGs.loc[index, expts[i]]
+            ax = fig.add_subplot(gs[i-1, j])
+            ax.hexbin(deltaGs.loc[:, expts[j]], deltaGs.loc[:, expts[i]],
+                     cmap='Spectral_r', mincnt=1)
+            ax.set_ylim(xlim)
+            ax.set_xlim(xlim)
+            ax.plot(xlim, xlim, 'k')
+            fix_axes(ax)
+            if i==numgrid:
+                ax.set_xlabel(expts[j])
+            else:
+                ax.set_xticklabels([])
+            if j==0:
+                ax.set_ylabel(expts[i])
+            else:
+                ax.set_yticklabels([])
+            ax.annotate('R2=%4.2f'%st.pearsonr(x, y)[0]**2, xy=(0.95, 0.05),
+                 xycoords='axes fraction',
+                 horizontalalignment='right', verticalalignment='bottom',
+                 fontsize=11)
+
 def plotReplicatesKd(variant_tables,
                    log=None, vmax=None, scatter=None, enforce_numTests=None):
 
@@ -710,9 +857,9 @@ def plotResidualsKd(variant_tables):
     plt.tight_layout()
     
 def plotNumberOfTilesFitRates(tileMap, finalTimes):
-    fig = plt.figure(figsize=(5,3));
+    fig = plt.figure(figsize=(5,7));
     gs = gridspec.GridSpec(1, 2, wspace=0.05, width_ratios=[2,1],
-                           bottom=0.25, left=0.15)
+                           bottom=0.15, left=0.15, top=0.95, right=0.95)
     ax = fig.add_subplot(gs[0,0])
     sns.heatmap(tileMap.transpose(),  linewidths=.5, cbar=False, ax=ax,
                 yticklabels=finalTimes.astype(int).values)
@@ -721,9 +868,11 @@ def plotNumberOfTilesFitRates(tileMap, finalTimes):
     
     color = sns.cubehelix_palette()[-1]      
     ax = fig.add_subplot(gs[0,1])
-    ax.barh(np.arange(tileMap.shape[1]), tileMap.sum(axis=0)[::-1],
+    ax.barh(np.arange(tileMap.shape[1]), (tileMap>0).sum(axis=0)[::-1],
             facecolor=color, edgecolor='w', linewidth=0.5,
             )
+    ax.set_ylim(0, tileMap.shape[1]-1)
+    ax.set_xlim(0, tileMap.shape[0])
     ax.set_yticks(np.arange(tileMap.shape[1])+0.5)
     ax.set_yticklabels([])
     majorLocator   = mpl.ticker.MultipleLocator(5)
@@ -733,12 +882,28 @@ def plotNumberOfTilesFitRates(tileMap, finalTimes):
     ax.xaxis.set_major_formatter(majorFormatter)
     ax.xaxis.set_minor_locator(minorLocator)
     ax.set_xlabel('# tiles')
-    ax.tick_params(top='off', right='off', left='off')
+    fix_axes(ax)
     sns.despine()
+
+
+def plotTimeDeltaDist(time_deltas, min_time_delta):
+    fig = plt.figure(figsize=(3,3))
+    ax = fig.add_subplot(111)
+    binwidth = 0.1 # seconds
+    binstart = min_time_delta-binwidth*10
+    binend = min_time_delta+binwidth*100
+    bins = np.arange(binstart, binend+binwidth, binwidth)
+    sns.distplot(time_deltas, ax=ax, bins=bins, kde=False, hist_kws={'histtype':'stepfilled'})
+    ax.axvline(min_time_delta, color='k', linewidth=1, linestyle=':' )
+    plt.xlabel('time deltas (s)')
+    plt.xlim(binstart, binend)
+    fix_axes(ax)
+    plt.tight_layout()
+    
 
 def plotTimesScatter(timeMap, finalTimes):
     color = sns.cubehelix_palette()[-1]      
-    fig = plt.figure(figsize=(3,3));
+    fig = plt.figure(figsize=(5,3));
     for i, time in enumerate(finalTimes):
         y = timeMap.iloc[:, i].dropna()
         x = i + st.norm.rvs(loc=0, scale=0.1, size=len(y))
@@ -764,9 +929,10 @@ def plotTimesScatter(timeMap, finalTimes):
     ax.xaxis.set_major_locator(majorLocator)
     ax.xaxis.set_major_formatter(majorFormatter)
     ax.xaxis.set_minor_locator(minorLocator)    
+    fix_axes(ax)
 
 def plotTimesOriginal(timeDelta):
-    plt.figure(figsize=(4, 4))
+    plt.figure(figsize=(5, 3))
     colors = sns.color_palette('Paired', 10) + sns.color_palette('Paired', 10)
     tiles = np.sort(timeDelta.keys())
     for i, tile in enumerate(tiles):
@@ -790,7 +956,7 @@ def plotTimesOriginal(timeDelta):
     ax = plt.gca()
     ax.tick_params(top='off', right='off')
     plt.tight_layout()
-
+    fix_axes(ax)
     
 def plotReplicates(variant_tables, cutoff=None, relative=None, variant=None,
                    log=None, vmax=None):

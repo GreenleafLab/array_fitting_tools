@@ -20,10 +20,9 @@ then
     (1) a directory of CPseq files,
     (2) a map file of CPfluor dirs,
     (3) an output directory,
-    (4) a library characterization file,
-    (5) a unique barcodes file,
-    (6) file of concentrations
-    (7) a list of filter names to fit."
+    (4) the CPannot file generated per chip
+    (5) file of concentrations
+    (6) a list of filter names to fit."
     echo "Example:"
     echo "run_all_binding_curves.sh \\
     ../seqData/tiles/filtered_tiles_indexed/ \\
@@ -94,7 +93,7 @@ then
     echo "--> CPfitted file exists: "$normbasename$extension
 else
     echo ""
-    echo "python -m singleClusterFits -cs $basename".CPsignal.pkl" -c $c -n 20"
+    echo "python -m singleClusterFits -cs $basename".CPseries.pkl" -c $c -n 20"
     python -m singleClusterFits -b $normbasename".CPseries.pkl" -c $c -n 20
 
     # check success
@@ -116,8 +115,8 @@ then
     echo "--> fmax dist file exists: "$normbasename$extension
 else
     echo ""
-    echo "python -m findFmaxDist -t $normbasename.CPfitted.pkl -a $an -c $c"
-    python -m findFmaxDist -t $normbasename.CPfitted.pkl -a $an -c $c
+    echo "python -m findFmaxDist -cf $normbasename.CPfitted.pkl -a $an -c $c"
+    python -m findFmaxDist -cf $normbasename.CPfitted.pkl -a $an -c $c
     # check success
     if [ $? -eq 0 ]
     then
