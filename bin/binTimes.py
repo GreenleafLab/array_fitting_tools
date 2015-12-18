@@ -80,8 +80,8 @@ if __name__ == '__main__':
     # make array of universal times: i.e. bins in which you will test binding
     # default time delta is the minimum time delta within a single tile
     if args.timeDelta is None:
-        min_time_delta = np.min([(np.array(times[1:]) - np.array(times[:-1])).min()
-                                 for times in timeDelta.values()])
+        min_time_delta = np.min([(np.sort(times[1:]) - np.sort(times[:-1])).min()
+                                 for times in timeDelta.values() if len(times) > 0])
     else:
         min_time_delta = args.timeDelta 
     
