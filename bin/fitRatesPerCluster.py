@@ -123,9 +123,9 @@ def splitAndFit(bindingSeries, timeDict, tileSeries, fitParameters, numCores,
     return pd.concat(fits)
 
 def getMeanTimes(timeDict):
-    binwidth = np.min([(np.sort(times)[1:] - np.sort(times)[:-1]).min() for times in timeDict.values()])
-    binstart = np.min([np.min(times) for times in timeDict.values()])
-    binend = np.max([np.max(times) for times in timeDict.values()])
+    binwidth = np.min([(np.sort(times)[1:] - np.sort(times)[:-1]).min() for times in timeDict.values() if len(times)>0])
+    binstart = np.min([np.min(times) for times in timeDict.values() if len(times)>0])
+    binend = np.max([np.max(times) for times in timeDict.values() if len(times)>0])
     return np.arange(binstart, binend+binwidth, binwidth)
 
 ##### SCRIPT #####
