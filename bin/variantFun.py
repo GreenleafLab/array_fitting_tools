@@ -1,10 +1,8 @@
-from lmfit import minimize, Parameters, report_fit, conf_interval
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 from scikits.bootstrap import bootstrap
-from statsmodels.stats.weightstats import DescrStatsW
 import warnings
 import itertools
 import os
@@ -42,33 +40,61 @@ def loadFile(directory, ext):
 
 
 def initialize(directory):
-    """ Find the variant table, binding series, and cluster table in directory. """
+    """ Find and load all files of normal structure in directory.
+    
+    Returns loaded file if extension was found, None otherwise.
+    
+    Parameters:
+    -----------
+    directory : the directory containing the CPvariant, CPseries, CPfitted, etc files.
+    
+    Outputs:
+    --------
+    variant_table : per variant fits. 'normalized.CPvariant' in directory.
+    binding_series : normalized binding series. 'normalized.CPseries.pkl'
+    cluster_table : single cluster fits. 'CPfitted.pkl' in directory
+    annotated_clusters : annotated clusters. 'CPannot.pkl' in directory
+    time_series : binned time series. 'CPtimeseries.pkl' in directory.
+    tiles: clusters annotated with tile info. 'CPtiles.pkl' in directory.
+    times : single time vector giving corresponding time for time_series columns. 'times' in directory
+    concentrations : vector of concentrations for a binding series. 'concentrations.txt' in directory/../
+    timedict : dict of times with keys = tiles.
+    """
     variant_table = loadFile(directory, 'normalized.CPvariant')
     binding_series = loadFile(directory, 'normalized.CPseries.pkl')
     cluster_table = loadFile(directory, 'normalized.CPfitted.pkl')
-    annotated_clusters = loadFile(os.path.join(directory, '../../seqData/'),'CPannot.pkl')
+    annotated_clusters = loadFile(directory,'CPannot.pkl')
     time_series = loadFile(directory, 'CPtimeseries.pkl')
+    tiles = loadFile(directory, 'CPtiles.pkl')
 
     # x
     times = loadFile(directory, 'times')
     concentrations = loadFile(os.path.join(directory, '..'), 'concentrations.txt')
     timedict = loadFile(directory, 'timeDict.p')
         
-    return variant_table, binding_series, cluster_table, annotated_clusters, time_series, times, concentrations, timedict
+    return variant_table, binding_series, cluster_table, annotated_clusters, time_series, tiles, times, concentrations, timedict
 
 
 
 class perVariant():
-    def __init__(self, variant_table, annotated_clusters, binding_series, x, cluster_table=None):
+    def __init__(self, variant_table, annotated_clusters, binding_series, x, cluster_table=None, tiles=None):
         self.binding_series = binding_series
         self.annotated_clusters = annotated_clusters.loc[:, 'variant_number']
         self.variant_table = variant_table
         self.x = x
         self.cluster_table = cluster_table
+        self.tiles = tiles
     
     def getVariantBindingSeries(self,variant ):
+        """ Return binding series for clusters of a particular variant. """
         index = self.annotated_clusters == variant
         return self.binding_series.loc[index]
+    
+    def getVariantTiles(self, variant):
+        """ Return tile numbers for clusters of a particular variant. """
+        index = self.annotated_clusters == variant 
+        return self.tiles.loc[index]
+    
     
     def plotBindingCurve(self, variant):
         subSeries = self.getVariantBindingSeries(variant)
@@ -108,12 +134,15 @@ class perVariant():
             ax.annotate('\n'.join(annotationText), xy=(.25, .95), xycoords='axes fraction',
                         horizontalalignment='left', verticalalignment='top')
             
-    def plotClusterOffrates(self, variant, cluster=None, idx=None):
+    def plotClusterOffrates(self, variant=None, cluster=None, idx=None):
         times = self.x
         
         if cluster is not None:
-            fluorescence = subSeries.loc[cluster]
+            fluorescence = self.binding_series.loc[cluster]
         else:
+            if variant is None:
+                print 'Error: need to define either variant or cluster!'
+                return
             subSeries = self.getVariantBindingSeries(variant)
             if idx is not None:
                 fluorescence = subSeries.iloc[idx]
@@ -121,12 +150,16 @@ class perVariant():
                 fluorescence = subSeries.iloc[0]
         cluster = fluorescence.name
         cluster_table = self.cluster_table
+        if cluster in cluster_table.index:
+            results = cluster_table.loc[cluster]
+        else:
+            results = pd.Series(index=cluster_table.columns)
         
         fig = plt.figure(figsize=(4,3))
         ax = fig.add_subplot(111)
         
         fitParameters = pd.DataFrame(columns=['fmax', 'koff', 'fmin'])
-        plotFun.plotFitCurve(times, fluorescence, cluster_table.loc[cluster], fitParameters, ax=ax,
+        plotFun.plotFitCurve(times, fluorescence, results, fitParameters, ax=ax,
                  log_axis=False, func=fitFun.objectiveFunctionOffRates, fittype='off')
 
     def plotClusterBinding(self, variant, cluster=None, idx=None):
@@ -179,6 +212,24 @@ class perVariant():
         plt.xlabel(xlabel)
         fix_axes(plt.gca())
         plt.tight_layout()
+        
+    def plotFractionFit(self):
+        variant_table = self.variant_table
+        pvalue_cutoff = 0.01
+        # plot
+        binwidth=0.01
+        bins=np.arange(0,1+binwidth, binwidth)
+        plt.figure(figsize=(4, 3.5))
+        plt.hist(variant_table.loc[variant_table.pvalue <= pvalue_cutoff].fitFraction.values,
+                 alpha=0.5, color='red', bins=bins, label='passing cutoff')
+        plt.hist(variant_table.loc[variant_table.pvalue > pvalue_cutoff].fitFraction.values,
+                 alpha=0.5, color='grey', bins=bins,  label='fails cutoff')
+        plt.ylabel('number of variants')
+        plt.xlabel('fraction fit')
+        plt.legend(loc='upper left')
+        plt.tight_layout()
+        fix_axes(plt.gca())    
+
         
         
 class perFlow():
