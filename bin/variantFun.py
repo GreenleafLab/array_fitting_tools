@@ -313,9 +313,6 @@ class compareFlow():
         x = self.expt1.variant_table.loc[self.all_variants, param]
         y = self.expt2.variant_table.loc[self.all_variants, param]
         
-        if log_axes:
-            x = np.log10(x)
-            y = np.log10(y)
         
         if filter_pvalue:
             variants = self.getGoodVariants()
@@ -323,7 +320,12 @@ class compareFlow():
             y = y.loc[variants]
             
         plt.figure(figsize=(4,4))
-        plt.hexbin(x, y, cmap='Spectral_r', mincnt=1)
+        if log_axes:
+            plt.hexbin(x, y, cmap='Spectral_r', mincnt=1, y_scale='log', x_scale='log')
+        else:
+            plt.hexbin(x, y, cmap='Spectral_r', mincnt=1,)
+        plt.xlabel('expt1 %s'%param)
+        plt.xlabel('expt1 %s'%param)
         fix_axes(plt.gca())
         
     
