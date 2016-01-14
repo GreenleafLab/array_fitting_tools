@@ -72,6 +72,7 @@ def initialize(directory):
     times : single time vector giving corresponding time for time_series columns. 'times' in directory
     concentrations : vector of concentrations for a binding series. 'concentrations.txt' in directory/../
     timedict : dict of times with keys = tiles. 'timeDict.p' in directory.
+
     """
     variant_table = loadFile(directory, 'normalized.CPvariant')
     binding_series = loadFile(directory, 'normalized.CPseries.pkl')
@@ -86,14 +87,6 @@ def initialize(directory):
     timedict = loadFile(directory, 'timeDict.p')
         
     return variant_table, binding_series, cluster_table, annotated_clusters, time_series, tiles, times, concentrations, timedict
-
-def convertOldFittingFiles(directory, new_directory):
-    variant_table_file = findFile(directory, 'CPvariant')
-    if variant_table_file is not None:
-        os.sys('cp %s %s'%(variant_table_file,
-                           os.path.join(new_directory, os.path.basename(variant_table_file))))
-    binding_series_file = findFile(directory, 'bindingSeries.pkl')
-
 
 def errorPropagateAverage(sigmas, weights):
     sigma_out = np.sqrt(np.sum([np.power(weight*sigma/weights.sum(), 2)
@@ -133,7 +126,9 @@ def weightedAverageAll(values, weights, index=None):
     
 
 class perVariant():
+
     def __init__(self, variant_table=None, annotated_clusters=None, binding_series=None, x=None, cluster_table=None, tiles=None):
+
         self.binding_series = binding_series
         if annotated_clusters is not None:
             self.annotated_clusters = annotated_clusters.loc[:, 'variant_number']
@@ -142,7 +137,7 @@ class perVariant():
         self.cluster_table = cluster_table
         self.tiles = tiles
 
-    
+
     def getVariantBindingSeries(self,variant ):
         """ Return binding series for clusters of a particular variant. """
         index = self.annotated_clusters == variant
@@ -193,6 +188,7 @@ class perVariant():
                         horizontalalignment='left', verticalalignment='top')
             
     def plotClusterOffrates(self, cluster=None, variant=None, idx=None):
+
         times = self.x
         
         if cluster is not None:
@@ -388,7 +384,9 @@ class perVariant():
             results.loc[index, ['weights1', 'weights2']]   = weights.loc[index].values
             results.loc[index, 'numTests'] = weightedAverageAll(numTests, weights, index=index)
         return results
-        
+
+
+
         
 class perFlow():
     def __init__(self, affinityData, offRate):
@@ -791,6 +789,7 @@ def _makebootstrappeddist(vec, n_samples=1000, statfunction=np.median):
     for index in indices:
         bootstrapped_vec.append(statfunction(vec.loc[index]))
     return np.array(bootstrapped_vec)
+
                             
 def returnFractionGroupedBy(mat, param_in, param_out):
     """ Given data matrix, return mean of param_out binned by param_in. """
