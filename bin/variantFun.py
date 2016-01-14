@@ -285,8 +285,9 @@ class perVariant():
         fix_axes(plt.gca())
     
     def plotErrorByNumberofMeasurements(self, xlim=[0,50] ):
+        """ Plot how the ci changes with number of measruements. """
         variant_table = self.variant_table
-        variant_table.loc[:, 'ci_width'] = variant_table.dG_ub - variant_table.dG_lb
+        variant_table.loc[:, 'ci_width'] = (variant_table.dG_ub - variant_table.dG_lb)/2
         x, y, yerr = returnFractionGroupedBy(variant_table, 'numTests', 'ci_width')
         fig = plt.figure(figsize=(4,3))
         ax = fig.add_subplot(111)
@@ -307,8 +308,9 @@ class perVariant():
         plt.tight_layout()
 
     def plotErrorByDeltaGBin(self, binedges=np.linspace(-12, -6, 20) ):
+        """ Plot how the ci changes with dG. """
         variant_table = self.variant_table
-        variant_table.loc[:, 'ci_width'] = variant_table.dG_ub - variant_table.dG_lb
+        variant_table.loc[:, 'ci_width'] = (variant_table.dG_ub - variant_table.dG_lb)/2
         variant_table.loc[:, 'dG_bin'] = np.digitize(variant_table.dG, binedges)
         
         x, y, yerr = returnFractionGroupedBy(variant_table, 'dG_bin', 'ci_width')
@@ -329,6 +331,7 @@ class perVariant():
         plt.tight_layout()
     
     def getResultsFromVariantTable(self):
+        """ return results format for only one variant table. """
         parameters = fitFun.fittingParameters()
         dummy_variant_table = self.variant_table.copy()
         dummy_variant_table.numTests = 0
@@ -517,16 +520,33 @@ class compareFlow():
                                self.expt2.variant_table.pvalue < 0.01], axis=1)).all(axis=1)
         return variants
 
-    def compareParam(self, param, log_axes=False, filter_pvalue=False, variants=None):
-        x = self.expt1.variant_table.loc[:, param]
-        y = self.expt2.variant_table.loc[:, param]
+    def compareParam(self, param, log_axes=False, filter_pvalue=False, min_n=0,
+                     max_dG=None, variants=None):
+        """ Compare measured values for two experiments.
+        
+        Can apply different cutoffs. Default is to use all values that are not
+        NaN in both. Can also apply 'pvalue' cutoff, min_n measurements, maxdG,
+        or you can provide list of variants in which case these override any cutoffs.
+        
+        """
+        x = self.expt1.variant_table.loc[self.all_variants, param]
+        y = self.expt2.variant_table.loc[self.all_variants, param]
         
         
         if variants is None:
+            variants = np.logical_not(pd.concat([x, y], axis=1).isnull()).all(axis=1)
             if filter_pvalue:
-                variants = self.getGoodVariants()
-            else:
-                variants = self.all_variants
+                variants = variants&self.getGoodVariants()
+
+            if min_n > 0:
+                variants = (variants&
+                            pd.concat([self.expt1.variant_table.numTests >= min_n,
+                                      self.expt2.variant_table.numTests >= min_n], axis=1).all(axis=1))
+            if max_dG is not None:
+                variants = (variants&
+                            pd.concat([self.expt1.variant_table.dG <= max_dG,
+                                       self.expt2.variant_table.dG <= max_dG], axis=1).all(axis=1))
+        
         x = x.loc[variants]
         y = y.loc[variants]
             
@@ -554,7 +574,7 @@ class compareFlow():
             plt.plot(xlim, xlim-np.mean(x)+np.mean(y), 'r:', linewidth=1)
         
         
-        return slope
+        return slope, r_value**2
     
     def findCombinedTable(self, offset=None, binedges=None):
         """ Combine two variant tables with some relevant info to reproducibilty. """
