@@ -136,7 +136,7 @@ def findVariantTable(table, parameter='dG', min_fraction_fit=0.25, filterFunctio
                   '%s_lb'%parameter, parameter, '%s_ub'%parameter,
                   'fmin_lb', 'fmin', 'fmin_ub', 'rsq', 'numIter', 'flag']
     
-    table.dropna(axis=0, inplace=True)
+    table.dropna(subset=['variant_number'], axis=0, inplace=True)
     grouped = table.groupby('variant_number')
     variant_table = pd.DataFrame(index=grouped.first().index,
                                  columns=test_stats_init+other_cols)
