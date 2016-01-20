@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from matplotlib import gridspec
 import seaborn as sns
 from scikits.bootstrap import bootstrap
 import warnings
@@ -16,7 +17,7 @@ import matplotlib as mpl
 from plotFun import fix_axes
 sns.set_style("white", {'xtick.major.size': 4,  'ytick.major.size': 4,
                         'xtick.minor.size': 2,  'ytick.minor.size': 2,
-                        'lines.linewidth': 1})
+                        'lines.linewidth': 1, 'axes.linewidth':1, 'text.color': 'k', 'axes.labelcolor': 'k'})
 
 def findExtInList(directory, ext):
     if os.path.isdir(directory):
@@ -63,6 +64,8 @@ def initialize(directory):
     
     Outputs:
     --------
+    variant_table, binding_series, cluster_table, annotated_clusters, time_series, tiles, times, concentrations, timedict
+    
     variant_table : per variant fits. 'normalized.CPvariant' in directory.
     binding_series : normalized binding series. 'normalized.CPseries.pkl'
     cluster_table : single cluster fits. 'CPfitted.pkl' in directory
@@ -284,51 +287,80 @@ class perVariant():
         plt.tight_layout()
         fix_axes(plt.gca())
     
-    def plotErrorByNumberofMeasurements(self, xlim=[0,50] ):
+    def plotErrorByNumberofMeasurements(self, xlim=[1,100], ylim=[0,1], ax=None, color='r', marker='>'):
         """ Plot how the ci changes with number of measruements. """
         variant_table = self.variant_table
         variant_table.loc[:, 'ci_width'] = (variant_table.dG_ub - variant_table.dG_lb)/2
         x, y, yerr = returnFractionGroupedBy(variant_table, 'numTests', 'ci_width')
-        fig = plt.figure(figsize=(4,3))
-        ax = fig.add_subplot(111)
-        ax.scatter(x, y, c='r', edgecolor='k', linewidth=0.5, marker='>')
-        ax.errorbar(x, y, yerr, fmt='-', elinewidth=1, capsize=2, capthick=1,
-                    color='r', linestyle='', ecolor='k', linewidth=1)
-        majorLocator   = mpl.ticker.MultipleLocator(5)
-        majorFormatter = mpl.ticker.FormatStrFormatter('%d')
-        minorLocator   = mpl.ticker.MultipleLocator(1)
-        ax.xaxis.set_major_locator(majorLocator)
-        ax.xaxis.set_major_formatter(majorFormatter)
-        ax.xaxis.set_minor_locator(minorLocator)
+        if ax is None:
+            fig = plt.figure(figsize=(4,3))
+            ax = fig.add_subplot(111)
+            plt.subplots_adjust(left=0.15, bottom=0.15, top=0.95, right=0.95)
+        ax.scatter(x, y, c=color, edgecolor='k', linewidth=0.5, marker=marker, s=5)
+        ax.errorbar(x, y, yerr, fmt='-', elinewidth=1, capsize=0, capthick=1,
+                    color=color, linestyle='', ecolor='k', linewidth=0.5)
         plt.xlabel('number of measurements')
-        plt.ylabel('width of confidence interval')
-        plt.ylim(0, 1)
+        plt.ylabel('average error (kcal/mol)')
         plt.xlim(xlim)
+        plt.ylim(ylim)
         fix_axes(ax)
-        plt.tight_layout()
 
-    def plotErrorByDeltaGBin(self, binedges=np.linspace(-12, -6, 20) ):
+
+    def plotErrorByDeltaGBin(self, binedges=np.arange(-13, -6.1, 0.1), ylim=[0,0.8], min_n=5, xlim=None, ax=None, color='r', marker='>'):
         """ Plot how the ci changes with dG. """
         variant_table = self.variant_table
+
         variant_table.loc[:, 'ci_width'] = (variant_table.dG_ub - variant_table.dG_lb)/2
         variant_table.loc[:, 'dG_bin'] = np.digitize(variant_table.dG, binedges)
         
-        x, y, yerr = returnFractionGroupedBy(variant_table, 'dG_bin', 'ci_width')
-        fig = plt.figure(figsize=(4,3))
-        ax = fig.add_subplot(111)
-        ax.scatter(x, y, c='r', edgecolor='k', linewidth=0.5, marker='>')
-        ax.errorbar(x, y, yerr, fmt='-', elinewidth=1, capsize=2, capthick=1,
-                    color='r', linestyle='', ecolor='k', linewidth=1)
+        x, y, yerr = returnFractionGroupedBy(variant_table.loc[variant_table.numTests >= min_n], 'dG_bin', 'ci_width')
+        binstart = binedges[0]
+        binwidth = (binedges[1] - binedges[0])
+        bincenters = np.arange(binedges[0]-binwidth*.5, binedges[-1]+2*binwidth, binwidth)
+        x = bincenters[np.array(x).astype(int)]
+        if ax is None:
+            fig = plt.figure(figsize=(3,3))
+            ax = fig.add_subplot(111)
+            plt.subplots_adjust(left=0.2, bottom=0.2, top=0.95, right=0.95)
+        ax.scatter(x, y, c=color, edgecolor='k', linewidth=0.5, marker=marker, s=20)
+        ax.errorbar(x, y, yerr, fmt='-', elinewidth=1, capsize=0, capthick=1,
+                    color=color, linestyle='', ecolor='k', linewidth=0.5)
 
 
-        plt.xlabel('$\Delta G$')
-        plt.ylabel('width of confidence interval')
-        plt.ylim(0, 1)
-        plt.xticks(np.arange(1, len(binedges)+1)-0.5, ['%.2f'%i for i in binedges], rotation=90)
-        plt.xlim([-0.5, len(binedges)+0.5])
-        
+        plt.xlabel('$\Delta G$ (kcal/mol)')
+        plt.ylabel('average error (kcal/mol)')
+        plt.ylim(ylim)
+        plt.xlim(xlim)
         fix_axes(ax)
-        plt.tight_layout()
+
+
+    def plotNumberOfMeasurments(self, xlim=[1,100], ax=None):
+        """ Plot how the ci changes with dG. """
+        variant_table = self.variant_table
+        if ax is None:
+            fig = plt.figure(figsize=(4,3))
+            ax = fig.add_subplot(111)
+            plt.subplots_adjust(left=0.15, bottom=0.15, top=0.95, right=0.95)
+        sns.distplot(variant_table.numTests, bins=np.arange(*xlim), kde=False, hist_kws={'histtype':'stepfilled', 'linewidth':1}, color='0.5')
+        plt.xlabel('number of measurements')
+        plt.ylabel('number of variants')
+        plt.xlim(xlim)
+        fix_axes(ax)
+
+    def plotBothErrorAndHistogram(self, xlim=[1,100], ylim_ci=None, plot_n=None, marker='>'):
+        fig = plt.figure(figsize=(4,4))
+        gs = gridspec.GridSpec(2,1, left=0.2, bottom=0.15)
+    
+        ax1 = fig.add_subplot(gs[0])
+        self.plotNumberOfMeasurments(xlim=xlim, ax=ax1)
+        
+        ax2 = fig.add_subplot(gs[1])
+        self.plotErrorByNumberofMeasurements(xlim=xlim, ylim=ylim_ci, marker=marker, ax=ax2)
+        
+        if plot_n is not None:
+            for ax in [ax1, ax2]:
+                ax.axvline(plot_n, color='k', linewidth=0.5)
+        
     
     def getResultsFromVariantTable(self):
         """ return results format for only one variant table. """
@@ -816,6 +848,8 @@ def returnFractionGroupedBy(mat, param_in, param_out):
     grouped = mat.groupby(param_in)[param_out]
     y = grouped.mean()
     x = y.index.tolist()
-    yerr = np.array([np.abs(bootstrap.ci(group, method='pi', n_samples=100) - y.loc[name])
-                     for name, group in grouped]).transpose()
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        yerr = np.array([np.abs(bootstrap.ci(group, method='pi', n_samples=100) - y.loc[name])
+                         for name, group in grouped]).transpose()
     return x, y, yerr   
