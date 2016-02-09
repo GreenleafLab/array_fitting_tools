@@ -205,6 +205,15 @@ def findSeqMap(libCharacterizationFile, cpSignalFile, uniqueBarcodesFile=None,
         identifyingColumn = 'clusterID'
         table = fileFun.loadFile(cpSignalFile)
         
+        # make sure table has unique indices
+        n_clusters = len(table)
+        n_unique_clusters = len(np.unique(table.index.tolist()))
+        if n_unique_clusters != n_clusters:
+            print ('CPseq file given has redudant indices. '
+                   'Reducing from %d clusters to %d clusters.')%(n_clusters, n_unique_clusters)
+            table = table.groupby(level=0).first()
+        
+        # now map variants to cluster based on barcodes
         seqMap = pd.DataFrame(index=table.index, columns=cols)
         index = table.loc[:, barcodeCol].dropna()
         seqMap.loc[index.index, cols] = barcodeMap.loc[index, cols].values
@@ -257,12 +266,11 @@ if __name__ == '__main__':
         outFile = os.path.splitext(
             cpSignalFile[:cpSignalFile.find('.pkl')])[0]
     
-    
-    seqMap = findSeqMap(args.library_characterization, args.cpseq,
-                  uniqueBarcodesFile=args.unique_barcodes,
-                      reverseComplement=not args.noReverseComplement,
-                      seqCol=args.seqCol,
-                      barcodeCol=args.barcodeCol)
+    seqMap = findSeqMap(libCharacterizationFile, cpSignalFile,
+                  uniqueBarcodesFile=uniqueBarcodesFile,
+                      reverseComplement=reverseComplement,
+                      seqCol=seqCol,
+                      barcodeCol=barcodeCol)
 
 
     seqMap.to_pickle(outFile + '.CPannot.pkl')
