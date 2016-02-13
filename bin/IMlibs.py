@@ -39,13 +39,19 @@ def findTileFilesInDirectory(dirPath, extensionList, excludedExtensionList=None)
     else:
         for currTile,currFilename in filenameDict.items():
             if len(currFilename) == 1:
-                filenameDict[currTile] = currFilename[0]
                 print '      found tile ' + currTile + ': "' + currFilename[0] + '"'
+                filenameDict[currTile] = currFilename[0]
             elif len(currFilename) > 1:
                 filenameDict[currTile] = np.sort(currFilename)
 
     return filenameDict
 
+def addIndexToDir(perTileDict, index=None):
+    d = collections.defaultdict(list)
+    for key, values in perTileDict.items():
+        d[key] = pd.Series(values, index=index)
+    return d
+    
 def getTileNumberFromFilename(inFilename):
     # from CPlibs
     (path,filename) = os.path.split(inFilename) #split the file into parts
@@ -74,7 +80,7 @@ def loadMapFile(mapFilename):
         num_dirs = len(remainder)
         directories = [os.path.join(root_dir, line.strip()) for line in remainder]
 
-    return red_dir, np.array(directories)
+    return pd.Series(red_dir), pd.Series(directories, index=np.arange(len(directories))+1)
 
 def makeSignalFileName(directory, fluor_filename):
     return os.path.join(directory, '%s.signal'%os.path.splitext(os.path.basename(fluor_filename))[0])
@@ -82,11 +88,15 @@ def makeSignalFileName(directory, fluor_filename):
 def getFluorFileNames(directories, tileNames):
     """ Return dict with keys tile numbers and entries list of CPfluor files."""
     d = collections.defaultdict(list)
-    for directory in directories:
-        new_dict = (findTileFilesInDirectory(directory, ['CPfluor']))
+    for idx, directory in directories.iteritems():
+        new_dict = addIndexToDir((findTileFilesInDirectory(directory, ['CPfluor'])), index=[idx])
         for tile, filenames in new_dict.items():
             d[tile].append(filenames)
-    return d  
+    # consolidate tiles
+    newdict = {}
+    for tile, files in d.items():
+        newdict[tile] = pd.concat(files)
+    return newdict 
 
 def parseTimeStampFromFilename(CPfluorFilename):
     try: 
@@ -106,21 +116,20 @@ def getFluorFileNamesOffrates(directories, tileNames):
     """
     
     filenameDict = collections.defaultdict(list)
-    for directory in directories:
-        new_dict = (findTileFilesInDirectory(directory, ['CPfluor']))
+    for idx, directory in directories.iteritems():
+        new_dict = addIndexToDir((findTileFilesInDirectory(directory, ['CPfluor'])))
         for tile, filenames in new_dict.items():
             filenameDict[tile].append(filenames)
     
-    # make sure array is flat
+    # make sure is flat
     for tile, filenames in filenameDict.items():
-        filenameDict[tile] = np.hstack(filenames)
-    
+        filenameDict[tile] = pd.concat(filenameDict[tile])
     
     # check time stamps
     timeStampDict = {}
     for tile in tileNames:
         timeStampDict[tile] = [parseTimeStampFromFilename(filename)
-                               for filename in filenameDict[tile]]
+                               for idx, filename in filenameDict[tile].iteritems()]
     allTimeStamps = []
     for times in timeStampDict.values():
         for time in times:
@@ -258,30 +267,18 @@ def makeCPseriesFile(cpseriesfilename, fluorFiles):
     signal_file_exists = [False]*len(fluorFiles)
     
     # find signal for each fluor file
-    for i, filename in enumerate(fluorFiles):
+    for i, (idx, filename) in enumerate(fluorFiles.iteritems()):
         if os.path.exists(filename):
             signal_file_exists[i] = True
-            signals.append(getSignalFromCPFluor(filename))
+            signals.append(pd.Series(getSignalFromCPFluor(filename), name=idx))
     
     # check any were made
     if not np.any(signal_file_exists):
         print 'Error: no CPfluor files found! Are directories in map file correct?'
         return
     
-    # concantenate signal files
-    col_names = np.arange(len(fluorFiles))
-    success_cols_names = [i for i in col_names if signal_file_exists[i]]
-    signal = pd.concat(signals, axis=1, keys=success_cols_names).astype(float)
-
-    # fill in those that were not successfully made
-    if not np.all(signal_file_exists):
-        for i in col_names:
-            if not signal_file_exists[i]:
-                signal.loc[:, i] = np.nan
-        # reorder
-        signal = signal.loc[:, col_names]
-    
     # save
+    signal = pd.concat(signals, axis=1)
     signal.to_pickle(cpseriesfilename)
     return
     
