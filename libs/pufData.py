@@ -17,7 +17,7 @@ sns.set_style("white", {'xtick.major.size': 4,  'ytick.major.size': 4,
                         'axes.color':'k'})
 
 class perVariant():
-    """ Class to store data from tecto experiment and plot tecto-specific plots.
+    """ Class to store data from puf project experiment and plot puf-project-specific plots.
     
     Parameters:
     -----------
