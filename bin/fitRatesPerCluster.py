@@ -1,9 +1,6 @@
 #!/usr/bin/env python
 """ Fit on or off rates.
 
-Using the binned times & binding series from binTimes.py,
-bootstraps the medians to fit the on or off rates.
-
 Sarah Denny """
 
 ##### IMPORT #####
@@ -51,8 +48,10 @@ group.add_argument('-n', '--numCores', default=20, type=int, metavar="N",
                    help='number of cores. default = 20')
 group.add_argument('--subset',action="store_true", default=False,
                     help='if flagged, will only do a subset of the data for test purposes')
-
- 
+group.add_argument('--pb_correct',default = 1, type=float, metavar="N",
+                    help='use this value for photobleaching amount per image')
+group.add_argument('-id', '--image_n_dict', metavar="imageNDict.p",
+                   help='file containining the per-tile image number to use for pb correction')
 
 def getInitialParameters(times, fittype=None):
     """ Get standard set of fit parameters across all variants depending on fittype."""
@@ -97,16 +96,27 @@ def getInitialParameters(times, fittype=None):
 
     return fitParameters
 
+def findDefaultImageNs(timeDict):
+    imageNDict = {}
+    for tile, times in  timeDict.items():
+        imageNDict[tile] = np.arange(len(times))
+    return imageNDict
+
 def splitAndFit(bindingSeries, timeDict, tileSeries, fitParameters, numCores,
-                index=None, change_params=None, func=None):
+                index=None, change_params=None, func=None, bleach_fraction=None,
+                imageNDict=None):
     """ Given a table, split by tile and fit. """
     if index is None:
         index = bindingSeries.index
     
+    if imageNDict is None:
+        imageNDict = findDefaultImageNs(timeDict)
+
     # split into parts
     print 'Splitting clusters into %d groups:'%numCores
     tiles = timeDict.keys()
     bindingSeriesSplit = {}
+
     for tile in tiles:
         mat = bindingSeries.loc[index].loc[tileSeries.loc[index]==tile].dropna(axis=0, thresh=5).copy()
         if len(mat) > 0:
@@ -117,13 +127,16 @@ def splitAndFit(bindingSeries, timeDict, tileSeries, fitParameters, numCores,
     print 'Fitting binding curves:'
     fits = (Parallel(n_jobs=numCores, verbose=10)
             (delayed(singleClusterFits.fitSetClusters)
-             (np.array(timeDict[tile]), bindingSeriesSplit[tile], fitParameters, printBools[i], change_params, func)
+             (np.array(timeDict[tile]), bindingSeriesSplit[tile], fitParameters,
+              printBools[i], change_params, func, kwargs={'bleach_fraction':bleach_fraction,
+                                                          'image_ns':imageNDict[tile]})
              for i, tile in enumerate(bindingSeriesSplit.keys())))
 
     return pd.concat(fits)
 
 def getMeanTimes(timeDict):
-    binwidth = np.min([(np.sort(times)[1:] - np.sort(times)[:-1]).min() for times in timeDict.values() if len(times)>0])
+    binwidth = np.min([(np.sort(times)[1:] - np.sort(times)[:-1]).min()
+        for times in timeDict.values() if len(times)>1])
     binstart = np.min([np.min(times) for times in timeDict.values() if len(times)>0])
     binend = np.max([np.max(times) for times in timeDict.values() if len(times)>0])
     return np.arange(binstart, binend+binwidth, binwidth)
@@ -138,12 +151,13 @@ if __name__ == '__main__':
     bindingSeriesFile = args.cpseries
     fittype = args.fittype
     numCores = args.numCores
+    bleach_fraction = args.pb_correct
+    imageNFile = args.image_n_dict
     
     # find out file
     if outFile is None:
         outFile = fileFun.stripExtension(bindingSeriesFile)
         
-    # depending on fittype, use one of two provided objective functions
     if fittype == 'off':
         func = objectiveFunctionOffRates
     elif fittype == 'on':
@@ -159,15 +173,22 @@ if __name__ == '__main__':
     bindingSeries = fileFun.loadFile(bindingSeriesFile)
     timeDict = fileFun.loadFile(timeDeltaFile)
     tileSeries = fileFun.loadFile(tileFile)
-    
+    if imageNFile is not None:
+        imageNDict = fileFun.loadFile(imageNFile)
+    else:
+        imageNDict = None
     # find fitParameters
     mean_times = getMeanTimes(timeDict)
     fitParameters = getInitialParameters(mean_times,
                                          fittype=fittype)
     # fit gamm distribution for last binding point
-    fitParameters.loc['initial', 'fmin'] = (
-        findFmaxDist.fitGammaDistribution(bindingSeries.iloc[:, -1].dropna(), plot=True, set_offset=0).loc['mean'])
-    
+    if fittype=="off":
+        fitParameters.loc['initial', 'fmin'] = (
+            findFmaxDist.fitGammaDistribution(bindingSeries.iloc[:, -1].dropna(), plot=True, set_offset=0).loc['mean'])
+    else:
+        fitParameters.loc['initial', 'fmin'] = (
+            findFmaxDist.fitGammaDistribution(bindingSeries.iloc[:, 0].dropna(), plot=True, set_offset=0).loc['mean'])
+      
     # subset if option is given
     if args.subset:
         num = 5E3
@@ -175,10 +196,10 @@ if __name__ == '__main__':
         outFile = outFile + '_subset'
     else:
         index = bindingSeries.index
-
+    
     # fit single clusters
     cluster_data = splitAndFit(bindingSeries, timeDict, tileSeries, fitParameters, numCores,
-                index=index, change_params=True, func=func)
+                index=index, change_params=True, func=func, bleach_fraction=bleach_fraction, imageNDict=imageNDict)
     cluster_data.to_pickle(outFile+'.CPfitted.pkl')
 
 
