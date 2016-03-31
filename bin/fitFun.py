@@ -76,41 +76,122 @@ class fittingParameters():
     def find_Kd_from_frac_bound_concentration(self, frac_bound, concentration):
         return concentration/float(frac_bound) - concentration
 
-def objectiveFunctionOffRates(params, times, data=None, weights=None):
+def objectiveFunctionOffRates(params, times, data=None, weights=None, index=None, bleach_fraction=1, image_ns=None):
     """ Return fit value, residuals, or weighted residuals of off rate objective function. """
+    if index is None:
+        index = np.ones(len(times)).astype(bool)
+    if image_ns is None:
+        image_ns = np.arange(len(times))
+        
     parvals = params.valuesdict()
     fmax = parvals['fmax']
     koff = parvals['koff']
     fmin = parvals['fmin']
-    fracbound = fmin + (fmax - fmin)*np.exp(-koff*times)
+    fracbound = (fmin +
+                 (fmax - fmin)*np.exp(-koff*times)*
+                 np.power(bleach_fraction,image_ns))
 
+    # return fit value of data is not given
     if data is None:
-        return fracbound
-    elif weights is None:
-        return fracbound - data
-    else:
-        return (fracbound - data)*weights
+        return fracbound[index]
     
-def objectiveFunctionOnRates(params, times, data=None, weights=None):
+    # return residuals if data is given
+    elif weights is None:
+        return (fracbound - data)[index]
+    
+    # return weighted residuals if data is given
+    else:
+        return ((fracbound - data)*weights)[index]  
+    
+def objectiveFunctionOffRatesPb(params, times, data=None, weights=None, index=None):
+    """ Return fit value, residuals, or weighted residuals of off rate objective function. """
+    if index is None:
+        index = np.ones(len(times)).astype(bool)
+        
+    parvals = params.valuesdict()
+    fmax = parvals['fmax']
+    koff = parvals['koff']
+    fmin = parvals['fmin']
+    # hard code this in
+    bleach_fraction_per_image = 0.985
+
+    fracbound = (fmin +
+                 (fmax - fmin)*np.exp(-koff*times)*
+                 np.power(bleach_fraction_per_image,image_ns))
+
+
+    # return fit value of data is not given
+    if data is None:
+        return fracbound[index]
+    
+    # return residuals if data is given
+    elif weights is None:
+        return (fracbound - data)[index]
+    
+    # return weighted residuals if data is given
+    else:
+        return ((fracbound - data)*weights)[index]  
+    
+def objectiveFunctionOffRatesPhotobleaching(params, times, data=None, weights=None, index=None):
+    """ Return fit value, residuals, or weighted residuals of off rate objective function. """
+    if index is None:
+        index = np.ones(len(times)).astype(bool)
+        
+    parvals = params.valuesdict()
+    fmax = parvals['fmax']
+    koff = parvals['koff']
+    fmin = parvals['fmin']
+    # hard code this in
+    bleach_fraction_per_image = 0.985
+    #image_ns = np.hstack([np.arange(2), np.arange(2, 40, 2)])  # for an experiment where first three and then every other image was used
+    image_ns = np.arange(len(times)) # for an experiment where every image was used
+    fracbound = (fmin +
+                 (fmax - fmin)*np.exp(-koff*times)*
+                 np.power(bleach_fraction_per_image,image_ns))
+
+
+    # return fit value of data is not given
+    if data is None:
+        return fracbound[index]
+    
+    # return residuals if data is given
+    elif weights is None:
+        return (fracbound - data)[index]
+    
+    # return weighted residuals if data is given
+    else:
+        return ((fracbound - data)*weights)[index]  
+    
+def objectiveFunctionOnRates(params, times, data=None, weights=None, index=None):
     """ Return fit value, residuals, or weighted residuals of on rate objective function. """
+    if index is None:
+        index = np.ones(len(times)).astype(bool)
+        
     parvals = params.valuesdict()
     fmax = parvals['fmax']
     koff = parvals['kobs']
     fmin = parvals['fmin']
     fracbound = fmin + fmax*(1 - np.exp(-koff*times));
 
+    # return fit value of data is not given
     if data is None:
-        return fracbound
+        return fracbound[index]
+    
+    # return residuals if data is given
     elif weights is None:
-        return fracbound - data
+        return (fracbound - data)[index]
+    
+    # return weighted residuals if data is given
     else:
-        return (fracbound - data)*weights     
+        return ((fracbound - data)*weights)[index]  
         
-def bindingCurveObjectiveFunction(params, concentrations, data=None, weights=None):
+def bindingCurveObjectiveFunction(params, concentrations, data=None, weights=None, index=None):
     """  Return fit value, residuals, or weighted residuals of a binding curve.
     
     Hill coefficient 1. """
-
+    if index is None:
+        index = np.ones(len(concentrations)).astype(bool)
+        
     parameters = fittingParameters()
     
     parvals = params.valuesdict()
@@ -123,41 +204,19 @@ def bindingCurveObjectiveFunction(params, concentrations, data=None, weights=Non
     
     # return fit value of data is not given
     if data is None:
-        return fracbound
+        return fracbound[index]
     
     # return residuals if data is given
     elif weights is None:
-        return fracbound - data
+        return (fracbound - data)[index]
     
     # return weighted residuals if data is given
     else:
-        return (fracbound - data)*weights
-    
-def fitSingleCurve(x, fluorescence, fitParameters, func=None,
-                          errors=None, plot=None, log_axis=None, do_not_fit=None):
-    """ Fit an objective function to data, weighted by errors. """
-    if do_not_fit is None:
-        do_not_fit = False # i.e. if you don't want to actually fit but still want to return a value
-    if plot is None:
-        plot = False
-    if log_axis is None:
-        log_axis = True
-    if func is None:
-        func = bindingCurveObjectiveFunction
-    
-    # fit parameters
-    param_names = fitParameters.columns.tolist()
-    
-    # initiate output structure  
-    index = (param_names + ['%s_stde'%param for param in param_names] +
-             ['rsq', 'exit_flag', 'rmse'])
-    final_params = pd.Series(index=index)
+        return ((fracbound - data)*weights)[index]
 
-    # return here if you don't want to actually fit
-    if do_not_fit:
-        final_params.loc['exit_flag'] = -1
-        return final_params
-    
+def convertFitParametersToParams(fitParameters):
+    """ Return lmfit params structure starting with descriptive dataframe. """
+    param_names = fitParameters.columns.tolist()
     # store fit parameters in class for fitting
     params = Parameters()
     for param in param_names:
@@ -169,6 +228,35 @@ def fitSingleCurve(x, fluorescence, fitParameters, func=None,
                    min = fitParameters.loc['lowerbound', param],
                    max = fitParameters.loc['upperbound', param],
                    vary= vary)
+    return params
+
+def fitSingleCurve(x, fluorescence, fitParameters, func=None,
+                          errors=None, plot=None, log_axis=None, do_not_fit=None, kwargs=None):
+    """ Fit an objective function to data, weighted by errors. """
+    if do_not_fit is None:
+        do_not_fit = False # i.e. if you don't want to actually fit but still want to return a value
+    if plot is None:
+        plot = False
+    if log_axis is None:
+        log_axis = True
+    if func is None:
+        func = bindingCurveObjectiveFunction
+    if kwargs is None:
+        kwargs = {}
+    
+    # fit parameters
+    params = convertFitParametersToParams(fitParameters)
+    param_names = fitParameters.columns.tolist()
+    
+    # initiate output structure  
+    index = (param_names + ['%s_stde'%param for param in param_names] +
+             ['rsq', 'exit_flag', 'rmse'])
+    final_params = pd.Series(index=index)
+
+    # return here if you don't want to actually fit
+    if do_not_fit:
+        final_params.loc['exit_flag'] = -1
+        return final_params
     
     # weighted fit if errors are given
     if errors is not None:
@@ -182,16 +270,14 @@ def fitSingleCurve(x, fluorescence, fitParameters, func=None,
     
     # make sure fluorescence doesn't have NaN terms
     index = np.array(np.isfinite(fluorescence))
-    x = x[index]
-    fluorescence = fluorescence[index]
-    if weights is not None:
-        weights = weights[index]
-    
+    kwargs.update({'data':fluorescence, 'weights':weights, 'index':index}) 
+
     # do the fit
     results = minimize(func, params,
                        args=(x,),
-                       kws={'data':fluorescence, 'weights':weights},
+                       kws=kwargs,
                        xtol=1E-6, ftol=1E-6, maxfev=10000)
+
     
     # find rqs
     ss_total = np.sum((fluorescence - fluorescence.mean())**2)
