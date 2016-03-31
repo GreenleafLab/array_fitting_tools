@@ -112,8 +112,8 @@ then
     echo "--> fit results file exists: "$normbasename$extension
 else
     echo ""
-    echo "python -m fitRatesPerCluster -cs $basename.CPseries.pkl -t $basename.CPtiles.pkl -td $od/rates.timeDict.p  -n 20"
-    python -m fitRatesPerCluster -cs $normbasename.CPseries.pkl -t $basename.CPtiles.pkl -td $od/rates.timeDict.p -n 20 
+    echo "python -m fitRatesPerCluster -cs $normbasename.CPseries.pkl -t $basename.CPtiles.pkl -td $od/rates.timeDict.p  -n 20 --pb_correct"
+    python -m fitRatesPerCluster -cs $normbasename.CPseries.pkl -t $basename.CPtiles.pkl -td $od/rates.timeDict.p -n 20 --pb_correct
     
     # check success
     if [ $? -eq 0 ]

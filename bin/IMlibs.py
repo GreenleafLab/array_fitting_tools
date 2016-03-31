@@ -337,6 +337,7 @@ def reduceCPseriesFiles(outputFiles, reducedOutputFile, indices=None, tileOutput
     if tileOutputFile is not None:
         tiles = pd.concat([pd.Series(index=s.index, data=tile)
                            for s, tile in itertools.izip(allTiles, outputFiles.keys())])
+        tiles = tiles.groupby(level=0).first()
         if indices is None:
             tiles.to_pickle(tileOutputFile)
         else:

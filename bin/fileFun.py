@@ -73,7 +73,7 @@ def _loadTextFile(filename):
     try:
         a = np.loadtxt(filename)
     except ValueError:
-        a  = np.loadtxt(filename, fmt='%s')
+        a  = np.loadtxt(filename, dtype=str)
     return a
 
 def _loadPickle(filename):
