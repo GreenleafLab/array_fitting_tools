@@ -28,7 +28,7 @@ import seqfun
 
 def fix_axes(ax):
     ax.tick_params(which='minor', top='off', right='off')
-    ax.tick_params(top='off', right='off', pad=2, labelsize=12, labelcolor='k')
+    ax.tick_params(top='off', right='off', pad=2, labelsize=10, labelcolor='k')
     return ax
 
 def plotDataErrorbars(concentrations, subSeries, ax, use_default,
@@ -65,7 +65,9 @@ def plotDataErrorbars(concentrations, subSeries, ax, use_default,
 
 def plotFitCurve(concentrations, subSeries, results, fitParameters=None, ax=None,
                  log_axis=True, func=fitFun.bindingCurveObjectiveFunction, use_default=False,
-                          fittype='binding', default_errors=None):
+                          fittype='binding', default_errors=None, kwargs=None):
+    if kwargs is None:
+        kwargs = {}
     if fittype == 'binding':
         param_names = ['fmax', 'dG', 'fmin']
         ub_vec = ['_ub', '_lb', '']
@@ -110,7 +112,7 @@ def plotFitCurve(concentrations, subSeries, results, fitParameters=None, ax=None
         more_concentrations = np.linspace(concentrations.min(),
                                           concentrations.max(), 100)
     params = fitFun.returnParamsFromResults(results, param_names)
-    fit = func(params, more_concentrations)
+    fit = func(params, more_concentrations, **kwargs)
     plt.plot(more_concentrations, fit, 'r')
     
     all_param_names = [['%s%s'%(param, s) for param, s in itertools.izip(param_names, vec)]
