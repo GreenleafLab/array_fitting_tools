@@ -29,6 +29,7 @@ import fileFun
 import fitFun
 from fitFun import fittingParameters
 import findFmaxDist
+import plotFun
 ### MAIN ###
 
 ################ Parse input parameters ################
@@ -105,7 +106,7 @@ def splitAndFit(bindingSeries, concentrations, fitParameters, numCores,
     return pd.concat(fits)
 
 def fitSetClusters(concentrations, subBindingSeries, fitParameters, print_bool=None,
-                   change_params=None, func=None):
+                   change_params=None, func=None, kwargs=None):
     """ Fit a set of binding curves. """
     if print_bool is None: print_bool = True
 
@@ -121,11 +122,12 @@ def fitSetClusters(concentrations, subBindingSeries, fitParameters, print_bool=N
                 sys.stdout.flush()
         fluorescence = subBindingSeries.loc[idx]
         singles.append(perCluster(concentrations, fluorescence, fitParameters,
-                                  change_params=change_params, func=func))
+                                  change_params=change_params, func=func, kwargs=kwargs))
 
     return pd.concat(singles)
 
-def perCluster(concentrations, fluorescence, fitParameters, plot=None, change_params=None, func=None):
+def perCluster(concentrations, fluorescence, fitParameters, plot=None, change_params=None, func=None,
+               fittype=None, kwargs=None, verbose=False):
     """ Fit a single binding curve. """
     if plot is None:
         plot = False
@@ -136,18 +138,24 @@ def perCluster(concentrations, fluorescence, fitParameters, plot=None, change_pa
             a, b = np.percentile(fluorescence.dropna(), [0, 100])
             fitParameters = fitParameters.copy()
             fitParameters.loc['initial', 'fmax'] = b
-        index = np.isfinite(fluorescence)
-        single = fitFun.fitSingleCurve(concentrations[index.values],
-                                                       fluorescence.loc[index],
-                                                       fitParameters, func=func)
-    except:
+        #index = np.isfinite(fluorescence)
+        fluorescence = fluorescence[:len(concentrations)]
+        single = fitFun.fitSingleCurve(concentrations,
+                                                       fluorescence,
+                                                       fitParameters, func=func, kwargs=kwargs)
+    except IndexError as e:
+        if verbose: print e
         print 'Error with %s'%fluorescence.name
         single = fitFun.fitSingleCurve(concentrations,
                                                        fluorescence,
                                                        fitParameters,
                                                        do_not_fit=True, func=func)
     if plot:
-        plotFun.plotFitCurve(concentrations, fluorescence, single, fitParameters, func=func) 
+        if fittype == 'off':
+            plotFun.plotFitCurve(concentrations, fluorescence, single, fitParameters,
+                                 log_axis=False, func=fitFun.objectiveFunctionOffRates, fittype='off', kwargs=kwargs)
+        else:
+            plotFun.plotFitCurve(concentrations, fluorescence, single, fitParameters, func=func, kwargs=kwargs) 
               
     return pd.DataFrame(columns=[fluorescence.name],
                         data=single).transpose()
@@ -165,8 +173,10 @@ def bindingSeriesByCluster(concentrations, bindingSeries,
         fitParameters = getInitialFitParameters(concentrations)
         
     # change fmin initial
+    initial_fluorescence = bindingSeries.sort([0]).dropna().iloc[::100, 0]
+    print "Fitting fmin initial..."
     fitParameters.loc['initial', 'fmin'] = findFmaxDist.fitGammaDistribution(
-        bindingSeries.iloc[:, 0].dropna(), plot=True, set_offset=0).loc['mean']
+        initial_fluorescence, plot=True, set_offset=0).loc['mean']
 
     # sort by fluorescence in null_column to try to get groups of equal
     # distributions of binders/nonbinders
@@ -221,7 +231,7 @@ if __name__=="__main__":
     # define out file
     if outFile is None:
         outFile = fileFun.stripExtension(bindingSeriesFilename)
-        
+    print "Loading binding series..."
     bindingSeries = fileFun.loadFile(bindingSeriesFilename)
         
     fitResults, fitParameters = bindingSeriesByCluster(concentrations, bindingSeries, 
