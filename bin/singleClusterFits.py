@@ -172,11 +172,11 @@ def bindingSeriesByCluster(concentrations, bindingSeries,
     if fitParameters is None:
         fitParameters = getInitialFitParameters(concentrations)
         
-    # change fmin initial
-    initial_fluorescence = bindingSeries.sort([0]).dropna().iloc[::100, 0]
-    print "Fitting fmin initial..."
-    fitParameters.loc['initial', 'fmin'] = findFmaxDist.fitGammaDistribution(
-        initial_fluorescence, plot=True, set_offset=0).loc['mean']
+        # change fmin initial
+        initial_fluorescence = bindingSeries.sort([0]).dropna().iloc[::100, 0]
+        print "Fitting fmin initial..."
+        fitParameters.loc['initial', 'fmin'] = findFmaxDist.fitGammaDistribution(
+            initial_fluorescence, plot=True, set_offset=0).loc['mean']
 
     # sort by fluorescence in null_column to try to get groups of equal
     # distributions of binders/nonbinders
