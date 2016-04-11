@@ -33,7 +33,7 @@ subresults.loc[:, 'id'] = ('wc10_' +
 #subresults = subresults.loc[subresults.ss_correct.astype(bool)]
 
 # also add 11bp data
-wc11bpFile = '/lab/sarah/RNAarray/final_WC/flowWC_11bp.1506025.results.pkl'
+wc11bpFile = '/lab/sarah/RNAarray/final_WC/flowWC_11bp.150625.results.pkl'
 results = pd.concat([libChar, pd.read_pickle(wc11bpFile)], axis=1)
 subresults2 = results.loc[results.sublibrary=='junction_conformations'].copy()
 subresults2.sort(['effective_length', 'offset'], inplace=True)
@@ -41,27 +41,132 @@ subresults2.loc[:, 'id'] = ('wc11_' +
                            subresults2.length.astype(int).astype(str) + '_' +
                            subresults2.helix_one_length.astype(int).astype(str))
 
-wc11bpFile = '/lab/sarah/RNAarray/final_WC/flowWC_11bp.1506025.results.pkl'
-results = pd.concat([libChar, pd.read_pickle(wc11bpFile)], axis=1)
-subresults2 = results.loc[results.sublibrary=='junction_conformations'].copy()
-subresults2.sort(['effective_length', 'offset'], inplace=True)
-subresults2.loc[:, 'id'] = ('wc11_' +
+wc9bpFile = '/lab/sarah/RNAarray/final_WC/flowWC_9bp.150830.results.pkl'
+results = pd.concat([libChar, pd.read_pickle(wc9bpFile)], axis=1)
+subresults3 = results.loc[results.sublibrary=='junction_conformations'].copy()
+subresults3.sort(['effective_length', 'offset'], inplace=True)
+subresults3.loc[:, 'id'] = ('wc9_' +
                            subresults2.length.astype(int).astype(str) + '_' +
                            subresults2.helix_one_length.astype(int).astype(str))
 
-newresults = pd.concat([subresults, subresults2])
+newresults = pd.concat([subresults, subresults2, subresults3])
+new_index = []
+for string in newresults.junction_seq.tolist():
+    side1, side2 = string.split('_')
+    new_index.append('_'.join([side1[1:-1], side2[1:-1]]))
 
 junction_seq_ref = 'UGAUCU_AGAUCA'
 
 # try with a table of just dG
-
-
 pivot = newresults.pivot(index='junction_seq', columns='id', values='dG')
+pivot[pivot >= parameters.cutoff_dG] = parameters.cutoff_dG
+
+# new index
+new_index = []
+for string in pivot.index.tolist():
+    side1, side2 = string.split('_')
+    new_index.append('_'.join([side1[1:-1], side2[1:-1]]))
+contexts = ['8_1', '9_0', '9_1','9_2','10_1','10_2','10_3','11_2','12_3',]
+col_index = (
+    ['wc9_%s'%i for i in contexts] +
+    ['wc10_%s'%i for i in contexts] +
+    ['wc11_%s'%i for i in contexts])
+
+pivot.index = new_index
+pivot = pivot.loc[:, col_index].astype(float)
+# save
+
+# before any processing, just plot ddGs
+junctionSS = newresults.groupby('junction_seq')['junction_SS'].first()
+junctionType = newresults.groupby('junction_seq')['junction'].first()
+junctionSeq = newresults.groupby('junction_seq')['no_flank'].first()
+
+# find all-bp seqs
+seqs = hjh.junction.Junction(('W', 'W')).sequences
+wc = pd.Series(np.in1d(junctionSeq, seqs.side1+'_'+seqs.side2), index=junctionSeq.index)
+mean_vector = pivot.loc[wc].mean()
+
+# now plot each "class"
+flows = ['wc9', 'wc10', 'wc11']
+col_index = (['%s_8_1'%i for i in flows] +
+    ['%s_9_0'%i for i in flows] +
+    ['%s_9_1'%i for i in flows] +
+    ['%s_9_2'%i for i in flows] +
+    ['%s_10_1'%i for i in flows] +
+    ['%s_10_2'%i for i in flows] +
+    ['%s_10_3'%i for i in flows] +
+    ['%s_11_2'%i for i in flows] +
+    ['%s_12_3'%i for i in flows])
+col_index_sub = (
+    ['%s_9_0'%i for i in flows] +
+    ['%s_9_1'%i for i in flows] +
+    ['%s_9_2'%i for i in flows] +
+    ['%s_10_1'%i for i in flows] +
+    ['%s_10_2'%i for i in flows] +
+    ['%s_10_3'%i for i in flows] +
+    ['%s_11_2'%i for i in flows])
+
+
+
+index = (junctionType == 'N,N')
+
+motifSets = {'WC':['W'],
+            '1x0 or 0x1': ['B1', 'B2'],
+            '1x1':        ['M,W', 'W,M'],
+            '2x0 or 0x2': ['B1,B1','B2,B2'],
+            '3x0 or 0x3': ['B1,B1,B1', 'B2,B2,B2'],
+            '2x2':        ['M,M'],
+            '3x3':        ['W,M,M,M', 'M,M,M,W'],
+            '2x1 or 1x2': ['W,B1,M','M,B1,W','W,B2,M','M,B2,W'],
+            '3x1 or 1x3': ['W,B1,B1,M','M,B1,B1,W','W,B2,B2,M','M,B2,B2,W']}
+    
+for name, motifs in motifSets.items():
+    index = tectoPlots.getJunctionSeqs(motifs, pivot.index)
+
+    submat, clusters = tectoPlots.plotAllClusterGrams(pivot.loc[index],
+                                                      col_index=col_index,
+                                                      fillna=True, mask=True,
+                                                      distance=1,
+                                                      mean_vector=mean_vector)
+    plt.savefig(os.path.join(figDirectory, 'all_info.norm_to_wc.%s.pdf'%(name.replace(' ', '_'))))
+
+submat = (pivot.loc[index]-mean_vector).loc[:, col_index_sub].dropna().astype(float)
+submatall = (pivot.loc[index]-mean_vector).loc[submat.index, col_index].astype(float)
+eminus = newresults.pivot(index='junction_seq', columns='id', values='eminus').loc[submat.index, submat.columns]
+eplus = newresults.pivot(index='junction_seq', columns='id', values='eplus').loc[submat.index, submat.columns]
+errors = eminus + eplus
+dist = clusterFun.getWeightedDistance(submat, errors)
+z = sch.linkage(dist, method='complete', metric='euclidean',)
+
+#z = sch.linkage(submat, method='average', metric='euclidean',)
+r = sch.dendrogram(z, no_plot=True, distance_sort=True)
+order = r['leaves']
+fig = plt.figure(figsize=(6,6))
+ax = fig.add_subplot(111)
+sns.heatmap(submatall.iloc[order].astype(float), ax=ax, vmin=-2, vmax=2,yticklabels=False)
+xlim = ax.get_xlim()
+ylim = ax.get_ylim()
+clusters = sch.fcluster(z, 16, criterion='maxclust')
+prev_cluster = clusters[order[0]]
+for i, ind in enumerate(order):
+    if i == 0: pass
+    else:
+        if clusters[ind] != prev_cluster:
+            print i, clusters[ind], prev_cluster
+            prev_cluster = clusters[ind]
+            #plot
+            ax.plot(xlim, ylim[-1]-[i]*2, 'k:', linewidth=1)
+labels = pd.Series(clusters, index=submat.index)
+  
+
+# process ddGs
 pivot = pivot.loc[:,['wc10_%s'%i for i in ['8_1', '9_0', '9_1','9_2','10_1',
                      '10_2','10_3','11_2','12_3',]]
                   +['wc11_%s'%i for i in ['9_0', '9_1','9_2','10_1',
                      '10_2','10_3','11_2']]]
 pivot[pivot >= parameters.cutoff_dG] = parameters.cutoff_dG
+
+
 
 index = newresults.groupby('junction_seq')['ss_correct'].all()
 
@@ -121,15 +226,16 @@ for i, ss in itertools.product(enrichment.index, enrichment.columns):
     fraction_of_cluster = num_in_cluster/float(num_total)
     if num_ss_in_cluster > 0:
         enrichment.loc[i, ss] = np.log2(num_ss_in_cluster/(num_ss_total*fraction_of_cluster))
-    pvalue.loc[i, ss] = st.hypergeom.sf(num_ss_in_cluster, num_total,
-                                                  num_ss_total, num_in_cluster)
-    fraction.loc[i, ss] = num_ss_in_cluster/float(num_ss_total)
+    if num_ss_total > 0:
+        pvalue.loc[i, ss] = st.hypergeom.sf(num_ss_in_cluster, num_total,
+                                                      num_ss_total, num_in_cluster)
+        fraction.loc[i, ss] = num_ss_in_cluster/float(num_ss_total)
     #enrichment.loc[:, ss] = [(junction_ss.loc[labels.index].loc[labels==i] == ss).sum()
     #     for i in enrichment.index]
     #
 logpvalue = -np.log10((pvalue + 1E-12).astype(float))
 # cluster topologies
-cg_ss = sns.clustermap(logpvalue, row_cluster=False, figsize=(5,4.5))
+cg_ss = sns.clustermap(logpvalue.dropna(axis=1), row_cluster=False, figsize=(5,4.5), cmap='coolwarm', center=0)
 plt.subplots_adjust(bottom=.25, left=0.025, top=0.975)
 plt.savefig(os.path.join(figDirectory, 'clustermap.pvalues.15_clusters.png'))
 

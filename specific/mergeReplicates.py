@@ -1,4 +1,7 @@
 import itertools
+import pandas as pd
+import os
+import numpy as np
 import IMlibs
 import fitFun
 parameters = fitFun.fittingParameters()
@@ -77,7 +80,7 @@ if __name__ == '__main__':
     numTests.fillna(0, inplace=True)
     
     # correct for offset between 1st and 2nd measurement
-    offset = (values.iloc[:, 1] - values.iloc[:, 0]).loc[index].mean()
+    offset = 0.24
     values.iloc[:, 1] -= offset
     
     # find error measurements

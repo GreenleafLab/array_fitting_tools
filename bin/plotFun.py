@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 import sys
 import os
+import warnings
 import argparse
 import itertools  
 import seaborn as sns
@@ -24,40 +25,167 @@ sns.set_style("white", {'xtick.major.size': 4,  'ytick.major.size': 4,
 
 import fitFun
 import seqfun
-  
-def plotFmaxVsKd(variant_table, concentrations, index, subset=None, kde_plot=None,
-                 plot_fmin=None, xlim=None, ylim=None):
-    if kde_plot is None: kde_plot=False
+
+def fix_axes(ax):
+    ax.tick_params(which='minor', top='off', right='off')
+    ax.tick_params(top='off', right='off', pad=2, labelsize=10, labelcolor='k')
+    return ax
+
+def plotDataErrorbars(concentrations, subSeries, ax, use_default,
+                      default_errors=None, capsize=2):
+    """ Find errorbars on set of cluster fluorescence and plot. """
+
+    if default_errors is None:
+        default_errors = np.ones(len(concentrations))*np.nan
+
+    if len(subSeries.shape) == 1:
+        fluorescence = subSeries
+        use_default = True
+        numTests = np.array([1 for col in subSeries])
+    else:
+        fluorescence = subSeries.median()
+        numTests = np.array([len(subSeries.loc[:, col].dropna()) for col in subSeries])
+    
+    # option to use only default errors provdided for quicker runtime
+    if not use_default:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            eminus, eplus = fitFun.findErrorBarsBindingCurve(subSeries)
+
+    
+    # assumes that if defaults are given, then they represent std. Divide by numTests
+    # to get stderr
+    if use_default:
+        eminus = eplus = default_errors/np.sqrt(numTests)
+    
+    # plot binding points
+    ax.errorbar(concentrations, fluorescence,
+                 yerr=[eminus, eplus], fmt='.', elinewidth=1,
+                 capsize=capsize, capthick=1, color='k', linewidth=1)
+
+def plotFitCurve(concentrations, subSeries, results, fitParameters=None, ax=None,
+                 log_axis=True, func=fitFun.bindingCurveObjectiveFunction, use_default=False,
+                          fittype='binding', default_errors=None, kwargs=None):
+    if kwargs is None:
+        kwargs = {}
+    if fittype == 'binding':
+        param_names = ['fmax', 'dG', 'fmin']
+        ub_vec = ['_ub', '_lb', '']
+        lb_vec = ['_lb', '_ub', '']
+        capsize = 2
+        log_axis = True
+        xlabel = 'concentration (nM)'
+    elif fittype == 'off':
+        param_names = ['fmax', 'koff', 'fmin']
+        ub_vec = ['_ub', '_lb', '_ub']
+        lb_vec = ['_lb', '_ub', '_lb']
+        capsize = 0
+        log_axis = False
+        xlabel = 'time (s)'
+    elif fittype == 'on':
+        ub_vec = ['_ub', '_ub', '_ub']
+        lb_vec = ['_lb', '_lb', '_lb']
+        capsize = 2
+        log_axis=False
+        xlabel = 'time (s)'
+        param_names = ['fmax', 'kobs', 'fmin']
+    # allow custom definition of param_names with fitParameters 
+    if fitParameters is not None:
+        param_names = fitParameters.columns.tolist()
+            
+    if ax is None:
+        fig = plt.figure(figsize=(3, 3))
+        ax = fig.add_subplot(111)
+        
+    # plot the data
+    plotDataErrorbars(concentrations, subSeries, ax, use_default=use_default,
+                      default_errors=default_errors, capsize=capsize)
+    
+    # plot fit
+    if log_axis:
+        ax = plt.gca()
+        ax.set_xscale('log')
+        more_concentrations = np.logspace(np.log10(concentrations.min()/2),
+                                          np.log10(concentrations.max()*2),
+                                          100)
+    else:
+        more_concentrations = np.linspace(concentrations.min(),
+                                          concentrations.max(), 100)
+    params = fitFun.returnParamsFromResults(results, param_names)
+    fit = func(params, more_concentrations, **kwargs)
+    plt.plot(more_concentrations, fit, 'r')
+    
+    all_param_names = [['%s%s'%(param, s) for param, s in itertools.izip(param_names, vec)]
+                       for vec in [ub_vec, lb_vec]]
+    
+    if np.all(np.in1d(all_param_names, results.index.tolist())):
+
+        # plot bound fits
+        # find upper bound
+        params_ub = fitFun.returnParamsFromResultsBounds(results, param_names, ub_vec)
+        ub = func(params_ub, more_concentrations)
+    
+        # find lower bound
+        params_lb = fitFun.returnParamsFromResultsBounds(results, param_names, lb_vec)
+        lb = func(params_lb, more_concentrations)
+        
+        # plot upper and lower bounds
+        plt.fill_between(more_concentrations, lb, ub, color='0.5',
+                         label='95% conf int', alpha=0.5)
+
+
+    # format
+    ylim = ax.get_ylim()
+    plt.ylim(0, ylim[1])
+    plt.xlim(more_concentrations[[0, -1]])
+    plt.xlabel(xlabel)
+    if not log_axis:
+        plt.ticklabel_format(style='sci', axis='x', scilimits=(0,0))
+    plt.ylabel('normalized fluorescence')
+    fix_axes(ax)
+    plt.tight_layout()
+    return
+
+
+
+def plotFmaxVsKd(variant_table, cutoff, subset=None, kde_plot=False,
+                 plot_fmin=False, xlim=None, ylim=None):
     if subset is None:
         if kde_plot: subset = True
         else: subset = False
-    if plot_fmin is None:
-        plot_fmin = False
-    parameters = fitFun.fittingParameters(concentrations=concentrations)
-    cutoff = parameters.find_Kd_from_dG(parameters.maxdG)
-    index = index.loc[index].index
+    
+    parameters = fitFun.fittingParameters()
     
     kds = parameters.find_Kd_from_dG(variant_table.dG_init)
     if plot_fmin:
         fmax = variant_table.fmin_init
+        ylabel_text = 'min'
     else:
         fmax = variant_table.fmax_init
+        ylabel_text = 'max'
+        
+    # find extent in x
     if xlim is None:
-        kds_bounds = np.percentile(seqfun.remove_outlier(np.log10(kds.loc[index])), [0, 100])
+        log_kds = np.log10(kds)
+        kds_bounds = [np.floor(log_kds.min()), log_kds.median() + log_kds.std()*3]
     else:
         kds_bounds = [np.log10(i) for i in xlim]
+    
+    #find extent in y
     if ylim is None:
-        fmax_bounds = [0, np.percentile(seqfun.remove_outlier(fmax.loc[index]), 100)]
+        fmax_bounds = [0, fmax.median() + 3*fmax.std()]
     else:
         fmax_bounds = ylim
+    
+    # initiate plot
     plt.figure(figsize=(3,3))
     ax = plt.gca()
     if subset:
-        x = kds.loc[index[::100]]
-        y = fmax.loc[index[::100]]
+        x = kds.iloc[::100]
+        y = fmax.iloc[::100]
     else:
-        x = kds.loc[index]
-        y = fmax.loc[index]
+        x = kds
+        y = fmax
     
     if kde_plot:   
         sns.kdeplot(np.log10(x),
@@ -73,16 +201,84 @@ def plotFmaxVsKd(variant_table, concentrations, index, subset=None, kde_plot=Non
                   extent=np.hstack([kds_bounds, fmax_bounds]),
                   cmap="Spectral_r", mincnt=1)
     
-    ax.tick_params(which='minor', top='off', right='off')
-    ax.tick_params(top='off', right='off')
+    fix_axes(ax)
     plt.xlabel('$K_d$ (nM)')
-    plt.ylabel('initial $f_{max}$')
+    
+    plt.ylabel('initial $f_{%s}$'%ylabel_text)
     ylim=ax.get_ylim()
     plt.plot([cutoff]*2, ylim, 'r:', label='cutoff for 95% bound')
     plt.tight_layout()
+
+def plotFmaxStdeVersusN(fmaxDist, stds_object, maxn, ax=None):
+    # plot
+    x = stds_object.index.tolist()
+    y = stds_object.loc[:, 'std']
+    params = fmaxDist.params
+    x_fit = np.arange(1, maxn)
+    y_fit = fmaxDist.sigma_by_n_fit(params, x_fit)
+    if ax is None:
+        fig = plt.figure(figsize=(4,3))
+        ax = fig.add_subplot(111)
+        marker='o'
+        color='k'
+        linestyle='-'
+        linecolor = 'c'
+    else:
+        marker='.'
+        color='0.5'
+        linestyle=':'
+        linecolor =color     
+    ax.scatter(x, y, s=10, marker=marker, color=color)
+    ax.plot(x_fit, y_fit, linestyle=linestyle, color=linecolor)
+    plt.xlabel('number of measurements')
+    plt.ylabel('standard deviation of median fmax')
+    plt.xlim(0, maxn)
+    fix_axes(ax)
+    plt.subplots_adjust(left=0.2, bottom=0.2, right=0.95, top=0.95)
+    return ax
+
+def plotFmaxOffsetVersusN(fmaxDist, stds_object, maxn, ax=None):
+    x = stds_object.index.tolist()
+    y = stds_object.offset
+    yerr = stds_object.offset_stde
+
+    if ax is None:
+        fig = plt.figure(figsize=(4,3))
+        ax = fig.add_subplot(111)
+        marker='o'
+        color='k'
+        linestyle='-'
+        linecolor = 'c'
+    else:
+        marker='.'
+        color='0.5'
+        linestyle=':'
+        linecolor =color    
+
+    plt.errorbar(x, y, yerr=yerr, fmt='.', color=color, marker=marker, markersize=3)
+    plt.axhline(0, color=linecolor, linestyle=linestyle)
+    #plt.plot(x, y_smoothed, 'c')
+    plt.xlabel('number of measurements')
+    plt.ylabel('offset')
+    plt.xlim(0, maxn)
+    plt.subplots_adjust(left=0.2, bottom=0.2, right=0.95, top=0.95)
+    fix_axes(plt.gca())
+    return
+
+def plotNumberVersusN(n_tests, maxn):
+    plt.figure(figsize=(4, 3))
+    sns.distplot(n_tests, bins=np.arange(maxn), kde=False, color='grey',
+                 hist_kws={'histtype':'stepfilled'})
+    plt.xlabel('number of measurements')
+    plt.ylabel('count')
+    plt.xlim(0, maxn)
+    plt.subplots_adjust(left=0.2, bottom=0.2, right=0.95, top=0.95)
+    fix_axes(plt.gca())
     
 
 def plotFmaxInit(variant_table):
+    fmax_subset = variant_table.loc[~variant_table.flag.astype(bool)].fmax
+    bounds = [fmax_subset.median()-3*fmax_subset.std(), fmax_subset.median() + 3*fmax_subset.std()]
     parameters = fitFun.fittingParameters()
     detection_limit = -6.93
     cmap = sns.diverging_palette(220, 20, center="dark", as_cmap=True)
@@ -95,7 +291,7 @@ def plotFmaxInit(variant_table):
     fig = plt.figure(figsize=(4.5,3.75))
     ax = fig.add_subplot(111, aspect='equal')
     im = ax.scatter(x, y, marker='.', alpha=0.5,
-                    c=variant_table.loc[index].fmax_init, vmin=0.5, vmax=1.5, cmap=cmap, linewidth=0)
+                    c=variant_table.loc[index].fmax_init, vmin=bounds[0], vmax=bounds[1], cmap=cmap, linewidth=0)
     plt.plot(xlim, xlim, 'c:', linewidth=1)
     plt.plot([detection_limit]*2, xlim, 'r:', linewidth=1)
     plt.plot(xlim, [detection_limit]*2, 'r:', linewidth=1)
@@ -107,6 +303,23 @@ def plotFmaxInit(variant_table):
     ax.set_yscale('log')
     plt.tight_layout()
     return
+
+def plotBoundFluorescence(signal, bounds):
+    """ Plot histogram of all RNA fluorescence and bounds imposed on distribution."""
+    lowerbound, upperbound  = bounds
+    binwidth = (upperbound - lowerbound)/50.
+    plt.figure(figsize=(4,3))
+    sns.distplot(signal.dropna(), bins = np.arange(signal.min(), signal.max()+binwidth, binwidth), color='seagreen')
+    ax = plt.gca()
+    ylim = ax.get_ylim()
+    plt.plot([lowerbound]*2, ylim, 'k:')
+    plt.plot([upperbound]*2, ylim, 'k:')
+    plt.xlim(0, upperbound + 2*signal.std())
+    plt.xlabel('all cluster fluorescence')
+    plt.ylabel('probability density')
+    plt.ticklabel_format(style='sci', axis='y', scilimits=(0,0))
+    fix_axes(ax)
+    plt.tight_layout()
 
 def plotErrorInBins(variant_table, xdelta=None):
     parameters = fitFun.fittingParameters()
@@ -324,30 +537,35 @@ def plotErrorTotal(variant_table, variant_table2=None):
     ylim = ax.get_ylim()
     plt.plot([5]*2, ylim, 'k--', linewidth=1, alpha=0.5)
 
-def plotFractionFit(variant_table, binedges=None):
+def plotFractionFit(variant_table, binedges=np.arange(-12, -6, 0.5), param='dG_init', pvalue_threshold=0.05):
     # plot
     binwidth=0.01
     bins=np.arange(0,1+binwidth, binwidth)
     plt.figure(figsize=(4, 3.5))
-    plt.hist(variant_table.loc[variant_table.pvalue <= 0.05].fitFraction.values, alpha=0.5, color='red', bins=bins)
-    plt.hist(variant_table.loc[variant_table.pvalue > 0.05].fitFraction.values, alpha=0.5, color='grey', bins=bins)
+    plt.hist(variant_table.loc[variant_table.pvalue <= pvalue_threshold].fitFraction.values,
+             alpha=0.5, color='red', bins=bins, label='passing cutoff')
+    plt.hist(variant_table.loc[variant_table.pvalue > pvalue_threshold].fitFraction.values,
+             alpha=0.5, color='grey', bins=bins,  label='fails cutoff')
     plt.ylabel('number of variants')
     plt.xlabel('fraction fit')
+    plt.legend(loc='upper left')
     plt.tight_layout()
-    
-    if binedges is None:
-        binedges = np.arange(-12, -6, 0.5)
+    fix_axes(plt.gca())    
+
     subtable = pd.DataFrame(index=variant_table.index,
                             columns=['binned_dGs', 'pvalueFilter'],
-                            data=np.column_stack([np.digitize(variant_table.dG, binedges),
-                                                  variant_table.pvalue <= 0.05]))
+                            data=np.column_stack([np.digitize(variant_table.loc[:, param], binedges),
+                                                  variant_table.pvalue <= pvalue_threshold]))
     g = sns.factorplot(x="binned_dGs", y="pvalueFilter", data=subtable,
                 order=np.unique(subtable.binned_dGs),
                 color="r", kind='bar');
-    g.set(ylim=(0, 1.1), );
-    g.set_xticklabels(['%3.1f:%3.1f'%(i, j) for i, j in itertools.izip(binedges[:-1], binedges[1:])]+['>%4.1f'%binedges[-1]], rotation=90)
-    g.set(xticks=np.arange(len(binedges)))
+    g.set(ylim=(0, 1.1), ylabel='fraction pass pvalue cutoff');
+    g.set_xticklabels(['<%4.1f'%binedges[0]] +
+        ['%3.1f:%3.1f'%(i, j) for i, j in itertools.izip(binedges[:-1], binedges[1:])]+
+        ['>%4.1f'%binedges[-1]], rotation=90)
+    g.set(xticks=np.arange(len(binedges)+1))
     g.fig.subplots_adjust(hspace=.2, bottom=0.35)
+    fix_axes(plt.gca())
     
 def histogramKds(variant_table):
     """ Find density of set of 'background' Kds to define cutoff. """
@@ -502,6 +720,38 @@ def plotDeltaAbsFluorescence(bindingSeries, bindingSeriesBackground, concentrati
                  fontsize=12)
     pass
 
+def plotManyExperiments(deltaGs, expts=None, xlim=[-13 -5]):
+    if expts is None:
+        expts = deltaGs.columns.tolist()
+
+    numgrid = len(expts)-1
+    fig = plt.figure(figsize=(10,10))
+    gs = gridspec.GridSpec(numgrid, numgrid)
+    for i in np.arange(0, len(expts)):
+        for j in np.arange(0, i):
+            index = deltaGs.loc[:, expts].dropna().index
+            x = deltaGs.loc[index, expts[j]]
+            y = deltaGs.loc[index, expts[i]]
+            ax = fig.add_subplot(gs[i-1, j])
+            ax.hexbin(deltaGs.loc[:, expts[j]], deltaGs.loc[:, expts[i]],
+                     cmap='Spectral_r', mincnt=1)
+            ax.set_ylim(xlim)
+            ax.set_xlim(xlim)
+            ax.plot(xlim, xlim, 'k')
+            fix_axes(ax)
+            if i==numgrid:
+                ax.set_xlabel(expts[j])
+            else:
+                ax.set_xticklabels([])
+            if j==0:
+                ax.set_ylabel(expts[i])
+            else:
+                ax.set_yticklabels([])
+            ax.annotate('R2=%4.2f'%st.pearsonr(x, y)[0]**2, xy=(0.95, 0.05),
+                 xycoords='axes fraction',
+                 horizontalalignment='right', verticalalignment='bottom',
+                 fontsize=11)
+
 def plotReplicatesKd(variant_tables,
                    log=None, vmax=None, scatter=None, enforce_numTests=None):
 
@@ -609,9 +859,9 @@ def plotResidualsKd(variant_tables):
     plt.tight_layout()
     
 def plotNumberOfTilesFitRates(tileMap, finalTimes):
-    fig = plt.figure(figsize=(5,3));
+    fig = plt.figure(figsize=(5,7));
     gs = gridspec.GridSpec(1, 2, wspace=0.05, width_ratios=[2,1],
-                           bottom=0.25, left=0.15)
+                           bottom=0.15, left=0.15, top=0.95, right=0.95)
     ax = fig.add_subplot(gs[0,0])
     sns.heatmap(tileMap.transpose(),  linewidths=.5, cbar=False, ax=ax,
                 yticklabels=finalTimes.astype(int).values)
@@ -620,9 +870,11 @@ def plotNumberOfTilesFitRates(tileMap, finalTimes):
     
     color = sns.cubehelix_palette()[-1]      
     ax = fig.add_subplot(gs[0,1])
-    ax.barh(np.arange(tileMap.shape[1]), tileMap.sum(axis=0)[::-1],
+    ax.barh(np.arange(tileMap.shape[1]), (tileMap>0).sum(axis=0)[::-1],
             facecolor=color, edgecolor='w', linewidth=0.5,
             )
+    ax.set_ylim(0, tileMap.shape[1]-1)
+    ax.set_xlim(0, tileMap.shape[0])
     ax.set_yticks(np.arange(tileMap.shape[1])+0.5)
     ax.set_yticklabels([])
     majorLocator   = mpl.ticker.MultipleLocator(5)
@@ -632,12 +884,28 @@ def plotNumberOfTilesFitRates(tileMap, finalTimes):
     ax.xaxis.set_major_formatter(majorFormatter)
     ax.xaxis.set_minor_locator(minorLocator)
     ax.set_xlabel('# tiles')
-    ax.tick_params(top='off', right='off', left='off')
+    fix_axes(ax)
     sns.despine()
+
+
+def plotTimeDeltaDist(time_deltas, min_time_delta):
+    fig = plt.figure(figsize=(3,3))
+    ax = fig.add_subplot(111)
+    binwidth = 0.1 # seconds
+    binstart = min_time_delta-binwidth*10
+    binend = min_time_delta+binwidth*100
+    bins = np.arange(binstart, binend+binwidth, binwidth)
+    sns.distplot(time_deltas, ax=ax, bins=bins, kde=False, hist_kws={'histtype':'stepfilled'})
+    ax.axvline(min_time_delta, color='k', linewidth=1, linestyle=':' )
+    plt.xlabel('time deltas (s)')
+    plt.xlim(binstart, binend)
+    fix_axes(ax)
+    plt.tight_layout()
+    
 
 def plotTimesScatter(timeMap, finalTimes):
     color = sns.cubehelix_palette()[-1]      
-    fig = plt.figure(figsize=(3,3));
+    fig = plt.figure(figsize=(5,3));
     for i, time in enumerate(finalTimes):
         y = timeMap.iloc[:, i].dropna()
         x = i + st.norm.rvs(loc=0, scale=0.1, size=len(y))
@@ -663,9 +931,10 @@ def plotTimesScatter(timeMap, finalTimes):
     ax.xaxis.set_major_locator(majorLocator)
     ax.xaxis.set_major_formatter(majorFormatter)
     ax.xaxis.set_minor_locator(minorLocator)    
+    fix_axes(ax)
 
 def plotTimesOriginal(timeDelta):
-    plt.figure(figsize=(4, 4))
+    plt.figure(figsize=(5, 3))
     colors = sns.color_palette('Paired', 10) + sns.color_palette('Paired', 10)
     tiles = np.sort(timeDelta.keys())
     for i, tile in enumerate(tiles):
@@ -689,7 +958,7 @@ def plotTimesOriginal(timeDelta):
     ax = plt.gca()
     ax.tick_params(top='off', right='off')
     plt.tight_layout()
-
+    fix_axes(ax)
     
 def plotReplicates(variant_tables, cutoff=None, relative=None, variant=None,
                    log=None, vmax=None):

@@ -6,10 +6,9 @@
 ftd=$1
 mf=$2
 od=$3
-lc=$4
-bar=$5
-c=$6
-f=$(echo $@ | awk '{for (i=7; i<=NF; i++) print $i}')
+an=$4
+c=$5
+f=$(echo $@ | awk '{for (i=6; i<=NF; i++) print $i}')
 
 set -e -o nounset
 # help
@@ -21,94 +20,136 @@ then
     (1) a directory of CPseq files,
     (2) a map file of CPfluor dirs,
     (3) an output directory,
-    (4) a library characterization file,
-    (5) a unique barcodes file,
-    (6) file of concentrations
-    (7) a list of filter names to fit."
+    (4) the CPannot file generated per chip
+    (5) file of concentrations
+    (6) a list of filter names to fit."
     echo "Example:"
     echo "run_all_binding_curves.sh \\
     ../seqData/tiles/filtered_tiles_indexed/ \\
     bindingCurves/bindingCurves.map \\
     bindingCurves \\
-    ../../150311_library_v2/all_10expts.library_characterization.txt \\
-    ../../150608_barcode_mapping_lib2/tecto_lib2.150728.unique_barcodes \\
+    ../seqData/dummy_dir/AKPP5_ALL_Bottom_filtered_anyRNA.CPannot.pkl \\
     concentrations.txt \\
     anyRNA "
     exit
 fi
 
 # print command
-echo "run_all_binding_curves.sh $ftd $mf $od $lc $bar $c $f"
-
+echo ""
+echo "run_all_binding_curves.sh $ftd $mf $od $an $c $f"
+echo "start run at: "
+date
 # process data
-echo "python -m processData -fs $ftd -mf $mf -od $od -fp $f"
-python -m processData -fs $ftd -mf $mf -od $od -fp $f
-output=$(find $od -maxdepth 1  -name "*CPsignal.pkl" -type f)
-
-# check success
-if [ $? -eq 0 -a -f $output ];
+output=$(find $od -maxdepth 1  -name "*reduced.CPseries.pkl" -type f)
+if [ -z $output ];
 then
-    echo "Successfully processed data"
+    echo ""
+    echo "python -m processData -fs $ftd -mf $mf -od $od -fp $f -cf $an"
+    python -m processData -fs $ftd -mf $mf -od $od -fp $f -cf $an
+    output=$(find $od -maxdepth 1  -name "*reduced.CPseries.pkl" -type f)
+
+    # check success
+    if [ $? -eq 0 -a -f $output ];
+    then
+        echo "### Successfully processed data ###"
+    else
+        echo "!!! Error processing data !!!"
+        exit
+    fi
+    date
 else
-    echo "Error processing data"
-    exit
+    echo "--> reduced CPseries file exists: "$output
 fi
 
 basename=$(echo $output | awk '{print substr($1, 1, length($1)-13)}')
 
-# annotate data
-if [ -f $basename".CPannot.pkl" ];
+# normalize data
+extension="_normalized.CPseries.pkl"
+if [ -f $basename$extension ];
 then
-    echo "CPannot file exists: "$basename".CPannot.pkl"
+    echo "--> normalized CPseries file exists: "$basename$extension
 else
-    echo " python -m findSeqDistribution -lc $lc -cs $basename".CPsignal.pkl" -bar $bar"
-    python -m findSeqDistribution -lc $lc -cs $basename".CPsignal.pkl" -bar $bar
+    echo ""
+    echo "python -m normalizeSeries -b "$basename".CPseries.pkl -a "$basename"_red.CPseries.pkl"
     
+    python -m normalizeSeries -b $basename.CPseries.pkl -a $basename"_red.CPseries.pkl"
     # check success
     if [ $? -eq 0 ]
     then
-        echo "Successfully annotated data"
+        echo "### Successfully normalized data ###"
     else
-        echo "Error annotating data"
+        echo "!!! Error normalizing data !!!"
         exit
     fi
-fi
+    date
 
-# fit single clusters 
-if [ -f $basename".CPfitted.pkl" ];
+fi
+normbasename=$basename"_normalized"
+
+# fit single clusters
+extension=".CPfitted.pkl" 
+if [ -f $normbasename$extension ];
 then
-    echo "CPfitted file exists: "$basename".CPfitted.pkl"
+    echo "--> CPfitted file exists: "$normbasename$extension
 else
-    echo "python -m singleClusterFits -cs $basename".CPsignal.pkl" -c $c -n 20"
-    python -m singleClusterFits -cs $basename".CPsignal.pkl" -c $c -n 20
+    echo ""
+    echo "python -m singleClusterFits -cs $basename".CPseries.pkl" -c $c -n 20"
+    python -m singleClusterFits -b $normbasename".CPseries.pkl" -c $c -n 20
 
     # check success
     if [ $? -eq 0 ]
     then
-        echo "Successfully fit single clusters."
+        echo "### Successfully fit single clusters. ###"
     else
-        echo "Error fitting single clusters"
+        echo "!!! Error fitting single clusters !!!"
         exit
     fi
+    date
 fi
 
+# find distribution of fmaxes
+extension=".fmaxdist.p"
 # bootstrap variants 
-if [ -f $basename".CPvariant" ];
+if [ -f $normbasename$extension ];
 then
-    echo "CPfitted file exists: "$basename".CPvariant"
+    echo "--> fmax dist file exists: "$normbasename$extension
 else
-    echo "python -m bootStrapFits -t $basename".CPfitted.pkl" -c $c -a $basename".CPannot.pkl" -b $basename".bindingSeries.pkl" -n 20"
-    python -m bootStrapFits -t $basename".CPfitted.pkl" -c $c -a $basename".CPannot.pkl" -b $basename".bindingSeries.pkl" -n 20
+    echo ""
+    echo "python -m findFmaxDist -cf $normbasename.CPfitted.pkl -a $an -c $c"
+    python -m findFmaxDist -cf $normbasename.CPfitted.pkl -a $an -c $c
+    # check success
+    if [ $? -eq 0 ]
+    then
+        echo "### Successfully fit fmax dist. ###"
+    else
+        echo "!!! Error fitting fmax dist !!!"
+        exit
+    fi
+    date
+fi
+
+# bootstrap variants
+extension=".CPvariant"
+if [ -f $normbasename$extension ];
+then
+    echo "--> CPvariant file exists: "$normbasename$extension
+else
+    echo ""
+    echo "python -m bootStrapFits -v "$normbasename".init.CPvariant.pkl -c "$c" -a "$an" -b $normbasename".CPseries.pkl" -f "$normbasename".fmaxdist.p -n 20"
+    python -m bootStrapFits -v $normbasename.init.CPvariant.pkl -c $c -a $an -b $normbasename.CPseries.pkl -f $normbasename.fmaxdist.p -n 20
 
     # check success
     if [ $? -eq 0 ]
     then
-        echo "Successfully bootstrapped fits."
+        echo "### Successfully bootstrapped fits. ###"
     else
-        echo "Error fitting bootstrapping fits"
+        echo "!!! Error fitting bootstrapping fits !!!"
         exit
     fi
+    date
 fi
+
+
 
 
 

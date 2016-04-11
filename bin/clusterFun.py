@@ -1,8 +1,10 @@
 import datetime
 import scipy.cluster.hierarchy as sch
 import scipy.cluster as sc
+import scipy.spatial.distance as ssd
 import pandas as pd
 import matplotlib.pyplot as plt
+import matplotlib as mpl
 import sys
 import os
 import numpy as np
@@ -15,15 +17,25 @@ def clusterKmeans(ddGs, k):
     centroid, label = sc.vq.kmeans2(ddGs, k)
     return label
 
-def clusterHierarchical(M, k, return_z=None):
+def clusterHierarchical(M, k, return_z=None, return_order=None):
     if return_z is None:
         return_z = False
+    if return_order is None:
+        return_order = False
     z = sch.linkage(M, method='average', metric='euclidean')
     labels = pd.Series(sch.fcluster(z, k, 'maxclust'), index=M.index)
+    
+    to_return = labels
+    if return_z or return_order:
+        to_return = [labels]
     if return_z:
-        return labels, z
-    else:
-        return labels
+        to_return.append(z)
+    if return_order:
+        #order = np.array(sch.dendrogram(z, no_plot=True, count_sort='ascending')['leaves'])
+        order = sch.leaves_list(z)
+        to_return.append(order)
+    
+    return to_return
     
 def clusterHierarchicalCorr(M, k, return_z=None):
     if return_z is None:
@@ -154,11 +166,11 @@ def consensusCluster(D, method=None, subsample=None, n_samples=None, k=None,
         I += n      
     M = M/I
         
-    labels, z = clusterHierarchical(M, k, return_z=True)
+    labels, z, order = clusterHierarchical(M, k, return_z=True, return_order=True)
     if plot:
         sns.clustermap(M, yticklabels=False, xticklabels=False, square=True,
                        row_linkage=z, col_linkage=z)
-    return labels, M
+    return labels, M, order
 
 def optimizeNumClusters(D, method=None, subsample=None, n_samples=None, ks=None,
                         numCores=None):
@@ -168,7 +180,7 @@ def optimizeNumClusters(D, method=None, subsample=None, n_samples=None, ks=None,
     cdfs = {}
     for k in ks:
         print k
-        labels, M = consensusCluster(D, method=method, subsample=subsample,
+        labels, M, order = consensusCluster(D, method=method, subsample=subsample,
                                      n_samples=n_samples, k=k, numCores=numCores,
                                      plot=False)
         x, cdf = getCDF(M)
@@ -191,21 +203,21 @@ def plotCDFs(cdfs):
         colorVal = scalarMap.to_rgba(i)
         plt.plot(x, cdfs.loc[:, col], color=colorVal, label=col)
     
-    values =  np.arange(23, 50, 4) 
-    cm = 'Spectral'
-    cNorm  = mpl.colors.Normalize(vmin=0, vmax=len(values)-1)
-    scalarMap = mpl.cm.ScalarMappable(norm=cNorm, cmap=cm)
-
-    for i, col in enumerate(values):
-        if i%2==0:
-            colorVal = 'k'
-        else:
-            colorVal = '0.7'
-        #colorVal = scalarMap.to_rgba(i)
-        plt.plot(x, cdfs.loc[:, col], color=colorVal, label=col)
+    ##values =  np.arange(23, 50, 4) 
+    #cm = 'Spectral'
+    #cNorm  = mpl.colors.Normalize(vmin=0, vmax=len(values)-1)
+    #scalarMap = mpl.cm.ScalarMappable(norm=cNorm, cmap=cm)
+    #
+    #for i, col in enumerate(values):
+    #    #if i%2==0:
+    #    #    colorVal = 'k'
+    #    #else:
+    #    #    colorVal = '0.7'
+    #    colorVal = scalarMap.to_rgba(i)
+    #    plt.plot(x, cdfs.loc[:, col], color=colorVal, label=col)
     
     plt.legend(loc='lower right')
-    plt.savefig(os.path.join(figDirectory, 'all_cdfs.subsampled_0.8.n_samples_500.pdf'))
+    #plt.savefig(os.path.join(figDirectory, 'all_cdfs.subsampled_0.8.n_samples_500.pdf'))
     
 def getDeltaK(cdfs):
     x = cdfs.index
@@ -223,3 +235,15 @@ def getDeltaK(cdfs):
             deltaK.loc[k] = (areasPrime.loc[k+1] - areasPrime.loc[k])/areasPrime.loc[k]
             
     return deltaK
+
+def getWeightedDistance(observations, errors):
+    """ return condensed, weighted distance matrix.
+    
+    'errors' are the 95% confidence interval widths.
+    'weight will be the inverse variance ([error/(2*1.96)]**2)"""
+    sigma = errors/(2*1.96)
+    
+
+    return ssd.pdist(observations, metric='wminkowski', p=2, w=1./sigma**2)
+    
+    

@@ -22,7 +22,7 @@ sns.set_style("white", {'xtick.major.size': 4,  'ytick.major.size': 4})
 import lmfit
 import fitFun
 import itertools    
-
+import fileFun
 
 ### MAIN ###
 
@@ -32,12 +32,12 @@ import itertools
 parser = argparse.ArgumentParser(description='bootstrap on off rate fits')
 
 group = parser.add_argument_group('inputs starting from time-binned binding series file')
-group.add_argument('-b', '--binding_curves', required=True, metavar=".bindingSeries.pkl",
-                   help='file containining the binding curve information'
+group.add_argument('-ts', '--time_series', required=True, metavar=".CPtimeseries.pkl",
+                   help='file containining the fluorescence information'
                    ' binned over time.')
 group.add_argument('-a', '--annotated_clusters', required=True, metavar=".CPannot.pkl",
                    help='file with clusters annotated by variant number')
-group.add_argument('-t', '--times', metavar="times.txt",
+group.add_argument('-t', '--times', metavar=".times",
                    help='file containining the binned times')
 group.add_argument('-ft', '--fittype', default='off', metavar="[off | on]",
                    help='fittype ["off" | "on"]. Default is "off" for off rates')
@@ -49,8 +49,8 @@ group.add_argument('--n_samples', default=100, type=int, metavar="N",
                    help='number of times to bootstrap samples')
 group.add_argument('-n', '--numCores', default=20, type=int, metavar="N",
                    help='number of cores. default = 20')
-group.add_argument('--init', action="store_true", default=False, 
-                   help='flag if you wish to simply initiate fitting, not actually fit')
+group.add_argument('--subset',action="store_true", default=False,
+                    help='if flagged, will only do a subset of the data for test purposes')
 
 def objectiveFunctionOffRates(params, times, data=None, weights=None):
     """ Return fit value, residuals, or weighted residuals of off rate objective function. """
@@ -143,59 +143,36 @@ def perVariant(times, subSeries, fitParameters, func=None, plot=None,
     # fit by least squares fitting
     results, singles = fitFun.bootstrapCurves(times, subSeries, fitParametersPer,
                                               func=func, enforce_fmax=False,
-                                              default_errors=default_errors,
-                                              n_samples=n_samples,
-                                              use_default=True)
+                                              use_default=True,
+                                              n_samples=n_samples )
     # plot results
     if plot:
-        fitFun.plotFitCurve(times,
-                                     subSeries,
-                                     results,
-                                     fitParameters,
-                                     log_axis=False, func=func, fittype=fittype,
-                                     default_errors=default_errors,
-                                     use_default=True)
+        plotFun.plotFitCurve(times, subSeries, results, fitParameters,
+                                     log_axis=False, func=func, fittype=fittype)
     return results
 
-def initiateFits(bindingCurveFilename, timesFilename, annotatedClusterFile):
-    """ Loads all relevant data for fitting. """
-    print "Loading time series and splitting by variants..."
-    
-    # load time series data
-    table = (pd.concat([pd.read_pickle(annotatedClusterFile),
-                        pd.read_pickle(bindingCurveFilename)], axis=1).
-             sort('variant_number'))
-    
-    # fit all labeled variants
-    table.dropna(axis=0, subset=['variant_number'], inplace=True)
 
-    # fit only clusters that are not all NaN
-    table.dropna(axis=0, subset=table.columns[1:], how='all',inplace=True)
-    
-    # get deafult errors
-    default_errors = table.astype(float).groupby('variant_number').std().mean()
-    
-    # load times
-    times = np.loadtxt(timesFilename)
-    fitParameters = getInitialParameters(times,
-                                         fittype=fittype)
-    # group by variant number for bootstrapping fits.
-    grouped = table.groupby('variant_number')
-    groupDict = {}
-    for name, group in grouped:
-        groupDict[name] = group.iloc[:, 1:].astype(float)
-    return times, groupDict, fitParameters, table, default_errors
-
-def fitRates(bindingCurveFilename, timesFilename, annotatedClusterFile,
-             func, fittype=None, n_samples=None, variants=None):
+def fitRates(table, times,
+             func, fittype=None, n_samples=None, variants=None, renorm=False):
     """ Initiate fits and parallelize fitting of each variant. """
     
     # default fittype is 'off' for plotting
     if fittype is None: fittype = 'off'
-        
-    # load relevant data for fitting
-    times, groupDict, fitParameters, table, default_errors = (
-        initiateFits(bindingCurveFilename, timesFilename, annotatedClusterFile))
+    
+    # find groupdict
+    print 'Splitting data...'
+    grouped = table.astype(float).groupby('variant_number')
+    groupDict = {}
+    for name, group in grouped:
+        subSeries = group.iloc[:, 1:]
+        groupDict[name] = group.iloc[:, 1:]
+    
+    if renorm:
+        print 'Renormalizing the data by first point in time series...'
+        # divide by first time point and don't use first time point in fit
+        for name, subSeries in groupDict.items():
+            groupDict[name] = np.divide(subSeries, np.vstack(subSeries.iloc[:, 0].values)).iloc[:, 1:]
+        times = times[1:]
     
     # if 'variants' is provided, only fit a subset of the data 
     if variants is None:
@@ -204,10 +181,10 @@ def fitRates(bindingCurveFilename, timesFilename, annotatedClusterFile,
     # call each variant-level fit with function perVariant, in a parallelized framework.
     print '\tMultiprocessing bootstrapping...'
     results = (Parallel(n_jobs=numCores, verbose=10)
-                (delayed(perVariant)(times, groupDict[name], fitParameters,
+                (delayed(perVariant)(times, groupDict[variant], fitParameters,
                                      func=func, n_samples=n_samples,
-                                     default_errors=default_errors, fittype=fittype)
-                 for name in variants))
+                                     fittype=fittype)
+                 for variant in variants))
     
     # concatenate results of parallelized fits.
     results = pd.concat(results, keys=variants, axis=1).transpose()
@@ -240,22 +217,16 @@ if __name__ == '__main__':
     args = parser.parse_args()
     annotatedClusterFile   = args.annotated_clusters
     outFile                = args.out_file
-    bindingCurveFilename = args.binding_curves
+    bindingCurveFilename = args.time_series
     timesFilename        = args.times
     fittype              = args.fittype
     numCores             = args.numCores
     n_samples            = args.n_samples
+    
     # find out file
     if outFile is None:
-        outFile = os.path.splitext(
-            bindingCurveFilename[:bindingCurveFilename.find('.pkl')])[0]
+        outFile = fileFun.stripExtension(bindingCurveFilename)
     
-    # process inputs
-    if timesFilename is None:
-        timesFilename = outFile + '.times.pkl'
-    
-    if bindingCurveFilename is None:
-        bindingCurveFilename = outFile + '.bindingCurve.pkl'
         
     # depending on fittype, use one of two provided objective functions
     if fittype == 'off':
@@ -267,22 +238,30 @@ if __name__ == '__main__':
                '"on" or "off".')%fittype
         sys.exit()
         
-    # fit curves
-    if not args.init:
-        results = fitRates(bindingCurveFilename, timesFilename, annotatedClusterFile,
-                           func, fittype=fittype, n_samples=n_samples)
+    # laod data
+    print 'Loading data..'
+    # load time series data
+    table = (pd.concat([fileFun.loadFile(annotatedClusterFile),
+                        fileFun.loadFile(bindingCurveFilename)], axis=1).
+             sort('variant_number'))
+    times = fileFun.loadFile(timesFilename)
+    fitParameters = getInitialParameters(times,
+                                         fittype=fittype)
     
-        results.to_csv(outFile+'.CPresults', sep='\t')
-        sys.exit()
-    else:
-        # just initiate fitting
-        times, groupDict, fitParameters, table, default_errors = (
-            initiateFits(bindingCurveFilename,
-                         timesFilename,
-                         annotatedClusterFile))
-        results = pd.read_table(outFile+'.CPresults', index_col=0)
+    # fit only clusters that are not all NaN
+    table.dropna(axis=0, subset=table.columns[1:], how='all',inplace=True)
+    
+    variants = np.unique(table.variant_number.astype(float).dropna())
+    if args.subset:
+        variants = variants[-100:]
+        outFile = outFile + '_subset'
     sys.exit()
-    
+    # fit curves
+    results = fitRates(table, times, func, variants=variants, fittype=fittype, n_samples=n_samples)
+
+    results.to_csv(outFile+'.CPrates', sep='\t')
+    sys.exit()
+
     # plot all variants
     figDirectory = './'
     for variant in results.index:
@@ -297,3 +276,58 @@ if __name__ == '__main__':
         except:
             print 'issue with variant %d'%variant
         plt.close()
+        
+    # try some other stuff
+    mat = np.divide(groupDict[name], np.vstack(groupDict[name].iloc[:, 0].values))
+
+    
+    results = []
+    for cluster in mat.index:
+        try:
+            t = np.array(timeDelta[tiles.loc[cluster]])
+            y = timeSeries.loc[cluster].iloc[:len(t)]
+            results.append(fitFun.fitSingleCurve(t, y, fitParametersPer, func=func))
+        except: pass
+    results = pd.concat(results, axis=1).transpose()
+    
+    # plot
+    params = Parameters()
+    params.add('koff', results.koff.median())
+    params.add('fmax', 1)
+    params.add('fmin', results.fmin.median())
+    x = np.linspace(times[0], times[-1], 100)
+
+    norm_agg_results = (perVariant)(times[1:], mat.iloc[:, 1:], fitParameters,
+                                     func=func, n_samples=n_samples,
+                                     default_errors=default_errors.iloc[1:], fittype=fittype, plot=True)
+    plt.plot(x, func(params, x), 'k:')
+    
+    params = Parameters()
+    params.add('koff', results.koff.median())
+    params.add('fmax', results.fmax.median())
+    params.add('fmin', results.fmin.median())
+    agg_results = (perVariant)(times, groupDict[name], fitParameters,
+                                     func=func, n_samples=n_samples,
+                                     default_errors=default_errors, fittype=fittype, plot=True)
+    plt.plot(x, func(params, x), 'k:')
+    
+    plt.figure()
+    for cluster in groupDict[name].index:
+        plt.plot(timeDelta[tiles.loc[cluster]], timeSeries.loc[cluster].iloc[:len(timeDelta[tiles.loc[cluster]])], 'k.-')
+        
+    # bootstrap
+    vec = []
+    indices = np.random.choice(results.index, [1000, len(results)])
+    for index in indices: vec.append(results.loc[index].koff.median())
+    
+    plt.figure();
+    sns.distplot(vec);
+    plt.axvline(norm_agg_results.koff, color='k');
+    plt.axvline(norm_agg_results.koff_lb, color='k', linestyle=':');
+    plt.axvline(norm_agg_results.koff_ub, color='k', linestyle=':')
+    
+    plt.axvline(agg_results.koff, color='r');
+    plt.axvline(agg_results.koff_lb, color='r', linestyle=':');
+    plt.axvline(agg_results.koff_ub, color='r', linestyle=':')
+    
+    norm_agg_not_weighted = fitFun.fitSingleCurve(times[1:], mat.iloc[:, 1:], fitParametersPer, func=func)

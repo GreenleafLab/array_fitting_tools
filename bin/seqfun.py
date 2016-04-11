@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import matplotlib.colors as colors
 import matplotlib.cm as cmx
 import scipy.misc
-
+import scipy.stats as st
 
 def reverseComplement(seq, rna=None):
     """
@@ -140,3 +140,7 @@ def is_outlier(points, thresh=None):
 
 def remove_outlier(points, thresh=None):
     return points[np.logical_not(is_outlier(points, thresh=thresh))]
+
+def getCorrelation(vec1, vec2):
+    index = np.all(np.isfinite(np.vstack([vec1, vec2]).astype(float)), axis=0)
+    return st.pearsonr(vec1[index], vec2[index])[0]

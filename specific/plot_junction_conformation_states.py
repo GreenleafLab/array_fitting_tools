@@ -122,6 +122,15 @@ rmse = pd.DataFrame(0, index=ddGs.index, columns=ddGs.index)
 rmse.loc[:] = ssd.squareform(ssd.pdist(ddGs))
 rmse = rmse.loc[M.index, M.columns]
 
+# plot some junctions rmse/consensus index
+seq = 'UGCAGCU_AGCGCA' # A bulge 
+fig = plt.figure()
+ax = fig.add_subplot(111)
+ax.plot(rmse.loc[seq].iloc[np.argsort(M.loc[seq])], 'ko')
+ax2 = ax.twinx()
+ax2.plot(np.sort(M.loc[seq]), 'r')
+
+
 with sns.axes_style('white'):
     plt.figure()
     sns.heatmap(rmse.loc[seq_order, seq_order],yticklabels=False, xticklabels=False)

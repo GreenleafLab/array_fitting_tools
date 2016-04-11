@@ -15,7 +15,7 @@ results_off = pd.concat([pd.read_table(libCharFile), pd.read_table(offrate_file,
 results_on  = pd.concat([pd.read_table(libCharFile), pd.read_table(onrate_file, index_col=0)], axis=1).loc[:, 'fmax':]
 
 # plot kobs versus other parameters
-index_on = checkFits(results_on, fittype='on')
+index_on = checkFits(results_off, fittype='off')
 fig = plt.figure(figsize=(6,3))
 gs = gridspec.GridSpec(1, 2, bottom=0.25, wspace=0.3, right=0.95)
 

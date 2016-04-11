@@ -1,3 +1,22 @@
+#!/usr/bin/env python
+""" Find the fmax distribution.
+
+Returns a class describing the fmax.
+
+Parameters:
+-----------
+variant_table : per-variant DataFrame including columns fmax, dG, and fmin, pvalue
+initial_points : per-cluster DataFrame including variant_number, fmax, dG, fmin
+affinity_cutoff : maximum dG (kcal/mol) to be included in fit of fmax
+use_simulated : (bool) whether to use distribution of median fmax or
+    subsampled fmaxes
+
+Returns:
+--------
+fmaxDistObject :
+"""
+
+import os
 import numpy as np
 import scipy.stats as st
 import seqfun
@@ -6,9 +25,37 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 from scipy.ndimage import gaussian_filter
+import argparse
+import sys
+import pickle
+import plotFun
+from plotFun import fix_axes
 import fitFun
+import IMlibs
+import fileFun
+
+parser = argparse.ArgumentParser(description='bootstrap fits')
+parser.add_argument('-cf', '--single_cluster_fits', required=True, metavar=".CPfitted.pkl",
+                   help='file with single cluster fits')
+parser.add_argument('-a', '--annotated_clusters', required=True, metavar=".CPannot.pkl",
+                   help='file with clusters annotated by variant number')
+
+group = parser.add_argument_group('additional option arguments')
+group.add_argument('-out', '--out_file', 
+                   help='output filename. default is basename of input filename')
+group.add_argument('-c', '--concentrations', metavar="concentrations.txt",
+                    help='text file giving the associated concentrations')
+group.add_argument('-k', '--kd_cutoff', type=float,  
+                   help='highest kd for tight binders (nM). default is 0.99 bound at '
+                   'highest concentration')
+group.add_argument('-p', '--pvalue_cutoff', type=float, default=0.01,
+                   help='maximum pvalue for good binders. default is 0.01.')
+group.add_argument('--use_simulated', type=int,
+                   help='set to 0 or 1 if you want to use simulated distribution (1) or'
+                   'not (0). Otherwise program will decide.')
 
 class fmaxDistAny():
+    __module__ = os.path.splitext(os.path.basename(__file__))[0]
     # for fitting stde of fmaxes
     def __init__(self, params=None):
         self.params = params
@@ -77,12 +124,51 @@ class fmaxDistAny():
         else:
             percentiles = self._get_percentiles_given_alpha(alpha)
             return dist.ppf(percentiles)
-        
-def useSimulatedOrActual(variant_table, concentrations):
+
+def findVariantTable(table, parameter='dG', min_fraction_fit=0.25, filterFunction=IMlibs.filterFitParameters):
+    """ Find per-variant information from single cluster fits. """
+    
+    # define columns as all the ones between variant number and fraction consensus
+    test_stats = ['fmax', parameter, 'fmin']
+    test_stats_init = ['%s_init'%param for param in ['fmax', parameter, 'fmin']]
+    other_cols = ['numTests', 'fitFraction', 'pvalue', 'numClusters',
+                  'fmax_lb','fmax', 'fmax_ub',
+                  '%s_lb'%parameter, parameter, '%s_ub'%parameter,
+                  'fmin_lb', 'fmin', 'fmin_ub', 'rsq', 'numIter', 'flag']
+    
+    table.dropna(subset=['variant_number'], axis=0, inplace=True)
+    grouped = table.groupby('variant_number')
+    variant_table = pd.DataFrame(index=grouped.first().index,
+                                 columns=test_stats_init+other_cols)
+    
+    # filter for nan, barcode, and fit
+    variant_table.loc[:, 'numTests'] = grouped.count().loc[:, parameter]
+    
+    fitFilteredTable = filterFunction(table)
+    fitFilterGrouped = fitFilteredTable.groupby('variant_number')
+    index = variant_table.loc[:, 'numTests'] > 0
+    
+    variant_table.loc[index, 'fitFraction'] = (fitFilterGrouped.count().loc[index, parameter]/
+                                           variant_table.loc[index, 'numTests'])
+    variant_table.loc[index, 'fitFraction'].fillna(0)
+    # then save parameters
+    old_test_stats = grouped.median().loc[:, test_stats]
+    old_test_stats.columns = test_stats_init
+    variant_table.loc[:, test_stats_init] = old_test_stats
+    
+    # null model is that all the fits are bad. 
+    for n in np.unique(variant_table.loc[:, 'numTests'].dropna()):
+        # do one tailed t test
+        x = (variant_table.loc[:, 'fitFraction']*
+             variant_table.loc[:, 'numTests']).loc[variant_table.numTests==n].dropna().astype(float)
+        variant_table.loc[x.index, 'pvalue'] = st.binom.sf(x-1, n, min_fraction_fit)
+    
+    return variant_table
+
+def useSimulatedOrActual(variant_table, cutoff):
     # if at least 20 data points have at least 10 counts in that bin, use actual
     # data. This statistics seem reasonable for fitting
-    parameters = fitFun.fittingParameters(concentrations=concentrations)
-    index = variant_table.dG_init < parameters.maxdG
+    index = variant_table.dG_init < cutoff
     counts, binedges = np.histogram(variant_table.loc[index].numTests,
                                     np.arange(1, variant_table.numTests.max()))
     if (counts > 10).sum() >= 20:
@@ -130,11 +216,15 @@ def gammaObjective(params, x, data=None, weights=None, return_pdf=None):
         return (cdf - data)*weights   
    
 
-def fitGammaDistribution(vec, plot=None, set_mean=None, set_offset=None):
+def fitGammaDistribution(vec, plot=None, set_mean=None, set_offset=None, initial_mean=None):
     """ Fit the CDF of a vector to the gamma distribution. """
     
     if plot is None:
         plot = False
+    
+    if initial_mean is None:
+        # set initial mean for fit
+        initial_mean = vec.median() 
     
     # fit the cdf of vec to find parameters that best represent the distribution
     x, y = seqfun.getCDF(vec)
@@ -143,12 +233,12 @@ def fitGammaDistribution(vec, plot=None, set_mean=None, set_offset=None):
     
     # distribution has mean (first moment)
     if set_mean is None:
-        params.add('mean', value=vec.mean(), vary=True, min=0, max=1.5)
+        params.add('mean', value=initial_mean, vary=True, min=0, max=np.inf)
     else:
         params.add('mean', value=set_mean, vary=False)
 
     # distribution has standard deviation (sqrt of second moment)
-    params.add('std',  value=vec.std(), vary=True, min=0, max=1)
+    params.add('std',  value=vec.std(), vary=True, min=0, max=np.inf)
 
     # gamma distribution can have offset (probably centered at 0)
     if set_offset is None:
@@ -191,15 +281,24 @@ def returnGammaParams(mean, std):
     theta = (std)**2/mean
     return k, theta
 
-def plotGammaFunction(vec, results=None, params=None):
+def plotDist(vec, bounds):
+    plt.figure(figsize=(3.5,3))
+    sns.distplot(vec, hist_kws={'histtype':'stepfilled'}, color='0.5', kde_kws={'clip':bounds})
+    ax = fix_axes(plt.gca())
+    xlim = ax.get_xlim()
+    plt.xlim(0, xlim[1])
+    plt.xlabel('initial $f_{max}$')
+    plt.ylabel('probability density')
+    plt.subplots_adjust(bottom=0.2, left=0.2, top=0.95, right=0.95)
+    return
+
+
+def plotGammaFunction(vec, results=None, params=None, bounds=[0,5]):
     """ Take vector and fit and plot distribution. """
     # plot pdf 
-    more_x = np.linspace(0, 2, 100)
-    plt.figure(figsize=(4,4))
-    sns.distplot(vec, hist_kws={'histtype':'stepfilled'}, color='0.5')
-    plt.xlim(0, 2)
-    plt.tight_layout()
-    
+    plotDist(vec, bounds)
+    more_x = np.linspace(*bounds, num=100)
+
     if results is None and params is None:
         print "need to define either results or params to plot fit"
     else:
@@ -208,44 +307,52 @@ def plotGammaFunction(vec, results=None, params=None):
         plt.plot(more_x, gammaObjective(params, more_x, return_pdf=True), 'r')
     
 
-def getFmaxMeanAndBounds(tight_binders, cutoff=None):
+def getFmaxMeanAndBounds(tight_binders, cutoff=1E-12):
     """ Return median fmaxes of variants. """
-    if cutoff is None:
-        cutoff = 1E-12 # fraction of distribution that represents outliers
     # find defined mean shared by all variants by fitting all
     fmaxes = tight_binders.fmax_init
-    fmaxAllFit = fitGammaDistribution(fmaxes, set_offset=0)
+    fmaxAllFit = fitGammaDistribution(fmaxes, set_offset=0, initial_mean=fmaxes.max())
     
     # use fit to also define upper and lower bound of expected values
     mean_fmax = fmaxAllFit.loc['mean']
     std_fmax =  fmaxAllFit.loc['std']
     lowerbound, median, upperbound = (fmaxDistAny().
                                       find_fmax_bounds(mean_fmax, std_fmax, alpha=1-cutoff))
-    plotGammaFunction(fmaxes, fmaxAllFit)
-    ax = plt.gca()
-    ylim = ax.get_ylim()
-    ax.plot([lowerbound]*2, ylim, 'k:')
-    ax.plot([upperbound]*2, ylim, 'k:')
-    return mean_fmax, [lowerbound, upperbound]
+    loose_bounds = [0, 2*upperbound]
+    plotGammaFunction(fmaxes, fmaxAllFit, bounds=loose_bounds)
+    plt.axvline(lowerbound, color='k', linestyle=':')
+    plt.axvline(upperbound, color='k', linestyle=':')
+    return mean_fmax, [lowerbound, upperbound], loose_bounds
     
 
-def getFmaxesToFit(tight_binders, bounds=None):
-    if bounds is None:
-        bounds = [0, np.inf]
-        
-    # find fmaxes and n_tests
+def getFmaxesToFit(tight_binders, bounds=[0, np.inf]):
+    """ Return fmax initial fits that fall within bounds. """
     fmaxes = tight_binders.fmax_init
-    index = (fmaxes>=bounds[0])&(fmaxes<=bounds[1])
     
+    # find those within bounds
+    index = (fmaxes>=bounds[0])&(fmaxes<=bounds[1])
     n_tests = tight_binders.loc[index].numTests
     return fmaxes.loc[index], n_tests
 
-def getFmaxesToFitSimulated(all_clusters, good_variants, bounds=None, n_subset=None):
-    """ Return simulated median fmaxes from randomly sampled clusters. """
-    if bounds is None:
-        bounds = [0, np.inf]
-    if n_subset is None:
-        n_subset = np.arange(2, 15, 2)
+def getFmaxesToFitSimulated(all_clusters, good_variants, bounds=[0, np.inf], n_subset=np.arange(1,15)):
+    """ Return simulated median fmaxes from randomly sampled clusters.
+    
+    Returns a distribution of fmaxes for increasing number of samples.
+
+    Parameters:
+    -----------
+    all_clusters : per-cluster DataFrame giving initial fits. Columns variant
+        number and fmax.
+    good_variants : list of variant numbers that represent variants passing cutoffs.
+    bounds : only include median values of fmax within bounds.
+    n_subset : list of number of tests to simulate.
+    
+    Returns:
+    --------
+    DataFrame of median fmaxes
+    DataFrame of number of tests
+    
+    """
         
     # find those clusters associated with good variants and use those it fmaxes
     good_clusters = pd.Series(np.in1d(all_clusters.variant_number,
@@ -281,33 +388,33 @@ def getFmaxesToFitSimulated(all_clusters, good_variants, bounds=None, n_subset=N
         n_tests.append(n_vec)
     
     return pd.concat(fmaxes, ignore_index=True), pd.concat(n_tests, ignore_index=True)
-        
 
-def findMinStd(fmaxes, n_tests, mean_fmax, fraction_of_data=None):
-    """ Find a minimum standard deviation. """
-    if fraction_of_data is None:
-        fraction_of_data = 0.50
-    # find number of tests that contains 95% of the variants
-    n_test_counts = n_tests.value_counts().sort_index()
+def getFractionOfData(n_test_counts, fraction_of_data):
     for n in n_test_counts.index:
         if n_test_counts.loc[:n].sum()/float(n_test_counts.sum()) < fraction_of_data:
             pass
         else:
             min_n = n
             break
+    return min_n
+
+def findMinStd(fmaxes, n_tests, mean_fmax, fraction_of_data=0.5):
+    """ Find a minimum standard deviation. """
+    n_test_counts = n_tests.value_counts().sort_index()
+    # find number of tests that contains 50% of the variants
+    min_n = getFractionOfData(n_test_counts, fraction_of_data)
     
     # fit to find the "floor" of std below which represents experimental noise
     fmaxHighNFit = fitGammaDistribution(fmaxes.loc[n_tests>=min_n],
                                         set_mean=mean_fmax, set_offset=0)
     min_std = fmaxHighNFit.loc['std']
-    at_n = np.average(n_test_counts.loc[n:].index.tolist(),
-                      weights=n_test_counts.loc[n:].values)
+    at_n = np.average(n_test_counts.loc[min_n:].index.tolist(),
+                      weights=n_test_counts.loc[min_n:].values)
     return min_std, at_n
 
-def findStdParams(fmaxes, n_tests, mean_fmax, min_std, at_n):
+def findStdParams(fmaxes, n_tests, mean_fmax, min_std, at_n, min_num_to_fit=4):
     """ Find the relationship between number of tests and std. """
     n_test_counts = n_tests.value_counts().sort_index()
-    min_num_to_fit = 5
     all_ns = n_test_counts.loc[n_test_counts>=min_num_to_fit].index.tolist()
     
     stds_actual = {}
@@ -326,7 +433,7 @@ def findStdParams(fmaxes, n_tests, mean_fmax, min_std, at_n):
                           weights=weights_fit,
                           set_c=min_std, at_n=at_n)
     params.add('median', value=mean_fmax)
-    return params, x, y, stds_actual
+    return params, stds_actual
     
 def findParams(tight_binders, use_simulated=None, table=None):
     """ Initialize, find the fmax distribution object and plot. """
@@ -336,7 +443,7 @@ def findParams(tight_binders, use_simulated=None, table=None):
         print "error: need to give table of all cluster fits to do simulated data"
         return
     
-    mean_fmax, bounds = getFmaxMeanAndBounds(tight_binders)
+    mean_fmax, bounds, loose_bounds = getFmaxMeanAndBounds(tight_binders)
     fmaxes_data, n_tests_data = getFmaxesToFit(tight_binders, bounds=bounds)
     
     if use_simulated:
@@ -348,107 +455,152 @@ def findParams(tight_binders, use_simulated=None, table=None):
         fmaxes, n_tests = fmaxes_data, n_tests_data
 
     # fit relationship of std with number of measurements
-    params, x, y, stds_actual = findStdParams(fmaxes, n_tests, mean_fmax, min_std, at_n)
+    params, stds_actual = findStdParams(fmaxes, n_tests, mean_fmax, min_std, at_n)
     
     fmaxDist = fmaxDistAny(params=params)
     
     # plot
-    x_fit = np.arange(1, n_tests_data.max())
-    y_fit = fmaxDist.sigma_by_n_fit(params, x_fit)
-    plt.figure(figsize=(4,3))
+    maxn = getFractionOfData(n_tests_data.value_counts().sort_index(), 0.995)
+    ax = plotFun.plotFmaxStdeVersusN(fmaxDist, stds_actual, maxn)
+    # if use_simulated, plot actual as well
     if use_simulated:
-        params1, x1, y1, stds_not_sim = findStdParams(fmaxes_data, n_tests_data, mean_fmax, None, None)
-        plt.scatter(x1, y1, s=5, marker='.', color='0.5')
-        y1_fit = fmaxDist.sigma_by_n_fit(params1, x_fit)
-        plt.plot(x_fit, y1_fit, ':', color='0.5', label='using variant fmaxes')
+        try:
+            params1, stds_not_sim = findStdParams(fmaxes_data, n_tests_data, mean_fmax, None, None)
+            fmaxDist1 = fmaxDistAny(params=params1)
+            plotFun.plotFmaxStdeVersusN(fmaxDist1, stds_not_sim, maxn, ax=ax)
+        except:
+            pass
         
-    plt.scatter(x, y, s=10, marker='o', color='k')
-    plt.plot(x_fit, y_fit, 'c')
-    plt.xlabel('number of measurements')
-    plt.ylabel('standard deviation of median fmax')
-    plt.xlim(0, x_fit.max())
-    plt.tight_layout()
+    # plot offsets
+    plotFun.plotFmaxOffsetVersusN(fmaxDist, stds_actual, maxn)
+    # if use_simulated, plot actual as well
+    if use_simulated:
+        try:
+            params1, stds_not_sim = findStdParams(fmaxes_data, n_tests_data, mean_fmax, None, None)
+            fmaxDist1 = fmaxDistAny(params=params1)
+            plotFun.plotFmaxOffsetVersusN(fmaxDist1, stds_not_sim, maxn, ax=ax)
+        except:
+            pass  
+
+    # plot numbers
+    plotFun.plotNumberVersusN(n_tests_data, maxn)
     
-    # also plot offsets
-    plt.figure(figsize=(4,3))
-    sns.distplot(stds_actual.offset)
-    
-    y_smoothed = gaussian_filter(stds_actual.offset, 2)
-    plt.figure(figsize=(4,3));
-    plt.errorbar(x, stds_actual.offset, yerr=stds_actual.offset_stde)
-    #plt.plot(x, y_smoothed, 'c')
-    plt.xlabel('number of measurements')
-    plt.ylabel('offset')
-    plt.tight_layout()
     return fmaxDist
 
 def resultsFromFmaxDist(fmaxDist, n):
+    """ Return results from fmaxDist. """
     mean, var = fmaxDist.getDist(n).stats(moments='mv')
     return pd.Series({'std':np.sqrt(var), 'mean':mean, 'offset':0})
 
-def other():
-    x1 = stds_actual.index.tolist()
-    y1 = stds_actual.loc[:, 'std']
-    weights_fit = np.sqrt(n_test_counts.loc[stds_actual.index])
-    
-    params2 = fitSigmaDist(x1, y1,
-                          weights=weights_fit,
-                          set_c=min_std, at_n=at_n)
-    y_fit2 = fmaxDist.sigma_by_n_fit(params2, x)
-    
-    plt.figure()
-    plt.plot(x, y, 'k.', )
-    plt.scatter(x1, y1, facecolors='none', edgecolors='k')
-    plt.plot(x, y_fit, 'c')
-    plt.plot(x, y_fit2, 'r')
-    
-    # save fitting parameters
-    params.add('median', value=mean_fmax)
-    fmaxDist = fmaxDistAny(params=params)
-    y_fit = fmaxDist.sigma_by_n_fit(params, x)
-    y_fit2 = fmaxDist.sigma_by_n_fit(params2, x)
-    plt.figure()
-    plt.plot(stds_actual.index, stds_actual.loc[:, 'std'], 'k.', )
-    plt.scatter(stds_sim.index, stds_sim.loc[:, 'std'], facecolors='none', edgecolors='k')
-    plt.plot(x, y_fit, 'c')
-    plt.plot(x, y_fit2, 'r')
-    
+def findUpperboundFromFmaxDistObject(fmaxDist):
+    """ Return loose bounds on fmax from fmaxDist. """
+    return fmaxDist.params['median'] + 3*fmaxDist.params['sigma']
 
+def plotAnyN(tight_binders, fmaxDistObject, n):
+    bounds = [0, findUpperboundFromFmaxDistObject(fmaxDistObject)]
+    x = np.linspace(*bounds, num=100)
+    plotDist(tight_binders.loc[tight_binders.numTests==n].fmax_init, bounds)
+    plt.plot(x, fmaxDistObject.getDist(n).pdf(x), 'r')
+    plt.tight_layout()
     
-    x = stds_actual.index
-    y = stds_actual.loc[:, 'std']   
-    
-    
-    plt.figure()
-    plt.plot(x, stds_actual.loc[:, 'mean'], 'o')
+if __name__=="__main__":
+    args = parser.parse_args()
+    fittedBindingFilename = args.single_cluster_fits
+    annotatedClusterFile  = args.annotated_clusters
 
-    plt.figure()
-    plt.plot(stds_actual.index, stds_actual.loc[:, 'offset'], 'o')
+    outFile  = args.out_file
+    kd_cutoff = args.kd_cutoff
+    use_simulated = args.use_simulated
+    
+    # find out file
+    if outFile is None:
+        outFile = os.path.splitext(
+            fittedBindingFilename[:fittedBindingFilename.find('.pkl')])[0]
+        
+    # make fig directory
+    figDirectory = os.path.join(os.path.dirname(outFile), fileFun.returnFigDirectory())
+    if not os.path.exists(figDirectory):
+        os.mkdir(figDirectory)
+
+    # need to define concentrations or kd_cutoff in order to find affinity cutoff
+    if args.concentrations is not None:
+        concentrations = np.loadtxt(args.concentrations)
+    elif kd_cutoff is None:
+        print 'Error: need to either give concentrations or kd_cutoff.'
+        sys.exit()
+        
+    # define cutoffs
+    parameters = fitFun.fittingParameters()
+    if kd_cutoff is not None:
+        # adjust cutoff to reflect this fraction bound at last concentration
+        affinity_cutoff = parameters.find_dG_from_Kd(kd_cutoff)
+    else:
+        parameters = fitFun.fittingParameters(concentrations)
+        affinity_cutoff = parameters.maxdG
+    pvalue_cutoff = args.pvalue_cutoff
+    print 'Using variants with kd less than %4.2f nM'%parameters.find_Kd_from_dG(affinity_cutoff)
+    print 'Using variants with pvalue less than %.1e'%pvalue_cutoff
+
+    # load initial fits per cluster
+    print 'Loading data...'
+    initial_points = pd.concat([pd.read_pickle(annotatedClusterFile),
+                                pd.read_pickle(fittedBindingFilename)], axis=1).astype(float)
+
+    # find variant_table
+    variant_table = findVariantTable(initial_points).astype(float)
+    good_fits = variant_table.pvalue < pvalue_cutoff
+    tight_binders = variant_table.loc[good_fits&(variant_table.dG_init<affinity_cutoff)]
+    print ('%d out of %d variants pass cutoff'
+           %(len(tight_binders), len(variant_table)))
+    if len(tight_binders) < 10:
+        print 'Error: need more variants passing cutoffs to fit'
+        print sys.exit()
+
+    # find good variants
+    plotFun.plotFmaxVsKd(variant_table.loc[good_fits], parameters.find_Kd_from_dG(affinity_cutoff))
+    plt.savefig(os.path.join(figDirectory, 'fmax_vs_kd_init.pdf'))
+    
+    plotFun.plotFmaxVsKd(variant_table.loc[good_fits], parameters.find_Kd_from_dG(affinity_cutoff),
+                         plot_fmin=True)
+    plt.savefig(os.path.join(figDirectory, 'fmin_vs_kd_init.pdf'))  
+
+    # if use_simulated is not given, decide
+    if use_simulated is None:
+        use_simulated = not useSimulatedOrActual(variant_table.loc[good_fits], affinity_cutoff)
+    if use_simulated:
+        print 'Using fmaxes drawn randomly from clusters'
+    else:
+        print 'Using median fmaxes of variants'
+    
+    # find fmax dist object
+    fmaxDist = findParams(tight_binders,
+                                use_simulated=use_simulated,
+                                table=initial_points)
+    plt.savefig(os.path.join(figDirectory, 'counts_vs_n_tight_binders.pdf'))
+    plt.close()
+    plt.savefig(os.path.join(figDirectory, 'offset_fmax_vs_n.pdf'))
+    plt.close()
+    plt.savefig(os.path.join(figDirectory, 'stde_fmax_vs_n.pdf'))
+    plt.close()
+    plt.savefig(os.path.join(figDirectory, 'fmax_dist.all.pdf'));
+    
+    # save
+    pickle.dump(fmaxDist, open( outFile+'.fmaxdist.p', "wb" ))
+    
+    # save variant table
+    variant_table.to_pickle(outFile + '.init.CPvariant.pkl')
+    
     # plot some examples
-    n = 52
-    x = np.linspace(0, 2)
-    plt.figure(figsize=(4,4));
-    sns.distplot(fmax_sub.loc[numTests==n], bins=np.linspace(0, 2, 20),
-                 hist_kws={'histtype':'stepfilled'}, color='0.5');
-    plt.plot(x, gammaObjective(returnParamsFromResults(stds_actual.loc[n]), x,
-                               return_pdf=True), color='r');
-    std = fmaxDist.sigma_by_n_fit(params, n)
+    for n in np.percentile(variant_table.numTests, [10, 50, 90]):
+        plotAnyN(tight_binders, fmaxDist, n)
+        plt.savefig(os.path.join(figDirectory, 'fmax_dist.n_%d.pdf'%n))
     
-    plt.plot(x, gammaObjective(returnParamsFromResults(pd.Series({'std':std, 'mean':mean_fmax, 'offset':0})), x,
-                               return_pdf=True), color='b');
-    plt.xlim(0, 2);
-    plt.tight_layout();
+    # plot fraction fit
+    plotFun.plotFractionFit(variant_table, pvalue_threshold=pvalue_cutoff)
+    plt.savefig(os.path.join(figDirectory, 'fraction_passing_cutoff_in_affinity_bins.pdf'))
+    plt.close()
+    plt.savefig(os.path.join(figDirectory, 'histogram_fraction_fit.pdf'))
     
-    n = 16
-    x = np.linspace(0, 2)
-    plt.figure(figsize=(4,4));
-    sns.distplot(fmax_sub.loc[numTests==n], bins=np.linspace(0, 2, 20),
-                 hist_kws={'histtype':'stepfilled'}, color='0.5');
-    plt.plot(x, gammaObjective(returnParamsFromResults(stds_actual.loc[n]), x,
-                               return_pdf=True), color='r');
-    plt.xlim(0, 2);
-    plt.tight_layout();
-    
-    mean, var = fmaxDist.find_fmax_bounds_given_n(n, return_dist=True).stats(moments='mv')
-    final_params = pd.Series({'std':np.sqrt(var), 'mean':mean, 'offset':0})
+
+                
     

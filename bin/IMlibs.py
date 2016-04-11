@@ -9,9 +9,11 @@ import matplotlib.pyplot as plt
 import datetime
 import scipy.stats as st
 import warnings
+import collections
 import pickle
 import seaborn as sns
 import itertools
+import fileFun
 
 def filenameMatchesAListOfExtensions(filename, extensionList=None):
     # from CPlibs
@@ -25,19 +27,31 @@ def findTileFilesInDirectory(dirPath, extensionList, excludedExtensionList=None)
     # from CPlibs
     dirList = os.listdir(dirPath)
 
-    filenameDict = {}
+    filenameDict = collections.defaultdict(list)
     for currFilename in dirList:
-        if filenameMatchesAListOfExtensions(currFilename,extensionList) and not filenameMatchesAListOfExtensions(currFilename,excludedExtensionList):
+        if (filenameMatchesAListOfExtensions(currFilename,extensionList) and not
+            filenameMatchesAListOfExtensions(currFilename,excludedExtensionList)):
             currTileNum = getTileNumberFromFilename(currFilename)
             if currTileNum != '':
-                filenameDict[currTileNum] = os.path.join(dirPath,currFilename)
+                filenameDict[currTileNum].append(os.path.join(dirPath,currFilename))
     if len(filenameDict) == 0:
         print '      NONE FOUND'
     else:
         for currTile,currFilename in filenameDict.items():
-            print '      found tile ' + currTile + ': "' + currFilename + '"'
+            if len(currFilename) == 1:
+                print '      found tile ' + currTile + ': "' + currFilename[0] + '"'
+                filenameDict[currTile] = currFilename[0]
+            elif len(currFilename) > 1:
+                filenameDict[currTile] = np.sort(currFilename)
+
     return filenameDict
 
+def addIndexToDir(perTileDict, index=None):
+    d = collections.defaultdict(list)
+    for key, values in perTileDict.items():
+        d[key] = pd.Series(values, index=index)
+    return d
+    
 def getTileNumberFromFilename(inFilename):
     # from CPlibs
     (path,filename) = os.path.split(inFilename) #split the file into parts
@@ -66,25 +80,23 @@ def loadMapFile(mapFilename):
         num_dirs = len(remainder)
         directories = [os.path.join(root_dir, line.strip()) for line in remainder]
 
-    return red_dir, np.array(directories)
+    return pd.Series(red_dir), pd.Series(directories, index=np.arange(len(directories))+1)
 
 def makeSignalFileName(directory, fluor_filename):
     return os.path.join(directory, '%s.signal'%os.path.splitext(os.path.basename(fluor_filename))[0])
 
 def getFluorFileNames(directories, tileNames):
-    """
-    return dict whose keys are tile numbers and entries are a list of CPfluor files by concentration
-    """
-    filenameDict = {}
-    filesPerTile = ['']*len(directories)
-    for tile in tileNames:
-        filenameDict[tile] = ['']*len(directories)
-        for i, directory in enumerate(directories):
-            try:
-                filename = subprocess.check_output('find %s -maxdepth 1 -name "*CPfluor" -type f | grep tile%s'%(directory, tile), shell=True).strip()
-            except: filename = ''
-            filenameDict[tile][i] = filename
-    return filenameDict
+    """ Return dict with keys tile numbers and entries list of CPfluor files."""
+    d = collections.defaultdict(list)
+    for idx, directory in directories.iteritems():
+        new_dict = addIndexToDir((findTileFilesInDirectory(directory, ['CPfluor'])), index=[idx])
+        for tile, filenames in new_dict.items():
+            d[tile].append(filenames)
+    # consolidate tiles
+    newdict = {}
+    for tile, files in d.items():
+        newdict[tile] = pd.concat(files)
+    return newdict 
 
 def parseTimeStampFromFilename(CPfluorFilename):
     try: 
@@ -102,25 +114,22 @@ def getFluorFileNamesOffrates(directories, tileNames):
     """
     return dict whose keys are tile numbers and entries are a list of CPfluor files by concentration
     """
-    filenameDict = {}
     
-    for tile in tileNames:
-        filenameDict[tile] = []
-        for i, directory in enumerate(directories):
-            try:
-                filenames = subprocess.check_output(('find %s -maxdepth 1 -name "*CPfluor" | '+
-                                                     'grep tile%s | sort')%(directory, tile),
-                                                 shell=True).split()
-                for filename in filenames: 
-                    filenameDict[tile].append(filename)
-            except:
-                pass
+    filenameDict = collections.defaultdict(list)
+    for idx, directory in directories.iteritems():
+        new_dict = addIndexToDir((findTileFilesInDirectory(directory, ['CPfluor'])))
+        for tile, filenames in new_dict.items():
+            filenameDict[tile].append(filenames)
+    
+    # make sure is flat
+    for tile, filenames in filenameDict.items():
+        filenameDict[tile] = pd.concat(filenameDict[tile])
     
     # check time stamps
     timeStampDict = {}
     for tile in tileNames:
         timeStampDict[tile] = [parseTimeStampFromFilename(filename)
-                               for filename in filenameDict[tile]]
+                               for idx, filename in filenameDict[tile].iteritems()]
     allTimeStamps = []
     for times in timeStampDict.values():
         for time in times:
@@ -143,6 +152,17 @@ def getCPsignalDictfromCPseqDict(filteredCPseqFilenameDict, signal_directory):
     for tiles, cpSeqFilename in filteredCPseqFilenameDict.items():
         signalNamesByTileDict[tiles] = getCPsignalFileFromCPseq(cpSeqFilename, signal_directory)
     return signalNamesByTileDict
+
+def getCPseriesDictfromCPseqDict(filteredCPseqFilenameDict, signal_directory):
+    signalNamesByTileDict = {}
+    for tiles, cpSeqFilename in filteredCPseqFilenameDict.items():
+        signalNamesByTileDict[tiles] = getCPseriesFileFromCPseq(cpSeqFilename, signal_directory)
+    return signalNamesByTileDict
+
+def getCPseriesFileFromCPseq(cpSeqFilename, directory=None):
+    if directory is None:
+        directory = os.path.dirname(cpSeqFilename)
+    return os.path.join(directory,  os.path.splitext(os.path.basename(cpSeqFilename))[0] + '.CPseries.pkl')
     
 def getCPsignalFileFromCPseq(cpSeqFilename, directory=None):
     if directory is None:
@@ -162,19 +182,29 @@ def getReducedCPsignalDict(signalNamesByTileDict, filterSet = None, directory = 
         reducedSignalNamesByTileDict[tiles] = os.path.join(directory, os.path.splitext('__'+os.path.basename(cpSignalFilename))[0] + '_%s.CPsignal'%filterSet)
     return reducedSignalNamesByTileDict
 
-def getReducedCPsignalFilename(reducedSignalNamesByTileDict):
-    filename = reducedSignalNamesByTileDict.values()[0]
-    dirname = os.path.dirname(filename)
-    basename = os.path.basename(filename).lstrip('_')
+def getReducedCPsignalFilename(signalFilesByTile, directory, suffix=None):
+    if suffix is None:
+        postScript = '_reduced.CPseries.pkl'
+    else:
+        postScript = '_reduced_%s.CPseries.pkl'%suffix
+    startFile = os.path.basename(signalFilesByTile.values()[0])
+    noTileFile = startFile[:startFile.find('tile')] + startFile[startFile.find('tile')+8:]
+    return os.path.join(directory, os.path.splitext(noTileFile[:noTileFile.find('.pkl')])[0] + postScript)
 
-    removeIndex = basename.find('tile')
-    newBasename = basename[:removeIndex] + basename[removeIndex+8:]
-    return os.path.join(dirname, newBasename)
+def getTileOutputFilename(signalFilesByTile, directory, suffix=None):
+    if suffix is None:
+        postScript = '_reduced.CPtiles.pkl'
+    else:
+        postScript = '_reduced_%s.CPtiles.pkl'%suffix
+    startFile = os.path.basename(signalFilesByTile.values()[0])
+    noTileFile = startFile[:startFile.find('tile')] + startFile[startFile.find('tile')+8:]
+    return os.path.join(directory, os.path.splitext(noTileFile[:noTileFile.find('.pkl')])[0] + postScript)
+
 
 def getSignalFromCPFluor(CPfluorfilename):
-    fitResults = pd.read_csv(CPfluorfilename, usecols=range(7, 12), sep=':', header=None, names=['success', 'amplitude', 'sigma', 'fit_X', 'fit_Y'] )
-    signal = np.array(2*np.pi*fitResults['amplitude']*fitResults['sigma']*fitResults['sigma'])
-    signal[np.array(fitResults['success']==0)] = np.nan
+    fitResults = fileFun.loadFile(CPfluorfilename)
+    signal = 2*np.pi*fitResults.amplitude*fitResults.sigma*fitResults.sigma
+    signal.loc[~fitResults.success.astype(bool)] = np.nan
     return signal
 
 def getBSfromCPsignal(signalNamesByTileDict):
@@ -188,6 +218,7 @@ def getFPfromCPsignal(signalNamesByTileDict):
     for tiles, cpSignalFilename in signalNamesByTileDict.items():
         bindingSeriesFilenameDict[tiles] = os.path.splitext(cpSignalFilename)[0] + '.fit_parameters'
     return bindingSeriesFilenameDict
+
 
 def findCPsignalFile(cpSeqFilename, redFluors, greenFluors, cpSignalFilename, tile=None):
  
@@ -231,6 +262,27 @@ def findCPsignalFile(cpSeqFilename, redFluors, greenFluors, cpSignalFilename, ti
     np.savetxt(cpSignalFilename, np.transpose(np.vstack((cp_seq, signal_comma_format))), fmt='%s', delimiter='\t')      
     return signal_green
 
+def makeCPseriesFile(cpseriesfilename, fluorFiles):
+    signals = []
+    signal_file_exists = [False]*len(fluorFiles)
+    
+    # find signal for each fluor file
+    for i, (idx, filename) in enumerate(fluorFiles.iteritems()):
+        if os.path.exists(filename):
+            signal_file_exists[i] = True
+            signals.append(pd.Series(getSignalFromCPFluor(filename), name=idx))
+    
+    # check any were made
+    if not np.any(signal_file_exists):
+        print 'Error: no CPfluor files found! Are directories in map file correct?'
+        return
+    
+    # save
+    signal = pd.concat(signals, axis=1)
+    signal.to_pickle(cpseriesfilename)
+    return
+    
+
 def reduceCPsignalFile(cpSignalFilename, reducedCPsignalFilename, filterPos=None):
     
     if filterPos is None:
@@ -247,6 +299,50 @@ def reduceCPsignalFile(cpSignalFilename, reducedCPsignalFilename, filterPos=None
         
     print to_run
     os.system(to_run)
+    return
+
+def makeIndexFileNoGrep(filteredCPseqFilenameDict, filterPos, outputFile):
+    # takes about 61 seconds to run on ~2 million indices
+    awkFilterText = ' || '.join(['(a[i]==\"%s\")'%s for s in filterPos]) 
+    call = ("cat %s | "
+            "awk '{n=split($2, a,\":\"); b=0; for (i=1; i<=n; i++) if (%s) b=1; "
+            "if (b==1) print $1}' > %s")%(' '.join(filteredCPseqFilenameDict.values()),
+                                          awkFilterText, outputFile)
+    print call
+    os.system(call)
+    return
+    
+def makeIndexFile(filteredCPseqFilenameDict, filterPos, outputFile):
+    # takes about 35 seconds to run on ~2 million indices
+    call = "cat %s | grep -w '%s' | cut -f1 > %s"%(' '.join(filteredCPseqFilenameDict.values()),
+                                                    '\|'.join(filterPos),
+                                                    outputFile)
+    print call
+    os.system(call)
+    return
+    
+
+def reduceCPseriesFiles(outputFiles, reducedOutputFile, indices=None, tileOutputFile=None):
+    # load all files in dict outputFiles
+    allTiles = [fileFun.loadFile(filename) for filename in outputFiles.values()]
+    a = pd.concat(allTiles)
+    a = a.groupby(level=0).first()
+    
+    if indices is None:    
+        a.to_pickle(reducedOutputFile)
+    else:
+        a.loc[indices].to_pickle(reducedOutputFile)
+    
+    # find tile dict if tile output file is given
+    if tileOutputFile is not None:
+        tiles = pd.concat([pd.Series(index=s.index, data=tile)
+                           for s, tile in itertools.izip(allTiles, outputFiles.keys())])
+        tiles = tiles.groupby(level=0).first()
+        if indices is None:
+            tiles.to_pickle(tileOutputFile)
+        else:
+            tiles.loc[indices].to_pickle(tileOutputFile)
+
     return
 
 def saveTimeDeltaDict(filename, timeDeltaDict):
@@ -463,35 +559,7 @@ def loadBindingCurveFromCPsignal(filename, concentrations=None, subset=None, ind
                                          usecols=[index_col, 'all_cluster_signal'])
     return binding_series, all_cluster_signal.all_cluster_signal
 
-def boundFluorescence(signal, plot=None):
-    # take i.e. all cluster signal and bound it 
-    if plot is None: plot=False
-    
-    signal = signal.copy()
-    
-    # check if at least one element of signal is not nan
-    if np.isfinite(signal).sum() > 0:    
-        lowerbound = np.percentile(signal.dropna(), 1)
-        upperbound = signal.median() + 5*signal.std()
-        
-        if plot:
-            binwidth = (upperbound - lowerbound)/50.
-            plt.figure(figsize=(4,3))
-            sns.distplot(signal.dropna(), bins = np.arange(signal.min(), signal.max()+binwidth, binwidth), color='seagreen')
-            ax = plt.gca()
-            ax.tick_params(right='off', top='off')
-            ylim = ax.get_ylim()
-            plt.plot([lowerbound]*2, ylim, 'k:')
-            plt.plot([upperbound]*2, ylim, 'k:')
-            plt.xlim(0, upperbound + 2*signal.std())
-            plt.tight_layout()
-        signal.loc[signal < lowerbound] = lowerbound
-        signal.loc[signal > upperbound] = upperbound
-    
-    else:
-        #if they are all nan, set to 1 for division
-        signal.loc[:] = 1
-    return signal
+
     
 def loadFittedCPsignal(fittedBindingFilename, annotatedClusterFile=None,
                        bindingCurveFilename=None, pickled=None):

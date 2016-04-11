@@ -61,8 +61,8 @@ def returnLoopFracKey(topology, seq, pos):
     # for the other loop, the fit fraction is when you switch the first and sceond positions
     seqKeys = [seq[i] for i in list(g)]
     topKeys = [topology[i] for i in list(g)]
-    key = ('_'.join([seqKeys[i] for i in [2,0,1]]) + 'g' + 
-           '_'.join([topKeys[i] for i in [2,0,1]]))      
+    key = ('_'.join([seqKeys[i] for i in [2,1,0]]) + 'g' + 
+           '_'.join([topKeys[i] for i in [2,1,0]]))      
     return key
 
 
@@ -90,7 +90,7 @@ def objectiveFunction(params, y=None, return_weighted=None, return_pred=None):
         term1 = parvals[bindingKey]   
         term2 = parameters.RT*np.log(parvals[fracKey])
         
-        diff.loc[idx] = term1 + term2 
+        diff.loc[idx] = term1 - term2 
     
     if return_pred:
         return diff.astype(float)
@@ -150,7 +150,7 @@ def fitThreeWay(y, weight=None, force=None, to_include=None, results=None):
         
         # then make the third 1 - the sum of the other two
         params.add(returnFracKey(topology, seq, 2),
-                   expr='1-1./%s-1./%s'%(returnFracKey(topology, seq, 0),
+                   expr='1-%s-%s'%(returnFracKey(topology, seq, 0),
                                          returnFracKey(topology, seq, 1)))
     
     # now fit
@@ -290,7 +290,7 @@ def findDataMat(subtable, y, results):
         if bindingKey in results.index:
             data.loc[idx, 'dG_bind'] = results.loc[bindingKey]
         
-        data.loc[idx, 'dG_fit'] = data.loc[idx, 'dG_bind'] + data.loc[idx, 'dG_conf'] 
+        data.loc[idx, 'dG_fit'] = data.loc[idx, 'dG_bind'] - data.loc[idx, 'dG_conf'] 
         
     # add nearest neighbor info
     nnFile = '/home/sarah/JunctionLibrary/seq_params/nearest_neighbor_rules.txt'
