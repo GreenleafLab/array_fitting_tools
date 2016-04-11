@@ -80,7 +80,7 @@ def loadMapFile(mapFilename):
         num_dirs = len(remainder)
         directories = [os.path.join(root_dir, line.strip()) for line in remainder]
 
-    return pd.Series(red_dir), pd.Series(directories, index=np.arange(len(directories))+1)
+    return pd.Series(red_dir), pd.Series(directories, index=np.arange(len(directories)))
 
 def makeSignalFileName(directory, fluor_filename):
     return os.path.join(directory, '%s.signal'%os.path.splitext(os.path.basename(fluor_filename))[0])
