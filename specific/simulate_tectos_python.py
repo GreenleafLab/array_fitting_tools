@@ -44,18 +44,20 @@ parser.add_argument('-e', '--enforce_find',action="store_true",
                     help='flag if you want to force call until value is found.')
 
 group = parser.add_argument_group('additional agruments to change simulation parameters.')
-group.add_argument('-s', '--steps', metavar="N", 
+group.add_argument('-s', '--steps', metavar="N",
                    help='number of iterations. default is 1E6')
-group.add_argument('-c', '--cutoff', metavar="N", default='12.425051356420052',
-                   help='change the cutoff for counting formation (default 12.42)')
+group.add_argument('-c', '--cutoff', metavar="N", default='5',
+                   help='change the cutoff for counting formation (default 5)')
 group.add_argument('-t', '--temperature', metavar="N", 
                    help='change the temperature of the simulate (default 298.15K)')
 group.add_argument('-sr', '--steric_radius', metavar="N", 
                    help='change the current steric radius  (default 2.2)')
 group.add_argument('-wd', '--weight_distance', metavar="N",
                    help='change contribution of distance to cutoff (default 1)')
-group.add_argument('-wr', '--weight_rotation', metavar="N", default='10.348727083108423',
-                   help='change contribution of rotation to cutoff (default 10.349)')
+group.add_argument('-wr', '--weight_rotation', metavar="N", default='1',
+                   help='change contribution of rotation to cutoff (default 1)')
+group.add_argument('-rev', '--reverse', metavar="N", default='0',
+                   help='reverse order of simualtion (default 0)')
 
 group = parser.add_argument_group('additional agruments to save more information')
 group.add_argument('-r', '--record', metavar="0", 
@@ -165,6 +167,8 @@ if __name__ == '__main__':
     if numCores is None:
         numCores = numReps
         
+    # check that number of steps is an integer
+    args.steps = str(int(float(args.steps)))
     # other args
     args_to_joes_args = {
                     'steps':            '-s',
@@ -179,7 +183,8 @@ if __name__ == '__main__':
                     'ensembles':        '-ensembles',
                     'record_all':       '-rall',
                     'static':           '--static',
-                    'pdbs':             '-pdbs',}
+                    'pdbs':             '-pdbs',
+                    'reverse':          '-reverse'}
     joes_args_to_values = {}
     for name, joe_arg in args_to_joes_args.items():
         joes_args_to_values[joe_arg] = vars(args)[name]
@@ -224,6 +229,7 @@ if __name__ == '__main__':
         successes.loc[:, 'chip_seq'] = [cseq for fseq, cseq in itertools.product(flow_seqs, chip_seqs)]
         successes.loc[:, 'flow_seq_ind'] = [i for i, cseq in itertools.product(np.arange(len(flow_seqs)), chip_seqs)]
         successes.loc[:, 'chip_seq_ind'] = [j for fseq, j in itertools.product(flow_seqs, np.arange(len(chip_seqs)))]
+        successes.loc[:, 'num_iter'] = args.steps
         successes.to_csv(args.out_file, sep='\t')
         
 

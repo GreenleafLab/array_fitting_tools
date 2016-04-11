@@ -5,6 +5,7 @@ import matplotlib as mpl
 from matplotlib import gridspec
 import seaborn as sns
 import os
+import scipy.stats as st
 import itertools
 
 from plotFun import fix_axes
