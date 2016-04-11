@@ -293,9 +293,11 @@ def plotDist(vec, bounds):
     return
 
 
-def plotGammaFunction(vec, results=None, params=None, bounds=[0,5]):
+def plotGammaFunction(vec, results=None, params=None, bounds=None):
     """ Take vector and fit and plot distribution. """
-    # plot pdf 
+    # plot pdf
+    if bounds is None:
+        bounds = np.percentile(vec, [0,100])
     plotDist(vec, bounds)
     more_x = np.linspace(*bounds, num=100)
 
