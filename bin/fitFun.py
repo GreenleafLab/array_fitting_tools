@@ -524,6 +524,7 @@ def returnParamsFromResultsBounds(final_params, param_names, ub_vec):
         params_ub.add(name, value=final_params.loc[param])
     return params_ub
 
+
 def errorPropagationKdFromKoffKobs(koff, kobs, c, sigma_koff, sigma_kobs):
     koff = koff.astype(float)
     kobs = kobs.astype(float)

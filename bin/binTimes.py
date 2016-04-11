@@ -85,6 +85,7 @@ if __name__ == '__main__':
         min_time_delta = time_deltas.min()
         plotFun.plotTimeDeltaDist(time_deltas, min_time_delta)
         plt.savefig(os.path.join(figDirectory, 'time_delta_hist.pdf'))
+
     else:
         min_time_delta = args.tau 
     
