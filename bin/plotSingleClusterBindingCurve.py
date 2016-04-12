@@ -52,7 +52,6 @@ parser.add_argument('-out', '--out_file',
 if __name__ == '__main__':
     args = parser.parse_args()
     
-    annotatedClusterFile  = args.annotated_clusters
     bindingCurveFilename  = args.binding_curves
     singleClusterFilename = args.single_cluster_fits
     cluster = args.cluster
