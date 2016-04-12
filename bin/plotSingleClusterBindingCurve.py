@@ -45,14 +45,13 @@ parser.add_argument('-i', '--cluster', required=True, metavar="clusterID",
                     help='cluster Id for which to plot')
 
 parser.add_argument('-out', '--out_file', 
-                   help='output filename. default is variant number + ".pdf"')
+                   help='output filename. default is "cluster_X.binding_curve.pdf"')
 
 
 
 if __name__ == '__main__':
     args = parser.parse_args()
     
-    variantFilename = args.variant_file
     annotatedClusterFile  = args.annotated_clusters
     bindingCurveFilename  = args.binding_curves
     singleClusterFilename = args.single_cluster_fits
@@ -63,7 +62,6 @@ if __name__ == '__main__':
     bindingSeries =  pd.read_pickle(bindingCurveFilename)
     fittedSingles = pd.read_pickle(singleClusterFilename)
 
-    
     # plot
     fig = plt.figure(figsize=(4,3))
     ax = fig.add_subplot(111)
@@ -73,5 +71,6 @@ if __name__ == '__main__':
                         fittedSingles.loc[cluster],
                         fitParameters, ax=ax)
 
-        
+    if args.out_file is None:
+        args.out_file = 'cluster_%s.binding_curve.pdf'%cluster
     plt.savefig( args.out_file)
