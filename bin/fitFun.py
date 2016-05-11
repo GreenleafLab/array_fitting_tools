@@ -103,64 +103,6 @@ def objectiveFunctionOffRates(params, times, data=None, weights=None, index=None
     else:
         return ((fracbound - data)*weights)[index]  
     
-def objectiveFunctionOffRatesPb(params, times, data=None, weights=None, index=None):
-    """ Return fit value, residuals, or weighted residuals of off rate objective function. """
-    if index is None:
-        index = np.ones(len(times)).astype(bool)
-        
-    parvals = params.valuesdict()
-    fmax = parvals['fmax']
-    koff = parvals['koff']
-    fmin = parvals['fmin']
-    # hard code this in
-    bleach_fraction_per_image = 0.985
-
-    fracbound = (fmin +
-                 (fmax - fmin)*np.exp(-koff*times)*
-                 np.power(bleach_fraction_per_image,image_ns))
-
-
-    # return fit value of data is not given
-    if data is None:
-        return fracbound[index]
-    
-    # return residuals if data is given
-    elif weights is None:
-        return (fracbound - data)[index]
-    
-    # return weighted residuals if data is given
-    else:
-        return ((fracbound - data)*weights)[index]  
-    
-def objectiveFunctionOffRatesPhotobleaching(params, times, data=None, weights=None, index=None):
-    """ Return fit value, residuals, or weighted residuals of off rate objective function. """
-    if index is None:
-        index = np.ones(len(times)).astype(bool)
-        
-    parvals = params.valuesdict()
-    fmax = parvals['fmax']
-    koff = parvals['koff']
-    fmin = parvals['fmin']
-    # hard code this in
-    bleach_fraction_per_image = 0.985
-    #image_ns = np.hstack([np.arange(2), np.arange(2, 40, 2)])  # for an experiment where first three and then every other image was used
-    image_ns = np.arange(len(times)) # for an experiment where every image was used
-    fracbound = (fmin +
-                 (fmax - fmin)*np.exp(-koff*times)*
-                 np.power(bleach_fraction_per_image,image_ns))
-
-
-    # return fit value of data is not given
-    if data is None:
-        return fracbound[index]
-    
-    # return residuals if data is given
-    elif weights is None:
-        return (fracbound - data)[index]
-    
-    # return weighted residuals if data is given
-    else:
-        return ((fracbound - data)*weights)[index]  
     
 def objectiveFunctionOnRates(params, times, data=None, weights=None, index=None):
     """ Return fit value, residuals, or weighted residuals of on rate objective function. """
