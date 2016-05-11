@@ -38,15 +38,12 @@ def findTileFilesInDirectory(dirPath, extensionList, excludedExtensionList=None)
         print '      NONE FOUND'
     else:
         for currTile,currFilename in filenameDict.items():
-            if len(currFilename) == 1:
-                print '      found tile ' + currTile + ': "' + currFilename[0] + '"'
-                filenameDict[currTile] = currFilename[0]
-            elif len(currFilename) > 1:
-                filenameDict[currTile] = np.sort(currFilename)
+            filenameDict[currTile] = np.sort(currFilename)
 
     return filenameDict
 
 def addIndexToDir(perTileDict, index=None):
+    """ Take in a dictionary with keys=tile and entries=lest of filenames. Return the entries of the dict as a series indexed by index."""
     d = collections.defaultdict(list)
     for key, values in perTileDict.items():
         d[key] = pd.Series(values, index=index)
@@ -85,11 +82,24 @@ def loadMapFile(mapFilename):
 def makeSignalFileName(directory, fluor_filename):
     return os.path.join(directory, '%s.signal'%os.path.splitext(os.path.basename(fluor_filename))[0])
 
-def getFluorFileNames(directories, tileNames):
+def getFluorFileNames(directories):
     """ Return dict with keys tile numbers and entries list of CPfluor files."""
     d = collections.defaultdict(list)
     for idx, directory in directories.iteritems():
-        new_dict = addIndexToDir((findTileFilesInDirectory(directory, ['CPfluor'])), index=[idx])
+        # find dict with keys=tile and values=filenames with extension 'CPfluor' in directory
+        filenames = findTileFilesInDirectory(directory, ['CPfluor'])
+        if np.any([len(val)>1 for val in filenames.itervalues()]):
+            print 'Error: more than one CPfluor file exists in directory: ',directory
+            print 'for tiles:'
+            for key, val in filenames.iteritems():
+                if len(val) > 1:
+                    print '\t', key
+            print 'using the newest file per tile.'
+            for key, val in filenames.iteritems():
+                if len(val) > 1:
+                    filenames[key] = np.sort(val)[-1]
+        #if length is greater than 1, throw error
+        new_dict = addIndexToDir(filenames, index=[idx])
         for tile, filenames in new_dict.items():
             d[tile].append(filenames)
     # consolidate tiles
@@ -110,7 +120,7 @@ def parseTimeStampFromFilename(CPfluorFilename):
     return timestamp_object
     
 
-def getFluorFileNamesOffrates(directories, tileNames):
+def getFluorFileNamesOffrates(directories):
     """
     return dict whose keys are tile numbers and entries are a list of CPfluor files by concentration
     """
@@ -127,7 +137,7 @@ def getFluorFileNamesOffrates(directories, tileNames):
     
     # check time stamps
     timeStampDict = {}
-    for tile in tileNames:
+    for tile in filenameDict.keys():
         timeStampDict[tile] = [parseTimeStampFromFilename(filename)
                                for idx, filename in filenameDict[tile].iteritems()]
     allTimeStamps = []
@@ -158,6 +168,25 @@ def getCPseriesDictfromCPseqDict(filteredCPseqFilenameDict, signal_directory):
     for tiles, cpSeqFilename in filteredCPseqFilenameDict.items():
         signalNamesByTileDict[tiles] = getCPseriesFileFromCPseq(cpSeqFilename, signal_directory)
     return signalNamesByTileDict
+
+def getCPseriesDictfromFluorDict(fluorDict, signal_directory):
+    signalNamesByTileDict = {}
+    for tiles, cpFluorFilenames in fluorDict.items():
+        signalNamesByTileDict[tiles] = getCPseriesFileFromCPfluorTimeStamped(cpFluorFilenames.iloc[0], signal_directory)
+    return signalNamesByTileDict
+
+def getCPseriesFileFromCPfluorTimeStamped(cpFluorFilename, directory=None):
+    if directory is None:
+        directory = os.path.dirname(cpFluorFilename)
+    ext = '.CPseries.pkl'
+    basename = os.path.basename(cpFluorFilename)
+    match = re.search(r'\d{4}.\d{2}.\d{2}-\d{2}.\d{2}', basename)
+    if match is None:
+        index = len(os.path.splitext(basename)[0]) 
+    else:
+        index = match.start() - 1
+    return os.path.join(directory, os.path.basename(cpFluorFilename)[:index] + ext)
+
 
 def getCPseriesFileFromCPseq(cpSeqFilename, directory=None):
     if directory is None:

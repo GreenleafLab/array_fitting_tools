@@ -32,8 +32,6 @@ import fileFun
 #set up command line argument parser
 parser = argparse.ArgumentParser(description='master script for processing data')
 group = parser.add_argument_group('required arguments for processing data')
-group.add_argument('-fs', '--filtered_CPseqs', required=True,
-                    help='directory that holds the filtered sequence data (CPseq)')
 group.add_argument('-mf', '--map_CPfluors', required=True,
                     help='map file giving the dir names to look for CPfluor files')
 
@@ -45,7 +43,10 @@ group.add_argument('-cf', '--clusters_to_keep_file',
 group.add_argument('-fp','--filter_pos', nargs='+', help='set of filters '
                     'that designate clusters to fit. In absence of -cf option, '
                     'will make a file of clusterIDs that have these filters. '
-                    'If not set and -cf option not given, will keep all clusters.')                        
+                    'If not set and -cf option not given, will keep all clusters.')
+group.add_argument('-fs', '--filtered_CPseqs', 
+                    help='directory that holds the filtered sequence data (CPseq).'
+                    'Required if you are using -fp option.')
 
 group = parser.add_argument_group('other settings')
 group.add_argument('-n','--num_cores', type=int, default=20,
@@ -62,22 +63,19 @@ if not len(sys.argv) > 1:
 args = parser.parse_args()
 
 # import CPseq filtered files split by tile
-print 'Finding CPseq files in directory "%s"...'%args.filtered_CPseqs
-filteredCPseqFilenameDict = IMlibs.findTileFilesInDirectory(args.filtered_CPseqs,
-                                                            ['CPseq'])
-tileList = filteredCPseqFilenameDict.keys()
+
 numCores = args.num_cores
 
 # import directory names to analyze
 print 'Finding CPfluor files in directories given in "%s"...'%args.map_CPfluors
 fluorDirsAll, fluorDirsSignal = IMlibs.loadMapFile(args.map_CPfluors)
 if args.rates:
-    fluorNamesByTileDict, timeDeltaDict = IMlibs.getFluorFileNamesOffrates(fluorDirsSignal, tileList)
+    fluorNamesByTileDict, timeDeltaDict = IMlibs.getFluorFileNamesOffrates(fluorDirsSignal)
     timeDeltaFile = os.path.join(args.output_dir, 'rates.timeDict.p')
     IMlibs.saveTimeDeltaDict(timeDeltaFile, timeDeltaDict)
 else:
-    fluorNamesByTileDict = IMlibs.getFluorFileNames(fluorDirsSignal, tileList)
-fluorNamesByTileRedDict = IMlibs.getFluorFileNames(fluorDirsAll, tileList)
+    fluorNamesByTileDict = IMlibs.getFluorFileNames(fluorDirsSignal)
+fluorNamesByTileRedDict = IMlibs.getFluorFileNames(fluorDirsAll)
 
 # make output base directory
 if not os.path.exists(args.output_dir):
@@ -85,10 +83,10 @@ if not os.path.exists(args.output_dir):
 
 ################ Make signal files ################
 signalDirectory = os.path.join(args.output_dir, 'CPseries')
-signalNamesByTileDict = IMlibs.getCPseriesDictfromCPseqDict(filteredCPseqFilenameDict,
+signalNamesByTileDict = IMlibs.getCPseriesDictfromFluorDict(fluorNamesByTileDict,
                                                             signalDirectory)
 redSignalDirectory = os.path.join(args.output_dir, 'redCPseries')
-redSignalNamesByTileDict = IMlibs.getCPseriesDictfromCPseqDict(filteredCPseqFilenameDict,
+redSignalNamesByTileDict = IMlibs.getCPseriesDictfromFluorDict(fluorNamesByTileRedDict,
                                                             redSignalDirectory)
 if not os.path.exists(signalDirectory):
     os.mkdir(signalDirectory)
@@ -99,6 +97,9 @@ for directory, fluorDirs, outputFiles in itertools.izip([signalDirectory, redSig
                                              [fluorNamesByTileDict, fluorNamesByTileRedDict],
                                              [signalNamesByTileDict, redSignalNamesByTileDict]):
     print 'Converting CPfluor files into CPseries files in directory "%s"'%directory
+    # get outputs
+    tileList = np.sort(fluorDirs.keys())
+
     # check if file already exists
     already_exist = np.zeros(len(outputFiles), dtype=bool)
     for i, tile in enumerate(tileList):
@@ -141,6 +142,9 @@ if fileWithIndexToKeep is None:
         # make file with positive filters
         print 'Finding clusterIDs with filter name incuding one of: {%s}'%(' '.join(args.filter_pos))
         clustersToKeepFile = os.path.join(reducedSignalDirectory, 'indices_to_keep.txt')
+        print 'Finding CPseq files in directory "%s"...'%args.filtered_CPseqs
+        filteredCPseqFilenameDict = IMlibs.findTileFilesInDirectory(args.filtered_CPseqs,
+                                                                    ['CPseq'])
         IMlibs.makeIndexFile(filteredCPseqFilenameDict, args.filter_pos, clustersToKeepFile)
         indices = fileFun.loadFile(clustersToKeepFile)
 else:
