@@ -104,16 +104,18 @@ def objectiveFunctionOffRates(params, times, data=None, weights=None, index=None
         return ((fracbound - data)*weights)[index]  
     
     
-def objectiveFunctionOnRates(params, times, data=None, weights=None, index=None):
+def objectiveFunctionOnRates(params, times, data=None, weights=None, index=None,  bleach_fraction=1, image_ns=None):
     """ Return fit value, residuals, or weighted residuals of on rate objective function. """
     if index is None:
         index = np.ones(len(times)).astype(bool)
+    if image_ns is None:
+        image_ns = np.arange(len(times))
         
     parvals = params.valuesdict()
     fmax = parvals['fmax']
     koff = parvals['kobs']
     fmin = parvals['fmin']
-    fracbound = fmin + fmax*(1 - np.exp(-koff*times));
+    fracbound = fmin + (fmax*(1 - np.exp(-koff*times)*np.power(bleach_fraction,image_ns)));
 
     # return fit value of data is not given
     if data is None:
