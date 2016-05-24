@@ -173,7 +173,8 @@ def bindingSeriesByCluster(concentrations, bindingSeries,
         fitParameters = getInitialFitParameters(concentrations)
         
         # change fmin initial
-        initial_fluorescence = bindingSeries.sort([0]).dropna().iloc[::100, 0]
+        index_sub = np.random.choice(bindingSeries.dropna(subset=[bindingSeries.columns[0]]).index.tolist(), size=1000)
+        initial_fluorescence = bindingSeries.loc[index_sub].iloc[:, 0]
         print "Fitting fmin initial..."
         fitParameters.loc['initial', 'fmin'] = findFmaxDist.fitGammaDistribution(
             initial_fluorescence, plot=True, set_offset=0).loc['mean']
