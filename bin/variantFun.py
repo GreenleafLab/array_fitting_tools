@@ -127,7 +127,13 @@ def weightedAverageAll(values, weights, index=None):
                            for i in subvalues.index], index=subvalues.index)
     return average 
     
-
+def getValueInTable(series, name):
+    """ Given an index name, return value of index if in series, else return nan."""
+    if name in series.index.tolist():
+        return series.loc[name]
+    else:
+        return np.nan
+    
 class perVariant():
 
     def __init__(self, variant_table=None, annotated_clusters=None, binding_series=None, x=None, cluster_table=None, tiles=None):
@@ -164,7 +170,9 @@ class perVariant():
                             subSeries,
                             variant_table.loc[variant],
                             ax=ax)
-        
+    
+
+    
     def plotOffrateCurve(self, variant, annotate=False):
         subSeries = self.getVariantBindingSeries(variant)
         times = self.x
@@ -177,15 +185,18 @@ class perVariant():
         plotFun.plotFitCurve(times, subSeries, variant_table.loc[variant], fitParameters, ax=ax,
                  log_axis=False, func=fitFun.objectiveFunctionOffRates, fittype='off')
         if annotate:
-            annotationText = ['koff= %4.2e (%4.2e, %4.2e)'%(variant_table.loc[variant].koff,
-                                                                  variant_table.loc[variant].koff_lb,
-                                                                  variant_table.loc[variant].koff_ub),
-                              'fmax= %4.2f (%4.2f, %4.2f)'%(variant_table.loc[variant].fmax,
-                                                                variant_table.loc[variant].fmax_lb,
-                                                                variant_table.loc[variant].fmax_ub),
-                              'Nclusters= %d'%variant_table.loc[variant].numTests,
-                              'pvalue= %.1e'%variant_table.loc[variant].pvalue,
-                              'average Rsq= %4.2f'%variant_table.loc[variant].rsq,
+            names = ['koff', 'koff_lb', 'koff_ub', 'fmax', 'fmax_lb', 'fmax_ub', 'numTests', 'pvalue', 'rsq']
+            vec = pd.Series([getValueInTable(variant_table.loc[variant], name) for name in names], index=names)
+            #vec.fillna('', inplace=True)
+            annotationText = ['koff= %4.2e (%4.2e, %4.2e)'%(vec.koff,
+                                                            vec.koff_lb,
+                                                            vec.koff_ub),
+                              'fmax= %4.2f (%4.2f, %4.2f)'%(vec.fmax,
+                                                            vec.fmax_lb,
+                                                            vec.fmax_ub),
+                              'Nclusters= %4.0f'%vec.numTests,
+                              'pvalue= %.1e'%vec.pvalue,
+                              'average Rsq= %4.2f'%vec.rsq,
                               ]
             ax.annotate('\n'.join(annotationText), xy=(.25, .95), xycoords='axes fraction',
                         horizontalalignment='left', verticalalignment='top')
