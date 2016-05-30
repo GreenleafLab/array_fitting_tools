@@ -74,6 +74,7 @@ if annotatedClusterFile is not None:
     fileAppend = tile_to_subset + '.median'
 else:
     fileAppend = tile_to_subset
+    countSeries = pd.Series(1, index=bindingSeries.index)
 
 tileSeries.to_pickle('%s.%s.CPtiles.pkl'%(outFile, fileAppend))
 bindingSeries.to_pickle('%s.%s.CPseries.pkl'%(outFile, fileAppend))
