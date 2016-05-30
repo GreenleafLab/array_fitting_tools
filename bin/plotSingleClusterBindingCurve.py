@@ -65,7 +65,7 @@ if __name__ == '__main__':
     fig = plt.figure(figsize=(4,3))
     ax = fig.add_subplot(111)
     fitParameters = pd.DataFrame(columns=['fmax', 'dG', 'fmin'])
-    fitFun.plotFitCurve(concentrations,
+    plotFun.plotFitCurve(concentrations,
                         bindingSeries.loc[cluster],
                         fittedSingles.loc[cluster],
                         fitParameters, ax=ax)
