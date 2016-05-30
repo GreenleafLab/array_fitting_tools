@@ -23,7 +23,7 @@ import lmfit
 import fitFun
 import itertools    
 import fileFun
-
+from fitFun import objectiveFunctionOffRates, objectiveFunctionOnRates
 ### MAIN ###
 
 ################ Parse input parameters ################
@@ -31,16 +31,21 @@ import fileFun
 #set up command line argument parser
 parser = argparse.ArgumentParser(description='bootstrap on off rate fits')
 
-group = parser.add_argument_group('inputs starting from time-binned binding series file')
-group.add_argument('-ts', '--time_series', required=True, metavar=".CPtimeseries.pkl",
-                   help='file containining the fluorescence information'
-                   ' binned over time.')
-group.add_argument('-a', '--annotated_clusters', required=True, metavar=".CPannot.pkl",
-                   help='file with clusters annotated by variant number')
-group.add_argument('-t', '--times', metavar=".times",
-                   help='file containining the binned times')
-group.add_argument('-ft', '--fittype', default='off', metavar="[off | on]",
+
+parser.add_argument('-cs', '--cpseries', metavar="CPseries.pkl", required=True,
+                   help='CPseries file containining the time series information')
+parser.add_argument('-td', '--time_dict', metavar="timeDict.p", required=True,
+                   help='file containining the timing information per tile')
+parser.add_argument('-an', '--annotated_clusters', metavar="CPannot.pkl", required=True,
+                   help='annotated cluster file. Supply if you wish to take medians per variant.'
+                   'If not provided, script will not take medians, otherwise it will.')
+
+group = parser.add_argument_group('optional arguments')
+parser.add_argument('--tile', metavar="NNN", default='001',
+                   help='tile you wish to subset. Default="001"')
+parser.add_argument('-ft', '--fittype', default='off', metavar="[off | on]",
                    help='fittype ["off" | "on"]. Default is "off" for off rates')
+
 
 group = parser.add_argument_group('additional option arguments')
 group.add_argument('-out', '--out_file', 
@@ -52,35 +57,6 @@ group.add_argument('-n', '--numCores', default=20, type=int, metavar="N",
 group.add_argument('--subset',action="store_true", default=False,
                     help='if flagged, will only do a subset of the data for test purposes')
 
-def objectiveFunctionOffRates(params, times, data=None, weights=None):
-    """ Return fit value, residuals, or weighted residuals of off rate objective function. """
-    parvals = params.valuesdict()
-    fmax = parvals['fmax']
-    koff = parvals['koff']
-    fmin = parvals['fmin']
-    fracbound = fmin + (fmax - fmin)*np.exp(-koff*times)
-
-    if data is None:
-        return fracbound
-    elif weights is None:
-        return fracbound - data
-    else:
-        return (fracbound - data)*weights
-    
-def objectiveFunctionOnRates(params, times, data=None, weights=None):
-    """ Return fit value, residuals, or weighted residuals of on rate objective function. """
-    parvals = params.valuesdict()
-    fmax = parvals['fmax']
-    koff = parvals['kobs']
-    fmin = parvals['fmin']
-    fracbound = fmin + fmax*(1 - np.exp(-koff*times));
-
-    if data is None:
-        return fracbound
-    elif weights is None:
-        return fracbound - data
-    else:
-        return (fracbound - data)*weights   
 
 def getInitialParameters(times, fittype=None):
     """ Get standard set of fit parameters across all variants depending on fittype."""
@@ -197,9 +173,9 @@ def checkFits(results, fittype=None):
     if fittype == 'off':
         goodFit = ((results.fmax > results.fmin)&
                    (results.fmax_lb > 3*results.fmin_ub)&
-                   (results.fmin > 1E-2)&
+                   #(results.fmin > 1E-2)&
                    (results.fmax > 2E-1)&
-                   ((results.koff_ub - results.koff_lb)/results.koff < 2))
+                   ((results.koff_ub - results.koff_lb)/2/results.koff < 1))
     elif fittype == 'on':
         goodFit = ((results.fmax > 0)&
                    (results.fmin > 7.5E-2)&
@@ -217,15 +193,16 @@ if __name__ == '__main__':
     args = parser.parse_args()
     annotatedClusterFile   = args.annotated_clusters
     outFile                = args.out_file
-    bindingCurveFilename = args.time_series
-    timesFilename        = args.times
+    bindingSeriesFile = args.cpseries
+    timeDeltaFile        = args.time_dict
     fittype              = args.fittype
     numCores             = args.numCores
     n_samples            = args.n_samples
+    tile_to_subset = args.tile
     
     # find out file
     if outFile is None:
-        outFile = fileFun.stripExtension(bindingCurveFilename)
+        outFile = fileFun.stripExtension(bindingSeriesFile)
     
         
     # depending on fittype, use one of two provided objective functions
@@ -242,9 +219,9 @@ if __name__ == '__main__':
     print 'Loading data..'
     # load time series data
     table = (pd.concat([fileFun.loadFile(annotatedClusterFile),
-                        fileFun.loadFile(bindingCurveFilename)], axis=1).
+                        fileFun.loadFile(bindingSeriesFile)], axis=1).
              sort('variant_number'))
-    times = fileFun.loadFile(timesFilename)
+    times = np.array(fileFun.loadFile(timeDeltaFile)[tile_to_subset])
     fitParameters = getInitialParameters(times,
                                          fittype=fittype)
     
@@ -255,79 +232,9 @@ if __name__ == '__main__':
     if args.subset:
         variants = variants[-100:]
         outFile = outFile + '_subset'
-    sys.exit()
+
     # fit curves
     results = fitRates(table, times, func, variants=variants, fittype=fittype, n_samples=n_samples)
 
-    results.to_csv(outFile+'.CPrates', sep='\t')
-    sys.exit()
+    results.to_csv(outFile+'.CPvariant', sep='\t')
 
-    # plot all variants
-    figDirectory = './'
-    for variant in results.index:
-        try:
-            fitFun.plotFitCurve(times, groupDict[variant],
-                                         results.loc[variant],
-                                 fitParameters, log_axis=False,
-                                 func=objectiveFunctionOffRates, fittype='off',
-                                 default_errors=default_errors,use_default=True)
-            plt.ylim([0, 1.5])
-            plt.savefig(os.path.join(figDirectory, 'off_rate_curve.variant_%d.pdf'%variant))
-        except:
-            print 'issue with variant %d'%variant
-        plt.close()
-        
-    # try some other stuff
-    mat = np.divide(groupDict[name], np.vstack(groupDict[name].iloc[:, 0].values))
-
-    
-    results = []
-    for cluster in mat.index:
-        try:
-            t = np.array(timeDelta[tiles.loc[cluster]])
-            y = timeSeries.loc[cluster].iloc[:len(t)]
-            results.append(fitFun.fitSingleCurve(t, y, fitParametersPer, func=func))
-        except: pass
-    results = pd.concat(results, axis=1).transpose()
-    
-    # plot
-    params = Parameters()
-    params.add('koff', results.koff.median())
-    params.add('fmax', 1)
-    params.add('fmin', results.fmin.median())
-    x = np.linspace(times[0], times[-1], 100)
-
-    norm_agg_results = (perVariant)(times[1:], mat.iloc[:, 1:], fitParameters,
-                                     func=func, n_samples=n_samples,
-                                     default_errors=default_errors.iloc[1:], fittype=fittype, plot=True)
-    plt.plot(x, func(params, x), 'k:')
-    
-    params = Parameters()
-    params.add('koff', results.koff.median())
-    params.add('fmax', results.fmax.median())
-    params.add('fmin', results.fmin.median())
-    agg_results = (perVariant)(times, groupDict[name], fitParameters,
-                                     func=func, n_samples=n_samples,
-                                     default_errors=default_errors, fittype=fittype, plot=True)
-    plt.plot(x, func(params, x), 'k:')
-    
-    plt.figure()
-    for cluster in groupDict[name].index:
-        plt.plot(timeDelta[tiles.loc[cluster]], timeSeries.loc[cluster].iloc[:len(timeDelta[tiles.loc[cluster]])], 'k.-')
-        
-    # bootstrap
-    vec = []
-    indices = np.random.choice(results.index, [1000, len(results)])
-    for index in indices: vec.append(results.loc[index].koff.median())
-    
-    plt.figure();
-    sns.distplot(vec);
-    plt.axvline(norm_agg_results.koff, color='k');
-    plt.axvline(norm_agg_results.koff_lb, color='k', linestyle=':');
-    plt.axvline(norm_agg_results.koff_ub, color='k', linestyle=':')
-    
-    plt.axvline(agg_results.koff, color='r');
-    plt.axvline(agg_results.koff_lb, color='r', linestyle=':');
-    plt.axvline(agg_results.koff_ub, color='r', linestyle=':')
-    
-    norm_agg_not_weighted = fitFun.fitSingleCurve(times[1:], mat.iloc[:, 1:], fitParametersPer, func=func)
