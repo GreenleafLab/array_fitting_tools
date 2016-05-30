@@ -32,18 +32,27 @@ group = parser.add_argument_group('optional arguments')
 group.add_argument('--no_bounds', action="store_true",
                    help='By default, all cluster signal is bounded to prevent '
                    'dividing by zero in cases where signal is low. Flag to prevent this.')
+group.add_argument('--bounds', nargs=2, metavar='N N',
+                   help='use these lower and upper bounds if provided. ',
+                   type=float)
 group.add_argument('-out', '--out_file', 
                    help='output filename. includes extension not pkl')
 
 
-def boundFluorescence(signal, plot=False):
+def boundFluorescence(signal, plot=False, bounds=None):
     # take i.e. all cluster signal and bound it     
     signal = signal.copy()
     
     # check if at least one element of signal is not nan
-    if np.isfinite(signal).sum() > 0:    
-        lowerbound = np.percentile(signal.dropna(), 1)
-        upperbound = signal.median() + 5*signal.std()
+    if np.isfinite(signal).sum() > 0:
+        if bounds is None:
+            lowerbound = np.percentile(signal.dropna(), 1)
+            upperbound = signal.median() + 5*signal.std()
+            print 'Found bounds: %4.3f, %4.3f'%(lowerbound, upperbound)
+        else:
+            lowerbound = bounds[0]
+            upperbound = bounds[1]
+            print 'Using given bounds: %4.3f, %4.3f'%(lowerbound, upperbound)
         
         if plot:
             plotFun.plotBoundFluorescence(signal, [lowerbound, upperbound])
@@ -78,7 +87,7 @@ if __name__=="__main__":
     # make normalized binding series
     print "Normalizing..."
     if not args.no_bounds:
-        allClusterSignal = boundFluorescence(allClusterSignal, plot=True)   
+        allClusterSignal = boundFluorescence(allClusterSignal, plot=True, bounds=args.bounds)   
     bindingSeriesNorm = np.divide(bindingSeries, np.vstack(allClusterSignal))
     
     # save
