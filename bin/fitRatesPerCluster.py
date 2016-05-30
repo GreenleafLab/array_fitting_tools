@@ -184,7 +184,7 @@ if __name__ == '__main__':
     # fit gamm distribution for last binding point
     if fittype=="off":
         fitParameters.loc['initial', 'fmin'] = (
-            findFmaxDist.fitGammaDistribution(bindingSeries.iloc[:, -1].dropna(), plot=True, set_offset=0).loc['mean'])
+            findFmaxDist.fitGammaDistribution(bindingSeries.dropna(how='all', axis=1).iloc[:, -1].dropna(), plot=True, set_offset=0).loc['mean'])
     else:
         fitParameters.loc['initial', 'fmin'] = (
             findFmaxDist.fitGammaDistribution(bindingSeries.iloc[:, 0].dropna(), plot=True, set_offset=0).loc['mean'])
@@ -202,7 +202,4 @@ if __name__ == '__main__':
                 index=index, change_params=True, func=func, bleach_fraction=bleach_fraction, imageNDict=imageNDict)
     cluster_data.to_pickle(outFile+'.CPfitted.pkl')
 
-
-
-
-    
+    sys.exit()
