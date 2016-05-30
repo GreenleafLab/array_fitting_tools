@@ -117,7 +117,7 @@ if __name__ == '__main__':
     fig = plt.figure(figsize=(4,3))
     ax = fig.add_subplot(111)
     fitParameters = pd.DataFrame(columns=['fmax', 'dG', 'fmin'])
-    fitFun.plotFitCurve(concentrations,
+    plotFun.plotFitCurve(concentrations,
                         bindingSeries.groupby('variant_number').get_group(variant).iloc[:, 1:],
                         variant_table.loc[variant],
                         fitParameters, ax=ax)
