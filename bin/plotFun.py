@@ -13,6 +13,7 @@ import warnings
 import argparse
 import itertools  
 import seaborn as sns
+import scipy.spatial.distance as ssd
 import scipy.stats as st
 import matplotlib.pyplot as plt
 import matplotlib.cm as cmx
@@ -30,6 +31,34 @@ def fix_axes(ax):
     ax.tick_params(which='minor', top='off', right='off')
     ax.tick_params(top='off', right='off', pad=2, labelsize=10, labelcolor='k')
     return ax
+
+def get_c(x, y, distance_threshold=None):
+    """ Given two arrays x and y, return the number of points within a certain distance of each point."""
+    if distance_threshold is None:
+        distance_threshold = min(x.std(), y.std())/10
+    distance_mat = ssd.squareform(ssd.pdist(pd.concat([x, y], axis=1)))
+    c = ((distance_mat < distance_threshold).sum(axis=1) - 1)/2
+    c = (c-c.min())/(c.max()-c.min()).astype(float)
+    return c
+
+
+def my_smoothed_scatterplot(x,y, color=None,**kwargs):
+    """ given x and y, plot a scatterplot with color according to density."""
+    c = get_c(x, y)
+    if 'cmap' not in kwargs.keys():
+        if color is not None:
+            cmap = sns.dark_palette(color, as_cmap=True)
+        else:
+            cmap = None
+        plt.scatter(x, y, c=c, cmap=cmap,
+                edgecolors='none', marker='.', rasterized=True, **kwargs)
+    else:
+        plt.scatter(x, y, c=c, 
+                edgecolors='none', marker='.', rasterized=True, **kwargs)
+
+    return
+
+
 
 def plotDataErrorbars(concentrations, subSeries, ax, use_default,
                       default_errors=None, capsize=2):
@@ -105,7 +134,7 @@ def plotFitCurve(concentrations, subSeries, results, fitParameters=None, ax=None
     if log_axis:
         ax = plt.gca()
         ax.set_xscale('log')
-        more_concentrations = np.logspace(np.log10(concentrations.min()/2),
+        more_concentrations = np.logspace(np.log10(concentrations.min()/10),
                                           np.log10(concentrations.max()*2),
                                           100)
     else:
