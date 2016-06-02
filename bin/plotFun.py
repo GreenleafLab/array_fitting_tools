@@ -60,19 +60,20 @@ def my_smoothed_scatterplot(x,y, color=None,**kwargs):
 
 
 
-def plotDataErrorbars(concentrations, subSeries, ax, use_default,
-                      default_errors=None, capsize=2):
+def plotDataErrorbars(x, subSeries, ax=None, capsize=2):
     """ Find errorbars on set of cluster fluorescence and plot. """
+    
+    # set errors to NaN unless successfully find them later on with bootstrapping
+    default_errors = np.ones(len(x))*np.nan
 
-    if default_errors is None:
-        default_errors = np.ones(len(concentrations))*np.nan
-
+    # if subseries is a dataframe, find errors along columns. if verctor, no errors will be found.
     if len(subSeries.shape) == 1:
         fluorescence = subSeries
         use_default = True
         numTests = np.array([1 for col in subSeries])
     else:
         fluorescence = subSeries.median()
+        use_default = False
         numTests = np.array([len(subSeries.loc[:, col].dropna()) for col in subSeries])
     
     # option to use only default errors provdided for quicker runtime
@@ -81,94 +82,117 @@ def plotDataErrorbars(concentrations, subSeries, ax, use_default,
             warnings.simplefilter("ignore")
             eminus, eplus = fitFun.findErrorBarsBindingCurve(subSeries)
 
-    
-    # assumes that if defaults are given, then they represent std. Divide by numTests
-    # to get stderr
-    if use_default:
-        eminus = eplus = default_errors/np.sqrt(numTests)
+    # if ax is given, plot to that. else
+    if ax is None:
+        ax = plt.gca()
     
     # plot binding points
-    ax.errorbar(concentrations, fluorescence,
+    ax.errorbar(x, fluorescence,
                  yerr=[eminus, eplus], fmt='.', elinewidth=1,
                  capsize=capsize, capthick=1, color='k', linewidth=1)
+    return ax
 
-def plotFitCurve(concentrations, subSeries, results, fitParameters=None, ax=None,
-                 log_axis=True, func=fitFun.bindingCurveObjectiveFunction, use_default=False,
-                          fittype='binding', default_errors=None, kwargs=None):
+def plotFit(x, params, func, ax=None, fit_kwargs=None):
+    """ given x values, lmfit params,  and fitting function, calculate fit and plot to current axes."""
+    if fit_kwargs is None:
+        fit_kwargs = {}
+    fit = func(params, x, **fit_kwargs)
+    
+    if ax is None:
+        ax = plt.gca()
+    ax.plot(x, fit, 'r')
+    return ax
+
+def plotFitBounds(x, params_lb, params_ub, func, ax=None, fit_kwargs=None):
+    """ given x values, lmfit params,  and fitting function, calculate fit and plot to current axes."""
+    if fit_kwargs is None:
+        fit_kwargs = {}
+    ub = func(params_ub, x, **fit_kwargs)
+    lb = func(params_lb, x, **fit_kwargs)
+    
+    # plot upper and lower bounds
+    if ax is None:
+        ax = plt.gca()
+    ax.fill_between(x, lb, ub, color='0.5',
+                         label='95% conf int', alpha=0.5)
+    return ax
+
+def plotFitCurve(x, subSeries, results, param_names=None, ax=None, log_axis=True,
+                 func=fitFun.bindingCurveObjectiveFunction, fittype='binding', kwargs=None):
     if kwargs is None:
         kwargs = {}
+    
+    # these are useful definitions for three commonly used fitting functions
     if fittype == 'binding':
-        param_names = ['fmax', 'dG', 'fmin']
+        param_names_tmp = ['fmax', 'dG', 'fmin']
         ub_vec = ['_ub', '_lb', '']
         lb_vec = ['_lb', '_ub', '']
         capsize = 2
         log_axis = True
         xlabel = 'concentration (nM)'
     elif fittype == 'off':
-        param_names = ['fmax', 'koff', 'fmin']
+        param_names_tmp = ['fmax', 'koff', 'fmin']
         ub_vec = ['_ub', '_lb', '_ub']
         lb_vec = ['_lb', '_ub', '_lb']
         capsize = 0
         log_axis = False
         xlabel = 'time (s)'
     elif fittype == 'on':
+        param_names_tmp = ['fmax', 'kobs', 'fmin']
         ub_vec = ['_ub', '_ub', '_ub']
         lb_vec = ['_lb', '_lb', '_lb']
         capsize = 2
         log_axis=False
         xlabel = 'time (s)'
-        param_names = ['fmax', 'kobs', 'fmin']
+    elif fittype == 'binding_linear':
+        param_names_tmp = ['fmax', 'dG', 'fmin', 'slope']
+        ub_vec = ['_ub', '_ub', '_ub', '_ub']
+        lb_vec = ['_lb', '_lb', '_lb', '_lb']
+        capsize = 2
+        log_axis = True
+        xlabel = 'concentration (nM)'
+        
     # allow custom definition of param_names with fitParameters 
-    if fitParameters is not None:
-        param_names = fitParameters.columns.tolist()
-            
+    if param_names is None:
+        param_names = param_names_tmp
+    
+    # get params for fit function
+    params = fitFun.returnParamsFromResults(results, param_names)
+    
+    # gerenate x values for fit function
     if ax is None:
         fig = plt.figure(figsize=(3, 3))
         ax = fig.add_subplot(111)
-        
+    
+    # generate x values for fit function
+    if log_axis:
+        more_x = np.logspace(np.log10(x.min()/10), np.log10(x.max()*2), 100)
+    else:
+        more_x = np.linspace(x.min(), x.max(), 100)
+    
     # plot the data
-    plotDataErrorbars(concentrations, subSeries, ax, use_default=use_default,
-                      default_errors=default_errors, capsize=capsize)
+    plotDataErrorbars(x, subSeries, ax, capsize=capsize)
     
     # plot fit
-    if log_axis:
-        ax = plt.gca()
-        ax.set_xscale('log')
-        more_concentrations = np.logspace(np.log10(concentrations.min()/10),
-                                          np.log10(concentrations.max()*2),
-                                          100)
-    else:
-        more_concentrations = np.linspace(concentrations.min(),
-                                          concentrations.max(), 100)
-    params = fitFun.returnParamsFromResults(results, param_names)
-    fit = func(params, more_concentrations, **kwargs)
-    plt.plot(more_concentrations, fit, 'r')
+    plotFit(more_x, params, func, ax=ax, fit_kwargs=kwargs)
     
+    # plot upper and lower bounds
     all_param_names = [['%s%s'%(param, s) for param, s in itertools.izip(param_names, vec)]
                        for vec in [ub_vec, lb_vec]]
-    
     if np.all(np.in1d(all_param_names, results.index.tolist())):
-
-        # plot bound fits
-        # find upper bound
         params_ub = fitFun.returnParamsFromResultsBounds(results, param_names, ub_vec)
-        ub = func(params_ub, more_concentrations)
-    
-        # find lower bound
         params_lb = fitFun.returnParamsFromResultsBounds(results, param_names, lb_vec)
-        lb = func(params_lb, more_concentrations)
-        
-        # plot upper and lower bounds
-        plt.fill_between(more_concentrations, lb, ub, color='0.5',
-                         label='95% conf int', alpha=0.5)
-
+        plotFitBounds(more_x, params_lb, params_ub, func, ax=ax, fit_kwargs=kwargs)
 
     # format
     ylim = ax.get_ylim()
+    xlim = more_x[[0,-1]]
     plt.ylim(0, ylim[1])
-    plt.xlim(more_concentrations[[0, -1]])
+    plt.xlim(xlim)
     plt.xlabel(xlabel)
-    if not log_axis:
+    if log_axis:
+        plt.xscale('log')
+    else:
         plt.ticklabel_format(style='sci', axis='x', scilimits=(0,0))
     plt.ylabel('normalized fluorescence')
     fix_axes(ax)
