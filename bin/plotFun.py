@@ -268,8 +268,8 @@ def plotFmaxStdeVersusN(fmaxDist, stds_object, maxn, ax=None):
 
 def plotFmaxOffsetVersusN(fmaxDist, stds_object, maxn, ax=None):
     x = stds_object.index.tolist()
-    y = stds_object.offset
-    yerr = stds_object.offset_stde
+    y = stds_object.offset.values
+    yerr = stds_object.offset_stde.values
 
     if ax is None:
         fig = plt.figure(figsize=(4,3))
