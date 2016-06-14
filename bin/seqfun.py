@@ -29,6 +29,8 @@ def reverseComplement(seq, rna=None):
     else:
         return "".join([seq_dict[base] for base in reversed(seq)])
 
+def rc(seq, rna=None):
+    return reverseComplement(seq, rna=rna)
 
 def poisson(k, lambda_):
     
