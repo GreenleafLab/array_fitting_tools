@@ -60,6 +60,8 @@ group.add_argument('--enforce_fmax', type=int,
                    'never enforce it (0). Otherwise the program will decide. ')
 group.add_argument('-n', '--numCores', default=20, type=int, metavar="N",
                    help='number of cores')
+group.add_argument('--subset',action="store_true", default=False,
+                    help='if flagged, will only do a subset of the data for test purposes')
 
 
 ##### functions #####
@@ -74,17 +76,21 @@ def getInitialFitParameters(concentrations):
 
 
 def perVariant(concentrations, subSeries, fitParameters, fmaxDistObject, initial_points=None,
-               plot=None, n_samples=None, enforce_fmax=None):
+               plot=None, n_samples=None, enforce_fmax=None, func=None, fittype=None):
     """ Fit a variant to objective function by bootstrapping median fluorescence. """
     
     # default id to not plot results
     if plot is None:
         plot = False
+    
+    # define fitting function
+    if func is None:
+        func = fitFun.bindingCurveObjectiveFunction
 
     # change initial guess on fit parameters if given previous fit
     fitParametersPer = fitParameters.copy()
-    params_to_change = fitParameters.loc[:, fitParametersPer.loc['vary'].astype(bool)].columns
     if initial_points is not None:
+        params_to_change = fitParameters.loc[:, fitParametersPer.loc['vary'].astype(bool)].columns
         fitParametersPer.loc['initial', params_to_change] = (initial_points.loc[params_to_change])
     
     # find actual distribution of fmax given number of measurements
@@ -92,7 +98,7 @@ def perVariant(concentrations, subSeries, fitParameters, fmaxDistObject, initial
     
     # fit variant
     results, singles = fitFun.bootstrapCurves(concentrations, subSeries, fitParameters,
-                                              func=None,
+                                              func=func,
                                               enforce_fmax=enforce_fmax,
                                               fmaxDist=fmaxDist,
                                               n_samples=n_samples,
@@ -103,12 +109,16 @@ def perVariant(concentrations, subSeries, fitParameters, fmaxDistObject, initial
                                      subSeries,
                                      results,
                                      fitParameters,
-                                     log_axis=True)
+                                     log_axis=True,
+                                     func=func, fittype=fittype)
         # also plot initial
-        more_concentrations = np.logspace(0, 4)
-        fit = fitFun.bindingCurveObjectiveFunction(fitFun.returnParamsFromResults(initial_points),
-                                                   more_concentrations)
-        plt.plot(more_concentrations, fit, 'k--')
+        if initial_points is not None:
+            try:
+                more_concentrations = np.logspace(0, 4)
+                fit = func(fitFun.returnParamsFromResults(initial_points),
+                                                           more_concentrations)
+                plt.plot(more_concentrations, fit, 'k--')
+            except: pass
 
     return results
 
@@ -153,11 +163,6 @@ def returnFminFromFluorescence(initialPoints, fluorescenceMat, cutoff):
     firstBindingPoint = getMedianFirstBindingPoint(fluorescenceMat)
     return firstBindingPoint.loc[initial_dG.index].loc[initial_dG > cutoff].median()
 
-def loadData(annotatedClusterFile, bindingCurveFilename):
-    # load fluoresceence values
-    fluorescenceMat, fluorescenceMatSplit = loadGroupDict(bindingCurveFilename, annotatedClusterFile)
-    return fluorescenceMat, fluorescenceMatSplit
-
 def initiateFitting(variant_table, fluorescenceMat, fluorescenceMatSplit, concentrations, fmaxDistObject):
     
     # get parameters
@@ -182,15 +187,10 @@ def initiateFitting(variant_table, fluorescenceMat, fluorescenceMatSplit, concen
 
     return initialPoints, fitParameters
 
-def fitBindingCurves(variantFile, annotatedClusterFile,
-                     bindingCurveFilename, concentrations, fmaxDistFile,
+def fitBindingCurves(variant_table, fluorescenceMat,
+                     fluorescenceMatSplit, concentrations, fmaxDistObject,
                      numCores=20, n_samples=100, variants=None,
                      enforce_fmax=None):
-    
-    # load data
-    fmaxDistObject = fileFun.loadFile(fmaxDistFile)
-    variant_table = fileFun.loadFile(variantFile)
-    fluorescenceMat, fluorescenceMatSplit = loadData(annotatedClusterFile,bindingCurveFilename)
     
     # process before fitting
     initialPoints, fitParameters = initiateFitting(variant_table, fluorescenceMat,
@@ -251,11 +251,22 @@ if __name__ == '__main__':
                                 'figs_%s'%str(datetime.date.today()))
     if not os.path.exists(figDirectory):
         os.mkdir(figDirectory)
-
+    
+    # load data
+    fmaxDistObject = fileFun.loadFile(fmaxDistFile)
+    variant_table = fileFun.loadFile(variantFile)
+    fluorescenceMat, fluorescenceMatSplit = loadGroupDict(bindingCurveFilename, annotatedClusterFile)
+        
+    # subset
+    variants = variant_table.index.tolist()
+    if args.subset:
+        variants = variants[-100:]
+        outFile = outFile + '_subset'
+        
     # fit
-    variant_table = fitBindingCurves(variantFile, annotatedClusterFile,
-                 bindingCurveFilename, concentrations, fmaxDistFile,
-                 numCores=numCores, n_samples=n_samples, variants=None,
+    variant_table = fitBindingCurves(variant_table, fluorescenceMat,
+                 fluorescenceMatSplit, concentrations, fmaxDistObject,
+                 numCores=numCores, n_samples=n_samples, variants=variants,
                  enforce_fmax=enforce_fmax)
 
     # save
