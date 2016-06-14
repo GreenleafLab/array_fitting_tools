@@ -129,7 +129,7 @@ def objectiveFunctionOnRates(params, times, data=None, weights=None, index=None,
     else:
         return ((fracbound - data)*weights)[index]  
         
-def bindingCurveObjectiveFunction(params, concentrations, data=None, weights=None, index=None):
+def bindingCurveObjectiveFunction(params, concentrations, data=None, weights=None, index=None, slope=0):
     """  Return fit value, residuals, or weighted residuals of a binding curve.
     
     Hill coefficient 1. """
@@ -144,7 +144,7 @@ def bindingCurveObjectiveFunction(params, concentrations, data=None, weights=Non
     fmin = parvals['fmin']
     fracbound = (fmin + fmax*concentrations/
                  (concentrations + np.exp(dG/parameters.RT)/
-                  parameters.concentration_units))
+                  parameters.concentration_units)) + slope*concentrations
     
     # return fit value of data is not given
     if data is None:
@@ -157,34 +157,37 @@ def bindingCurveObjectiveFunction(params, concentrations, data=None, weights=Non
     # return weighted residuals if data is given
     else:
         return ((fracbound - data)*weights)[index]
-
+    
 def convertFitParametersToParams(fitParameters):
     """ Return lmfit params structure starting with descriptive dataframe. """
     param_names = fitParameters.columns.tolist()
     # store fit parameters in class for fitting
     params = Parameters()
     for param in param_names:
-        if 'vary' in fitParameters.loc[:, param].index:
+        if 'vary' in fitParameters.loc[:, param].index.tolist():
             vary = fitParameters.loc['vary', param]
         else:
             vary = True
+        if 'lowerbound' in fitParameters.loc[:, param].index.tolist():
+            lowerbound = fitParameters.loc['lowerbound', param]
+        else:
+            lowerbound = -np.inf
+        if 'upperbound' in fitParameters.loc[:, param].index.tolist():
+            upperbound = fitParameters.loc['upperbound', param]
+        else:
+            upperbound = np.inf
         params.add(param, value=fitParameters.loc['initial', param],
-                   min = fitParameters.loc['lowerbound', param],
-                   max = fitParameters.loc['upperbound', param],
+                   min = lowerbound,
+                   max = upperbound,
                    vary= vary)
     return params
 
-def fitSingleCurve(x, fluorescence, fitParameters, func=None,
-                          errors=None, plot=None, log_axis=None, do_not_fit=None, kwargs=None):
+def fitSingleCurve(x, fluorescence, fitParameters, func,
+                          errors=None, do_not_fit=None, kwargs=None):
     """ Fit an objective function to data, weighted by errors. """
     if do_not_fit is None:
         do_not_fit = False # i.e. if you don't want to actually fit but still want to return a value
-    if plot is None:
-        plot = False
-    if log_axis is None:
-        log_axis = True
-    if func is None:
-        func = bindingCurveObjectiveFunction
+
     if kwargs is None:
         kwargs = {}
     
@@ -214,6 +217,7 @@ def fitSingleCurve(x, fluorescence, fitParameters, func=None,
     
     # make sure fluorescence doesn't have NaN terms
     index = np.array(np.isfinite(fluorescence))
+    kwargs = kwargs.copy()
     kwargs.update({'data':fluorescence, 'weights':weights, 'index':index}) 
 
     # do the fit
@@ -404,7 +408,6 @@ def bootstrapCurves(x, subSeries, fitParameters, fmaxDist=None,
                                     fluorescence.loc[index],
                                     fitParameters,
                                     errors=[eminus[index.values], eplus[index.values]],
-                                    plot=False,
                                     func=func,
                                     do_not_fit=do_not_fit)
     # concatenate all resulting iterations
@@ -452,7 +455,7 @@ def plotFitDistributions(results, singles, fitParameters):
     return
 
 def returnParamsFromResults(final_params, param_names=None):
-    # make a parameters structure that works for objective functions
+    """ Given results, convert to lmfit params structure for fitting. """
     if param_names is None:
         param_names = ['fmax', 'dG', 'fmin']
     params = Parameters()
@@ -467,7 +470,6 @@ def returnParamsFromResultsBounds(final_params, param_names, ub_vec):
         name = param.split('_')[0]
         params_ub.add(name, value=final_params.loc[param])
     return params_ub
-
 
 def errorPropagationKdFromKoffKobs(koff, kobs, c, sigma_koff, sigma_kobs):
     koff = koff.astype(float)
