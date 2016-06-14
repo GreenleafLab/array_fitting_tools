@@ -85,7 +85,7 @@ def getInitialFitParameters(concentrations):
 
 
 def splitAndFit(bindingSeries, concentrations, fitParameters, numCores,
-                index=None, change_params=None, func=None):
+                index=None, change_params=None, func=None, kwargs=None):
     """ Given a table of binding curves, split and parallelize fit. """
     if index is None:
         index = bindingSeries.index
@@ -100,7 +100,7 @@ def splitAndFit(bindingSeries, concentrations, fitParameters, numCores,
     print 'Fitting binding curves:'
     fits = (Parallel(n_jobs=numCores, verbose=10)
             (delayed(fitSetClusters)(concentrations, subBindingSeries,
-                                     fitParameters, print_bool, change_params)
+                                     fitParameters, print_bool, change_params, kwargs=kwargs)
              for subBindingSeries, print_bool in itertools.izip(bindingSeriesSplit, printBools)))
 
     return pd.concat(fits)
@@ -131,6 +131,8 @@ def perCluster(concentrations, fluorescence, fitParameters, plot=None, change_pa
     """ Fit a single binding curve. """
     if plot is None:
         plot = False
+    if func is None:
+        func = fitFun.bindingCurveObjectiveFunction
     if change_params is None:
         change_params = True
     try:
@@ -142,20 +144,17 @@ def perCluster(concentrations, fluorescence, fitParameters, plot=None, change_pa
         fluorescence = fluorescence[:len(concentrations)]
         single = fitFun.fitSingleCurve(concentrations,
                                                        fluorescence,
-                                                       fitParameters, func=func, kwargs=kwargs)
+                                                       fitParameters, func, kwargs=kwargs)
     except IndexError as e:
         if verbose: print e
         print 'Error with %s'%fluorescence.name
         single = fitFun.fitSingleCurve(concentrations,
                                                        fluorescence,
-                                                       fitParameters,
-                                                       do_not_fit=True, func=func)
+                                                       fitParameters, func,
+                                                       do_not_fit=True)
     if plot:
-        if fittype == 'off':
-            plotFun.plotFitCurve(concentrations, fluorescence, single, fitParameters,
-                                 log_axis=False, func=fitFun.objectiveFunctionOffRates, fittype='off', kwargs=kwargs)
-        else:
-            plotFun.plotFitCurve(concentrations, fluorescence, single, fitParameters, func=func, kwargs=kwargs) 
+        plotFun.plotFitCurve(concentrations, fluorescence, single, param_names=fitParameters.columns.tolist(), func=func, fittype=fittype, kwargs=kwargs)
+
               
     return pd.DataFrame(columns=[fluorescence.name],
                         data=single).transpose()
@@ -163,7 +162,7 @@ def perCluster(concentrations, fluorescence, fitParameters, plot=None, change_pa
 
 # define functions
 def bindingSeriesByCluster(concentrations, bindingSeries, 
-                           numCores=None,  subset=None, fitParameters=None, func=None):
+                           numCores=None,  subset=None, fitParameters=None, func=None, kwargs=None):
     """ Initialize fitting. """
     if subset is None:
         subset = False
@@ -191,11 +190,11 @@ def bindingSeriesByCluster(concentrations, bindingSeries,
     
     fitResults = pd.DataFrame(index=bindingSeries.index,
                               columns=fitFun.fitSingleCurve(concentrations,
-                                                            None, fitParameters,
+                                                            None, fitParameters, func,
                                                             do_not_fit=True).index)
     fitResults.loc[index_all] = splitAndFit(bindingSeries, concentrations,
                                         fitParameters, numCores, index=index_all,
-                                        change_params=True)
+                                        change_params=True, kwargs=kwargs)
 
 
     return fitResults, fitParameters
