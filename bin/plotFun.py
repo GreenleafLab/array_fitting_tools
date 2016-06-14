@@ -81,6 +81,8 @@ def plotDataErrorbars(x, subSeries, ax=None, capsize=2):
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             eminus, eplus = fitFun.findErrorBarsBindingCurve(subSeries)
+    else:
+        eminus, eplus = [default_errors]*2
 
     # if ax is given, plot to that. else
     if ax is None:
@@ -117,40 +119,43 @@ def plotFitBounds(x, params_lb, params_ub, func, ax=None, fit_kwargs=None):
                          label='95% conf int', alpha=0.5)
     return ax
 
-def plotFitCurve(x, subSeries, results, param_names=None, ax=None, log_axis=True,
+def plotFitCurve(x, subSeries, results, param_names=None, ax=None, log_axis=True, capsize = 2,
                  func=fitFun.bindingCurveObjectiveFunction, fittype='binding', kwargs=None):
     if kwargs is None:
         kwargs = {}
-    
+
     # these are useful definitions for three commonly used fitting functions
+    further_process=True
     if fittype == 'binding':
         param_names_tmp = ['fmax', 'dG', 'fmin']
         ub_vec = ['_ub', '_lb', '']
         lb_vec = ['_lb', '_ub', '']
-        capsize = 2
         log_axis = True
         xlabel = 'concentration (nM)'
     elif fittype == 'off':
         param_names_tmp = ['fmax', 'koff', 'fmin']
         ub_vec = ['_ub', '_lb', '_ub']
         lb_vec = ['_lb', '_ub', '_lb']
-        capsize = 0
         log_axis = False
         xlabel = 'time (s)'
     elif fittype == 'on':
         param_names_tmp = ['fmax', 'kobs', 'fmin']
         ub_vec = ['_ub', '_ub', '_ub']
         lb_vec = ['_lb', '_lb', '_lb']
-        capsize = 2
         log_axis=False
         xlabel = 'time (s)'
     elif fittype == 'binding_linear':
         param_names_tmp = ['fmax', 'dG', 'fmin', 'slope']
         ub_vec = ['_ub', '_ub', '_ub', '_ub']
         lb_vec = ['_lb', '_lb', '_lb', '_lb']
-        capsize = 2
         log_axis = True
         xlabel = 'concentration (nM)'
+    else:
+        further_process = False
+        xlabel = ''
+        if param_names is None:
+            print 'Need to define param names or fittype. fittype %s not recognized! Exiting.'%(fittype)
+            sys.exit()
         
     # allow custom definition of param_names with fitParameters 
     if param_names is None:
@@ -169,20 +174,21 @@ def plotFitCurve(x, subSeries, results, param_names=None, ax=None, log_axis=True
         more_x = np.logspace(np.log10(x.min()/10), np.log10(x.max()*2), 100)
     else:
         more_x = np.linspace(x.min(), x.max(), 100)
-    
+
     # plot the data
     plotDataErrorbars(x, subSeries, ax, capsize=capsize)
-    
+
     # plot fit
     plotFit(more_x, params, func, ax=ax, fit_kwargs=kwargs)
     
-    # plot upper and lower bounds
-    all_param_names = [['%s%s'%(param, s) for param, s in itertools.izip(param_names, vec)]
-                       for vec in [ub_vec, lb_vec]]
-    if np.all(np.in1d(all_param_names, results.index.tolist())):
-        params_ub = fitFun.returnParamsFromResultsBounds(results, param_names, ub_vec)
-        params_lb = fitFun.returnParamsFromResultsBounds(results, param_names, lb_vec)
-        plotFitBounds(more_x, params_lb, params_ub, func, ax=ax, fit_kwargs=kwargs)
+    if further_process:
+        # plot upper and lower bounds
+        all_param_names = [['%s%s'%(param, s) for param, s in itertools.izip(param_names, vec)]
+                           for vec in [ub_vec, lb_vec]]
+        if np.all(np.in1d(all_param_names, results.index.tolist())):
+            params_ub = fitFun.returnParamsFromResultsBounds(results, param_names, ub_vec)
+            params_lb = fitFun.returnParamsFromResultsBounds(results, param_names, lb_vec)
+            plotFitBounds(more_x, params_lb, params_ub, func, ax=ax, fit_kwargs=kwargs)
 
     # format
     ylim = ax.get_ylim()
