@@ -45,6 +45,9 @@ def loadFile(filename):
     
     elif ext == '.libChar':
         return pd.read_table(filename)
+    
+    elif ext == '.fitParameters':
+        return pd.read_table(filename, index_col=0)
     else:
         print 'Extension %s not recognized. No file loaded.'%ext
     
