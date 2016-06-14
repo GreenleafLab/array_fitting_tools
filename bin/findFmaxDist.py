@@ -504,7 +504,13 @@ def plotAnyN(tight_binders, fmaxDistObject, n):
     plotDist(tight_binders.loc[tight_binders.numTests==n].fmax_init, bounds)
     plt.plot(x, fmaxDistObject.getDist(n).pdf(x), 'r')
     plt.tight_layout()
-    
+
+
+def returnFminFromFits(variant_table, cutoff):
+    """ Return the estimated fixed fmin based on affinity and fits. """
+    return variant_table.loc[variant_table.dG_init> cutoff].fmin.median()
+
+
 if __name__=="__main__":
     args = parser.parse_args()
     fittedBindingFilename = args.single_cluster_fits
@@ -588,6 +594,9 @@ if __name__=="__main__":
     
     # save
     pickle.dump(fmaxDist, open( outFile+'.fmaxdist.p', "wb" ))
+    
+    # what about fmin?
+    print 'fmin should be: %4.3f'%returnFminFromFits(variant_table, parameters.mindG)
     
     # save variant table
     variant_table.to_pickle(outFile + '.init.CPvariant.pkl')
