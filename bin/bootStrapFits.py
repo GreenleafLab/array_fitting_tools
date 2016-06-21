@@ -62,7 +62,9 @@ group.add_argument('-n', '--numCores', default=20, type=int, metavar="N",
                    help='number of cores')
 group.add_argument('--subset',action="store_true", default=False,
                     help='if flagged, will only do a subset of the data for test purposes')
-
+group.add_argument('--slope', default=0, type=float,
+                    help='if provided, use this value for the slope of a linear fit.'
+                    'upperbound/lowerbounds')
 
 ##### functions #####
 def getInitialFitParameters(concentrations):
@@ -269,7 +271,7 @@ if __name__ == '__main__':
     variant_table = fitBindingCurves(variant_table, fluorescenceMat,
                  fluorescenceMatSplit, concentrations, fmaxDistObject,
                  numCores=numCores, n_samples=n_samples, variants=variants,
-                 enforce_fmax=enforce_fmax)
+                 enforce_fmax=enforce_fmax, kwargs={'slope':args.slope})
 
     # save
     variant_table.to_csv(outFile + '.CPvariant', sep='\t', index=True)
