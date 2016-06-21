@@ -76,7 +76,7 @@ def getInitialFitParameters(concentrations):
 
 
 def perVariant(concentrations, subSeries, fitParameters, fmaxDistObject, initial_points=None,
-               plot=None, n_samples=None, enforce_fmax=None, func=None, fittype=None):
+               plot=None, n_samples=None, enforce_fmax=None, func=None, fittype=None, kwargs=None):
     """ Fit a variant to objective function by bootstrapping median fluorescence. """
     
     # default id to not plot results
@@ -102,7 +102,8 @@ def perVariant(concentrations, subSeries, fitParameters, fmaxDistObject, initial
                                               enforce_fmax=enforce_fmax,
                                               fmaxDist=fmaxDist,
                                               n_samples=n_samples,
-                                              verbose=plot)
+                                              verbose=plot,
+                                              kwargs=kwargs)
     # plot
     if plot:
         plotFun.plotFitCurve(concentrations,
@@ -110,7 +111,7 @@ def perVariant(concentrations, subSeries, fitParameters, fmaxDistObject, initial
                                      results,
                                      fitParameters,
                                      log_axis=True,
-                                     func=func, fittype=fittype)
+                                     func=func, fittype=fittype, kwargs=kwargs)
         # also plot initial
         if initial_points is not None:
             try:
@@ -190,7 +191,7 @@ def initiateFitting(variant_table, fluorescenceMat, fluorescenceMatSplit, concen
 def fitBindingCurves(variant_table, fluorescenceMat,
                      fluorescenceMatSplit, concentrations, fmaxDistObject,
                      numCores=20, n_samples=100, variants=None,
-                     enforce_fmax=None):
+                     enforce_fmax=None, kwargs=None):
     
     # process before fitting
     initialPoints, fitParameters = initiateFitting(variant_table, fluorescenceMat,
@@ -209,7 +210,8 @@ def fitBindingCurves(variant_table, fluorescenceMat,
                                         fmaxDistObject,
                                         initial_points=initialPoints.loc[variant],
                                         n_samples=n_samples,
-                                        enforce_fmax=enforce_fmax)
+                                        enforce_fmax=enforce_fmax,
+                                        kwargs=kwargs)
                  for variant in variants if variant in fluorescenceMatSplit.keys()))      
      
     results = pd.concat(results, axis=1).transpose()

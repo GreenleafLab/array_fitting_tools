@@ -129,7 +129,8 @@ def objectiveFunctionOnRates(params, times, data=None, weights=None, index=None,
     else:
         return ((fracbound - data)*weights)[index]  
         
-def bindingCurveObjectiveFunction(params, concentrations, data=None, weights=None, index=None, slope=0):
+def bindingCurveObjectiveFunction(params, concentrations, data=None, weights=None, index=None,
+                                  slope=0, fit_slope=False):
     """  Return fit value, residuals, or weighted residuals of a binding curve.
     
     Hill coefficient 1. """
@@ -142,6 +143,8 @@ def bindingCurveObjectiveFunction(params, concentrations, data=None, weights=Non
     fmax = parvals['fmax']
     dG   = parvals['dG']
     fmin = parvals['fmin']
+    if fit_slope:
+        slope = parvals['slope']
     fracbound = (fmin + fmax*concentrations/
                  (concentrations + np.exp(dG/parameters.RT)/
                   parameters.concentration_units)) + slope*concentrations
@@ -306,7 +309,7 @@ def enforceFmaxDistribution(median_fluorescence, fmaxDist, verbose=None, cutoff=
 
 def bootstrapCurves(x, subSeries, fitParameters, fmaxDist=None,
                     default_errors=None, use_default=None, verbose=None, n_samples=None,
-                    enforce_fmax=None, func=None):
+                    enforce_fmax=None, func=None, kwargs={}):
     """ Bootstrap fit of a model to multiple measurements of a single molecular variant. """
     
     # set defaults for various parameters
@@ -409,7 +412,7 @@ def bootstrapCurves(x, subSeries, fitParameters, fmaxDist=None,
                                     fitParameters,
                                     errors=[eminus[index.values], eplus[index.values]],
                                     func=func,
-                                    do_not_fit=do_not_fit)
+                                    do_not_fit=do_not_fit, kwargs=kwargs)
     # concatenate all resulting iterations
     singles = pd.concat(singles, axis=1).transpose()
     

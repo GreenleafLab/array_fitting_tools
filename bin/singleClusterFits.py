@@ -49,11 +49,15 @@ group.add_argument('-out', '--out_file',
 group.add_argument('-ft', '--fit_parameters',
                     help='fitParameters file. If file is given, use these '
                     'upperbound/lowerbounds')
+group.add_argument('--slope', default=0, type=float,
+                    help='if provided, use this value for the slope of a linear fit.'
+                    'upperbound/lowerbounds')
 group.add_argument('-n','--numCores', type=int, default=20, metavar="N",
                     help='maximum number of cores to use. default=20')
 group.add_argument('--subset',action="store_true", default=False,
                     help='if flagged, will only do a subset of the data for test purposes')
-
+#group.add_argument('--ft_only',action="store_true", default=False,
+#                    help='if flagged, do not fit, but save the fit parameters')
 
 def getInitialFitParameters(concentrations):
     """ Return fitParameters object with minimal constraints.
@@ -172,7 +176,8 @@ def bindingSeriesByCluster(concentrations, bindingSeries,
         fitParameters = getInitialFitParameters(concentrations)
         
         # change fmin initial
-        index_sub = np.random.choice(bindingSeries.dropna(subset=[bindingSeries.columns[0]]).index.tolist(), size=1000)
+        all_indices = bindingSeries.dropna(subset=[bindingSeries.columns[0]]).index.tolist()
+        index_sub = np.random.choice(all_indices, size=min(1000, len(all_indices)), replace=False)
         initial_fluorescence = bindingSeries.loc[index_sub].iloc[:, 0]
         print "Fitting fmin initial..."
         fitParameters.loc['initial', 'fmin'] = findFmaxDist.fitGammaDistribution(
@@ -235,8 +240,8 @@ if __name__=="__main__":
     bindingSeries = fileFun.loadFile(bindingSeriesFilename)
         
     fitResults, fitParameters = bindingSeriesByCluster(concentrations, bindingSeries, 
-                           numCores=numCores, subset=args.subset,
-                           fitParameters=fitParameters)
+                           numCores=numCores, subset=args.subset, 
+                           fitParameters=fitParameters, kwargs={'slope':args.slope})
     
     fitResults.to_pickle(outFile+'.CPfitted.pkl')
     fitParameters.to_csv(outFile+'.fitParameters', sep='\t')
