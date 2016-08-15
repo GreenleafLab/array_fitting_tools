@@ -84,7 +84,7 @@ else
 fi
 
 normbasename=$basename"_normalized"
-extension=".CPtimeseries.pkl"
+
 # bin the times
 if [ -f $normbasename$extension ];
 then
