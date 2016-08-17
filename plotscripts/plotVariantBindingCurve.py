@@ -28,6 +28,8 @@ sns.set_style("white", {'xtick.major.size': 4,  'ytick.major.size': 4})
 import plotFun
 import findFmaxDist
 import fitFun
+import fileFun
+import variantFun
 #plt.rc('text', usetex=True)
 ### MAIN ###
 
@@ -69,7 +71,7 @@ if __name__ == '__main__':
 
     
     # find variant
-    variant_table = pd.read_table(variantFilename, index_col=0)
+    variant_table = fileFun.loadFile(variantFilename)
 
     if args.variant_number is not None:
         variant = args.variant_number
@@ -106,9 +108,11 @@ if __name__ == '__main__':
             variant = subset.index[0]            
             
     # load data
+    annotatedClusters = fileFun.loadFile(annotatedClusterFile)
+    bindingSeries = fileFun.loadFile(bindingCurveFilename)
     concentrations = np.loadtxt(args.concentrations)
-    bindingSeries = pd.concat([pd.read_pickle(annotatedClusterFile),
-                               pd.read_pickle(bindingCurveFilename)], axis=1)
+    
+    affinityData = variantFun.perVariant(variant_table, annotatedClusters, bindingSeries, x=concentrations)
     
     variantClusters = bindingSeries.groupby('variant_number').get_group(variant).iloc[:, 1:]
     

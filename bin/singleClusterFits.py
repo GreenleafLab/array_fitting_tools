@@ -20,16 +20,13 @@ import numpy as np
 import pandas as pd
 import argparse
 import sys
-import seqfun
 import itertools
 import scipy.stats as st
 from joblib import Parallel, delayed
 import lmfit
-import fileFun
-import fitFun
-from fitFun import fittingParameters
-import findFmaxDist
-import plotFun
+from fittinglibs import (plotting, fitting, fileio, seqfun, distribution)
+from fittinglibs.fitting import fittingParameters
+
 ### MAIN ###
 
 ################ Parse input parameters ################
@@ -49,43 +46,19 @@ group.add_argument('-out', '--out_file',
 group.add_argument('-ft', '--fit_parameters',
                     help='fitParameters file. If file is given, use these '
                     'upperbound/lowerbounds')
+group.add_argument('--slope', default=0, type=float,
+                    help='if provided, use this value for the slope of a linear fit.'
+                    'upperbound/lowerbounds')
 group.add_argument('-n','--numCores', type=int, default=20, metavar="N",
                     help='maximum number of cores to use. default=20')
 group.add_argument('--subset',action="store_true", default=False,
                     help='if flagged, will only do a subset of the data for test purposes')
-
-
-def getInitialFitParameters(concentrations):
-    """ Return fitParameters object with minimal constraints.
-    
-    Input: concentrations
-    Uses concencetration to provide constraints on dG
-    """
-    parameters = fittingParameters(concentrations=concentrations)
-    
-    fitParameters = pd.DataFrame(index=['lowerbound', 'initial', 'upperbound'],
-                                 columns=['fmax', 'dG', 'fmin'])
-    
-    # find fmin
-    param = 'fmin'
-    fitParameters.loc[:, param] = [0, 0, np.inf]
-
-    # find fmax
-    param = 'fmax'
-    fitParameters.loc[:, param] = [0, np.nan, np.inf]
-    
-    # find dG
-    fitParameters.loc[:, 'dG'] = [parameters.find_dG_from_Kd(
-        parameters.find_Kd_from_frac_bound_concentration(frac_bound, concentration))
-             for frac_bound, concentration in itertools.izip(
-                                    [0.99, 0.5, 0.01],
-                                    [concentrations[0], concentrations[-1], concentrations[-1]])]
- 
-    return fitParameters
+#group.add_argument('--ft_only',action="store_true", default=False,
+#                    help='if flagged, do not fit, but save the fit parameters')
 
 
 def splitAndFit(bindingSeries, concentrations, fitParameters, numCores,
-                index=None, change_params=None, func=None):
+                index=None, change_params=None, func=None, kwargs=None):
     """ Given a table of binding curves, split and parallelize fit. """
     if index is None:
         index = bindingSeries.index
@@ -99,84 +72,29 @@ def splitAndFit(bindingSeries, concentrations, fitParameters, numCores,
 
     print 'Fitting binding curves:'
     fits = (Parallel(n_jobs=numCores, verbose=10)
-            (delayed(fitSetClusters)(concentrations, subBindingSeries,
-                                     fitParameters, print_bool, change_params)
+            (delayed(fitting.fitSetClusters)(concentrations, subBindingSeries,
+                                     fitParameters, print_bool, change_params, kwargs=kwargs)
              for subBindingSeries, print_bool in itertools.izip(bindingSeriesSplit, printBools)))
 
     return pd.concat(fits)
 
-def fitSetClusters(concentrations, subBindingSeries, fitParameters, print_bool=None,
-                   change_params=None, func=None, kwargs=None):
-    """ Fit a set of binding curves. """
-    if print_bool is None: print_bool = True
-
-    #print print_bool
-    singles = []
-    for i, idx in enumerate(subBindingSeries.index):
-        if print_bool:
-            num_steps = max(min(100, (int(len(subBindingSeries)/100.))), 1)
-            if (i+1)%num_steps == 0:
-                print ('working on %d out of %d iterations (%d%%)'
-                       %(i+1, len(subBindingSeries.index), 100*(i+1)/
-                         float(len(subBindingSeries.index))))
-                sys.stdout.flush()
-        fluorescence = subBindingSeries.loc[idx]
-        singles.append(perCluster(concentrations, fluorescence, fitParameters,
-                                  change_params=change_params, func=func, kwargs=kwargs))
-
-    return pd.concat(singles)
-
-def perCluster(concentrations, fluorescence, fitParameters, plot=None, change_params=None, func=None,
-               fittype=None, kwargs=None, verbose=False):
-    """ Fit a single binding curve. """
-    if plot is None:
-        plot = False
-    if change_params is None:
-        change_params = True
-    try:
-        if change_params:
-            a, b = np.percentile(fluorescence.dropna(), [0, 100])
-            fitParameters = fitParameters.copy()
-            fitParameters.loc['initial', 'fmax'] = b
-        #index = np.isfinite(fluorescence)
-        fluorescence = fluorescence[:len(concentrations)]
-        single = fitFun.fitSingleCurve(concentrations,
-                                                       fluorescence,
-                                                       fitParameters, func=func, kwargs=kwargs)
-    except IndexError as e:
-        if verbose: print e
-        print 'Error with %s'%fluorescence.name
-        single = fitFun.fitSingleCurve(concentrations,
-                                                       fluorescence,
-                                                       fitParameters,
-                                                       do_not_fit=True, func=func)
-    if plot:
-        if fittype == 'off':
-            plotFun.plotFitCurve(concentrations, fluorescence, single, fitParameters,
-                                 log_axis=False, func=fitFun.objectiveFunctionOffRates, fittype='off', kwargs=kwargs)
-        else:
-            plotFun.plotFitCurve(concentrations, fluorescence, single, fitParameters, func=func, kwargs=kwargs) 
-              
-    return pd.DataFrame(columns=[fluorescence.name],
-                        data=single).transpose()
-
-
 # define functions
 def bindingSeriesByCluster(concentrations, bindingSeries, 
-                           numCores=None,  subset=None, fitParameters=None, func=None):
+                           numCores=None,  subset=None, fitParameters=None, func=None, kwargs=None):
     """ Initialize fitting. """
     if subset is None:
         subset = False
 
     # find initial parameters
     if fitParameters is None:
-        fitParameters = getInitialFitParameters(concentrations)
+        fitParameters = fitting.getInitialFitParameters(concentrations)
         
         # change fmin initial
-        index_sub = np.random.choice(bindingSeries.dropna(subset=[bindingSeries.columns[0]]).index.tolist(), size=1000)
+        all_indices = bindingSeries.dropna(subset=[bindingSeries.columns[0]]).index.tolist()
+        index_sub = np.random.choice(all_indices, size=min(1000, len(all_indices)), replace=False)
         initial_fluorescence = bindingSeries.loc[index_sub].iloc[:, 0]
         print "Fitting fmin initial..."
-        fitParameters.loc['initial', 'fmin'] = findFmaxDist.fitGammaDistribution(
+        fitParameters.loc['initial', 'fmin'] = distribution.fitGammaDistribution(
             initial_fluorescence, plot=True, set_offset=0).loc['mean']
 
     # sort by fluorescence in null_column to try to get groups of equal
@@ -190,12 +108,12 @@ def bindingSeriesByCluster(concentrations, bindingSeries,
         index_all = index_all[np.linspace(0, len(index_all)-1, num).astype(int)]
     
     fitResults = pd.DataFrame(index=bindingSeries.index,
-                              columns=fitFun.fitSingleCurve(concentrations,
-                                                            None, fitParameters,
+                              columns=fitting.fitSingleCurve(concentrations,
+                                                            None, fitParameters, func,
                                                             do_not_fit=True).index)
     fitResults.loc[index_all] = splitAndFit(bindingSeries, concentrations,
                                         fitParameters, numCores, index=index_all,
-                                        change_params=True)
+                                        change_params=True, kwargs=kwargs)
 
 
     return fitResults, fitParameters
@@ -231,13 +149,15 @@ if __name__=="__main__":
     
     # define out file
     if outFile is None:
-        outFile = fileFun.stripExtension(bindingSeriesFilename)
+        outFile = fileio.stripExtension(bindingSeriesFilename)
+    if args.subset:
+        outFile = '%s.subset'%outFile
     print "Loading binding series..."
-    bindingSeries = fileFun.loadFile(bindingSeriesFilename)
+    bindingSeries = fileio.loadFile(bindingSeriesFilename)
         
     fitResults, fitParameters = bindingSeriesByCluster(concentrations, bindingSeries, 
-                           numCores=numCores, subset=args.subset,
-                           fitParameters=fitParameters)
+                           numCores=numCores, subset=args.subset, 
+                           fitParameters=fitParameters, kwargs={'slope':args.slope})
     
     fitResults.to_pickle(outFile+'.CPfitted.pkl')
     fitParameters.to_csv(outFile+'.fitParameters', sep='\t')

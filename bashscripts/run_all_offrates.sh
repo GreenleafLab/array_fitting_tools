@@ -7,45 +7,43 @@ ftd=$1
 mf=$2
 od=$3
 an=$4
-c=$5
-f=$(echo $@ | awk '{for (i=6; i<=NF; i++) print $i}')
+f=$(echo $@ | awk '{for (i=5; i<=NF; i++) print $i}')
 
 set -e -o nounset
 # help
 if [ -z "$ftd" ]
 then
-    echo "Script to process data, annotate sequences, fit single clusters,
+    echo "Script to process data, annotate sequences, bin times,
     and bootstrap the fits."
     echo "Arguments:
     (1) a directory of CPseq files,
     (2) a map file of CPfluor dirs,
     (3) an output directory,
-    (4) the CPannot file generated per chip
-    (5) file of concentrations
-    (6) a list of filter names to fit."
+    (4) an annotated cluster file per chip
+    (5) a list of filter names to fit."
     echo "Example:"
-    echo "run_all_binding_curves.sh \\
+    echo "run_all_offrates.sh \\
     ../seqData/tiles/filtered_tiles_indexed/ \\
-    bindingCurves/bindingCurves.map \\
-    bindingCurves \\
-    ../seqData/dummy_dir/AKPP5_ALL_Bottom_filtered_anyRNA.CPannot.pkl \\
-    concentrations.txt \\
+    offRates/offrates.map \\
+    offRates \\
+    ../seqData/AG3EL_Bottom_filtered_anyRNA.CPannot.pkl \\ 
     anyRNA "
     exit
 fi
 
 # print command
 echo ""
-echo "run_all_binding_curves.sh $ftd $mf $od $an $c $f"
+echo "run_all_offrates.sh $ftd $mf $od $an $f"
 echo "start run at: "
 date
+
 # process data
 output=$(find $od -maxdepth 1  -name "*reduced.CPseries.pkl" -type f)
 if [ -z $output ];
 then
     echo ""
-    echo "python -m processData -fs $ftd -mf $mf -od $od -fp $f -cf $an"
-    python -m processData -fs $ftd -mf $mf -od $od -fp $f -cf $an
+    echo "python -m processData -fs $ftd -mf $mf -od $od -fp $f -cf $an -r"
+    python -m processData -fs $ftd -mf $mf -od $od -fp $f -cf $an -r    
     output=$(find $od -maxdepth 1  -name "*reduced.CPseries.pkl" -type f)
 
     # check success
@@ -84,72 +82,67 @@ else
     date
 
 fi
+
 normbasename=$basename"_normalized"
 
+# bin the times
+if [ -f $normbasename$extension ];
+then
+    echo "--> time series file exists: "$normbasename$extension
+else
+    echo ""
+    echo "python -m binTimes -cs $normbasename.CPseries.pkl -td $od/rates.timeDict.p -t $basename.CPtiles.pkl"
+    python -m binTimes -cs $normbasename.CPseries.pkl -td $od/rates.timeDict.p -t $basename.CPtiles.pkl
+    
+    # check success
+    if [ $? -eq 0 ]
+    then
+        echo "### Successfully binned times ###"
+    else
+        echo "!!! Error binning times !!!"
+        exit
+    fi
+    date
+fi
+
 # fit single clusters
-extension=".CPfitted.pkl" 
+extension=".CPfitted.pkl"
 if [ -f $normbasename$extension ];
 then
-    echo "--> CPfitted file exists: "$normbasename$extension
+    echo "--> fit results file exists: "$normbasename$extension
 else
     echo ""
-    echo "python -m singleClusterFits -cs $basename".CPseries.pkl" -c $c -n 20"
-    python -m singleClusterFits -b $normbasename".CPseries.pkl" -c $c -n 20
-
+    echo "python -m fitRatesPerCluster -cs $normbasename.CPseries.pkl -t $basename.CPtiles.pkl -td $od/rates.timeDict.p  -n 20 --pb_correct"
+    python -m fitRatesPerCluster -cs $normbasename.CPseries.pkl -t $basename.CPtiles.pkl -td $od/rates.timeDict.p -n 20 --pb_correct
+    
     # check success
     if [ $? -eq 0 ]
     then
-        echo "### Successfully fit single clusters. ###"
+        echo "### Successfully fit off rates ###"
     else
-        echo "!!! Error fitting single clusters !!!"
+        echo "!!! Error fitting off rates !!!"
         exit
     fi
     date
 fi
 
-# find distribution of fmaxes
-extension=".fmaxdist.p"
-# bootstrap variants 
-if [ -f $normbasename$extension ];
-then
-    echo "--> fmax dist file exists: "$normbasename$extension
-else
-    echo ""
-    echo "python -m findFmaxDist -cf $normbasename.CPfitted.pkl -a $an -c $c"
-    python -m findFmaxDist -cf $normbasename.CPfitted.pkl -a $an -c $c
-    # check success
-    if [ $? -eq 0 ]
-    then
-        echo "### Successfully fit fmax dist. ###"
-    else
-        echo "!!! Error fitting fmax dist !!!"
-        exit
-    fi
-    date
-fi
-
-# bootstrap variants
+# bootsrap
 extension=".CPvariant"
 if [ -f $normbasename$extension ];
 then
-    echo "--> CPvariant file exists: "$normbasename$extension
+    echo "--> per variant file exists: "$normbasename$extension
 else
     echo ""
-    echo "python -m bootStrapFits -v "$normbasename".init.CPvariant.pkl -c "$c" -a "$an" -b $normbasename".CPseries.pkl" -f "$normbasename".fmaxdist.p -n 20"
-    python -m bootStrapFits -v $normbasename.init.CPvariant.pkl -c $c -a $an -b $normbasename.CPseries.pkl -f $normbasename.fmaxdist.p -n 20
-
+    echo "python -m bootStrapFitFile -cf $normbasename.CPfitted.pkl -a $an -n 20 -p koff"
+    python -m bootStrapFitFile -cf $normbasename.CPfitted.pkl -a $an -n 20 -p koff
+    
     # check success
     if [ $? -eq 0 ]
     then
-        echo "### Successfully bootstrapped fits. ###"
+        echo "### Successfully fit off rates ###"
     else
-        echo "!!! Error fitting bootstrapping fits !!!"
+        echo "!!! Error fitting off rates !!!"
         exit
     fi
     date
 fi
-
-
-
-
-

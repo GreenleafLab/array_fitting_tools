@@ -3,12 +3,11 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
+import sys
 from scikits.bootstrap import bootstrap
-from statsmodels.stats.weightstats import DescrStatsW
+from statsmodels.distributions.empirical_distribution import ECDF
 import warnings
 import itertools
-import seqfun
-import IMlibs
 import scipy.stats as st
 
 sns.set_style("white", {'xtick.major.size': 4,  'ytick.major.size': 4,
@@ -76,6 +75,34 @@ class fittingParameters():
     def find_Kd_from_frac_bound_concentration(self, frac_bound, concentration):
         return concentration/float(frac_bound) - concentration
 
+def getInitialFitParameters(concentrations):
+    """ Return fitParameters object with minimal constraints.
+    
+    Input: concentrations
+    Uses concencetration to provide constraints on dG
+    """
+    parameters = fittingParameters(concentrations=concentrations)
+    
+    fitParameters = pd.DataFrame(index=['lowerbound', 'initial', 'upperbound'],
+                                 columns=['fmax', 'dG', 'fmin'])
+    
+    # find fmin
+    param = 'fmin'
+    fitParameters.loc[:, param] = [0, 0, np.inf]
+
+    # find fmax
+    param = 'fmax'
+    fitParameters.loc[:, param] = [0, np.nan, np.inf]
+    
+    # find dG
+    fitParameters.loc[:, 'dG'] = [parameters.find_dG_from_Kd(
+        parameters.find_Kd_from_frac_bound_concentration(frac_bound, concentration))
+             for frac_bound, concentration in itertools.izip(
+                                    [0.99, 0.5, 0.01],
+                                    [concentrations[0], concentrations[-1], concentrations[-1]])]
+ 
+    return fitParameters
+
 def objectiveFunctionOffRates(params, times, data=None, weights=None, index=None, bleach_fraction=1, image_ns=None):
     """ Return fit value, residuals, or weighted residuals of off rate objective function. """
     if index is None:
@@ -129,7 +156,8 @@ def objectiveFunctionOnRates(params, times, data=None, weights=None, index=None,
     else:
         return ((fracbound - data)*weights)[index]  
         
-def bindingCurveObjectiveFunction(params, concentrations, data=None, weights=None, index=None):
+def bindingCurveObjectiveFunction(params, concentrations, data=None, weights=None, index=None,
+                                  slope=0, fit_slope=False):
     """  Return fit value, residuals, or weighted residuals of a binding curve.
     
     Hill coefficient 1. """
@@ -142,9 +170,11 @@ def bindingCurveObjectiveFunction(params, concentrations, data=None, weights=Non
     fmax = parvals['fmax']
     dG   = parvals['dG']
     fmin = parvals['fmin']
+    if fit_slope:
+        slope = parvals['slope']
     fracbound = (fmin + fmax*concentrations/
                  (concentrations + np.exp(dG/parameters.RT)/
-                  parameters.concentration_units))
+                  parameters.concentration_units)) + slope*concentrations
     
     # return fit value of data is not given
     if data is None:
@@ -157,34 +187,37 @@ def bindingCurveObjectiveFunction(params, concentrations, data=None, weights=Non
     # return weighted residuals if data is given
     else:
         return ((fracbound - data)*weights)[index]
-
+    
 def convertFitParametersToParams(fitParameters):
     """ Return lmfit params structure starting with descriptive dataframe. """
     param_names = fitParameters.columns.tolist()
     # store fit parameters in class for fitting
     params = Parameters()
     for param in param_names:
-        if 'vary' in fitParameters.loc[:, param].index:
+        if 'vary' in fitParameters.loc[:, param].index.tolist():
             vary = fitParameters.loc['vary', param]
         else:
             vary = True
+        if 'lowerbound' in fitParameters.loc[:, param].index.tolist():
+            lowerbound = fitParameters.loc['lowerbound', param]
+        else:
+            lowerbound = -np.inf
+        if 'upperbound' in fitParameters.loc[:, param].index.tolist():
+            upperbound = fitParameters.loc['upperbound', param]
+        else:
+            upperbound = np.inf
         params.add(param, value=fitParameters.loc['initial', param],
-                   min = fitParameters.loc['lowerbound', param],
-                   max = fitParameters.loc['upperbound', param],
+                   min = lowerbound,
+                   max = upperbound,
                    vary= vary)
     return params
 
-def fitSingleCurve(x, fluorescence, fitParameters, func=None,
-                          errors=None, plot=None, log_axis=None, do_not_fit=None, kwargs=None):
+def fitSingleCurve(x, fluorescence, fitParameters, func,
+                          errors=None, do_not_fit=None, kwargs=None):
     """ Fit an objective function to data, weighted by errors. """
     if do_not_fit is None:
         do_not_fit = False # i.e. if you don't want to actually fit but still want to return a value
-    if plot is None:
-        plot = False
-    if log_axis is None:
-        log_axis = True
-    if func is None:
-        func = bindingCurveObjectiveFunction
+
     if kwargs is None:
         kwargs = {}
     
@@ -214,6 +247,7 @@ def fitSingleCurve(x, fluorescence, fitParameters, func=None,
     
     # make sure fluorescence doesn't have NaN terms
     index = np.array(np.isfinite(fluorescence))
+    kwargs = kwargs.copy()
     kwargs.update({'data':fluorescence, 'weights':weights, 'index':index}) 
 
     # do the fit
@@ -302,7 +336,7 @@ def enforceFmaxDistribution(median_fluorescence, fmaxDist, verbose=None, cutoff=
 
 def bootstrapCurves(x, subSeries, fitParameters, fmaxDist=None,
                     default_errors=None, use_default=None, verbose=None, n_samples=None,
-                    enforce_fmax=None, func=None):
+                    enforce_fmax=None, func=None, kwargs={}):
     """ Bootstrap fit of a model to multiple measurements of a single molecular variant. """
     
     # set defaults for various parameters
@@ -404,9 +438,8 @@ def bootstrapCurves(x, subSeries, fitParameters, fmaxDist=None,
                                     fluorescence.loc[index],
                                     fitParameters,
                                     errors=[eminus[index.values], eplus[index.values]],
-                                    plot=False,
                                     func=func,
-                                    do_not_fit=do_not_fit)
+                                    do_not_fit=do_not_fit, kwargs=kwargs)
     # concatenate all resulting iterations
     singles = pd.concat(singles, axis=1).transpose()
     
@@ -434,6 +467,58 @@ def bootstrapCurves(x, subSeries, fitParameters, fmaxDist=None,
     
     return results, singles
 
+def fitSetClusters(concentrations, subBindingSeries, fitParameters, print_bool=None,
+                   change_params=None, func=None, kwargs=None):
+    """ Fit a set of binding curves. """
+    if print_bool is None: print_bool = True
+
+    #print print_bool
+    singles = []
+    for i, idx in enumerate(subBindingSeries.index):
+        if print_bool:
+            num_steps = max(min(100, (int(len(subBindingSeries)/100.))), 1)
+            if (i+1)%num_steps == 0:
+                print ('working on %d out of %d iterations (%d%%)'
+                       %(i+1, len(subBindingSeries.index), 100*(i+1)/
+                         float(len(subBindingSeries.index))))
+                sys.stdout.flush()
+        fluorescence = subBindingSeries.loc[idx]
+        singles.append(perCluster(concentrations, fluorescence, fitParameters,
+                                  change_params=change_params, func=func, kwargs=kwargs))
+
+    return pd.concat(singles)
+
+def perCluster(concentrations, fluorescence, fitParameters, plot=None, change_params=None, func=None,
+               fittype=None, kwargs=None, verbose=False):
+    """ Fit a single binding curve. """
+    if plot is None:
+        plot = False
+    if func is None:
+        func = bindingCurveObjectiveFunction
+    if change_params is None:
+        change_params = True
+    try:
+        if change_params:
+            a, b = np.percentile(fluorescence.dropna(), [0, 100])
+            fitParameters = fitParameters.copy()
+            fitParameters.loc['initial', 'fmax'] = b
+        #index = np.isfinite(fluorescence)
+        fluorescence = fluorescence[:len(concentrations)]
+        single = fitSingleCurve(concentrations,
+                                                       fluorescence,
+                                                       fitParameters, func, kwargs=kwargs)
+    except IndexError as e:
+        if verbose: print e
+        print 'Error with %s'%fluorescence.name
+        single = fitSingleCurve(concentrations,
+                                                       fluorescence,
+                                                       fitParameters, func,
+                                                       do_not_fit=True)
+    if plot:
+        print "plotting.plotFitCurve(concentrations, fluorescence, single, param_names=fitParameters.columns.tolist(), func=func, fittype=fittype, kwargs=kwargs)"             
+    return pd.DataFrame(columns=[fluorescence.name],
+                        data=single).transpose()
+
 def plotFitDistributions(results, singles, fitParameters):
     """ Plot a distribtion of fit parameters. """
     for param in fitParameters.columns.tolist():
@@ -452,7 +537,7 @@ def plotFitDistributions(results, singles, fitParameters):
     return
 
 def returnParamsFromResults(final_params, param_names=None):
-    # make a parameters structure that works for objective functions
+    """ Given results, convert to lmfit params structure for fitting. """
     if param_names is None:
         param_names = ['fmax', 'dG', 'fmin']
     params = Parameters()
@@ -467,7 +552,6 @@ def returnParamsFromResultsBounds(final_params, param_names, ub_vec):
         name = param.split('_')[0]
         params_ub.add(name, value=final_params.loc[param])
     return params_ub
-
 
 def errorPropagationKdFromKoffKobs(koff, kobs, c, sigma_koff, sigma_kobs):
     koff = koff.astype(float)
@@ -485,3 +569,4 @@ def errorProgagationKdFromdG(dG, sigma_dG):
     parameters = fittingParameters()
     sigma_kd = parameters.find_Kd_from_dG(dG)/parameters.RT*sigma_dG
     return sigma_kd
+
