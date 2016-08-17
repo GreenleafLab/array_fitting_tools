@@ -150,10 +150,7 @@ if __name__=="__main__":
     
     # save
     pickle.dump(fmaxDist, open( outFile+'.fmaxdist.p', "wb" ))
-    
-    # what about fmin?
-    print 'fmin should be: %4.3f'%distribution.returnFminFromFits(variant_table, parameters.mindG)
-    
+        
     # save variant table
     variant_table.to_pickle(outFile + '.init.CPvariant.pkl')
     
