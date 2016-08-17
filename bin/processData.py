@@ -131,33 +131,35 @@ reducedCPsignalFile = processing.getReducedCPsignalFilename(signalNamesByTileDic
 reducedRedCPsignalFile = processing.getReducedCPsignalFilename(redSignalNamesByTileDict, reducedSignalDirectory, 'red')
 tileOutputFile = processing.getTileOutputFilename(signalNamesByTileDict, reducedSignalDirectory)
 # if file was given that has index of clusters to keep, use only these clusters
-
-fileWithIndexToKeep = args.clusters_to_keep_file
-if fileWithIndexToKeep is None:
-    if args.filter_pos is None:
-        # use all clusters
-        print 'Finding using all clusters...'
-        indices = None
-    else:       
-        # make file with positive filters
-        print 'Finding clusterIDs with filter name incuding one of: {%s}'%(' '.join(args.filter_pos))
-        clustersToKeepFile = os.path.join(reducedSignalDirectory, 'indices_to_keep.txt')
-        print 'Finding CPseq files in directory "%s"...'%args.filtered_CPseqs
-        filteredCPseqFilenameDict = processing.findTileFilesInDirectory(args.filtered_CPseqs,
-                                                                    ['CPseq'])
-        processing.makeIndexFile(filteredCPseqFilenameDict, args.filter_pos, clustersToKeepFile)
-        indices = fileio.loadFile(clustersToKeepFile)
-else:
-    print 'Using clusterIDs in %s'%(fileWithIndexToKeep)
-    indices = fileio.loadFile(fileWithIndexToKeep).index
-
-print 'Concatenating CPseries files...'
-alreadySavedTiles = False
-for outputFiles, reducedOutputFile in itertools.izip([signalNamesByTileDict, redSignalNamesByTileDict],
-                                                     [reducedCPsignalFile, reducedRedCPsignalFile]):
-    print '\tSaving to: %s'%reducedOutputFile
-    if not alreadySavedTiles:
-        processing.reduceCPseriesFiles(outputFiles, reducedOutputFile, indices, tileOutputFile)
-        alreadySavedTiles = True
+if os.path.exists(reducedCPsignalFile) and os.path.exists(reducedRedCPsignalFile):
+    print 'All reduced signal files already generated.'
+else:    
+    fileWithIndexToKeep = args.clusters_to_keep_file
+    if fileWithIndexToKeep is None:
+        if args.filter_pos is None:
+            # use all clusters
+            print 'Finding using all clusters...'
+            indices = None
+        else:       
+            # make file with positive filters
+            print 'Finding clusterIDs with filter name incuding one of: {%s}'%(' '.join(args.filter_pos))
+            clustersToKeepFile = os.path.join(reducedSignalDirectory, 'indices_to_keep.txt')
+            print 'Finding CPseq files in directory "%s"...'%args.filtered_CPseqs
+            filteredCPseqFilenameDict = processing.findTileFilesInDirectory(args.filtered_CPseqs,
+                                                                        ['CPseq'])
+            processing.makeIndexFile(filteredCPseqFilenameDict, args.filter_pos, clustersToKeepFile)
+            indices = fileio.loadFile(clustersToKeepFile)
     else:
-        processing.reduceCPseriesFiles(outputFiles, reducedOutputFile, indices)   
+        print 'Using clusterIDs in %s'%(fileWithIndexToKeep)
+        indices = fileio.loadFile(fileWithIndexToKeep).index
+    
+    print 'Concatenating CPseries files...'
+    alreadySavedTiles = False
+    for outputFiles, reducedOutputFile in itertools.izip([signalNamesByTileDict, redSignalNamesByTileDict],
+                                                         [reducedCPsignalFile, reducedRedCPsignalFile]):
+        print '\tSaving to: %s'%reducedOutputFile
+        if not alreadySavedTiles:
+            processing.reduceCPseriesFiles(outputFiles, reducedOutputFile, indices, tileOutputFile)
+            alreadySavedTiles = True
+        else:
+            processing.reduceCPseriesFiles(outputFiles, reducedOutputFile, indices)   
