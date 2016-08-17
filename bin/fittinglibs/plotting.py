@@ -169,6 +169,7 @@ def plotFitCurve(x, subSeries, results, param_names=None, ax=None, log_axis=True
         ax = fig.add_subplot(111)
     
     # generate x values for fit function
+    x = np.array(x)
     if log_axis:
         more_x = np.logspace(np.log10(x.min()/10), np.log10(x.max()*2), 100)
     else:
