@@ -26,7 +26,6 @@ import scipy.stats as st
 import matplotlib.pyplot as plt
 sns.set_style("white", {'xtick.major.size': 4,  'ytick.major.size': 4})
 import plotFun
-import findFmaxDist
 import fitFun
 import fileFun
 import variantFun
@@ -45,21 +44,14 @@ parser.add_argument('-b', '--binding_curves', required=True, metavar=".bindingSe
                    help='file containining the binding curve information')
 parser.add_argument('-c', '--concentrations', required=True, metavar="concentrations.txt",
                     help='text file giving the associated concentrations')
-parser.add_argument('-l', '--lib_characterization', 
-                   help='library characterization filename. Use if supplying variant'
-                   'sequence of variant index name')
+group.add_argument('-v', '--variant_numbers', nargs='+', metavar="N", 
+                   help='index of variant(s) to plot')
+
+group = parser.add_argument_group()
 parser.add_argument('-out', '--out_file', 
                    help='output filename. default is variant number + ".pdf"')
 parser.add_argument('--annotate', action="store_true",
                    help='flag if you want the plot annotated')
-
-group = parser.add_mutually_exclusive_group(required=True)
-group.add_argument('-vn', '--variant_number', metavar="N", type=int,
-                   help='index of variant to plot')
-group.add_argument('-vs', '--variant_sequence', metavar="AGCT", 
-                   help='sequence of variant to plot')
-group.add_argument('-vi', '--variant_index_name', metavar="AGCT", 
-                   help='name of variant to plot')
 
 if __name__ == '__main__':
     args = parser.parse_args()
@@ -73,39 +65,7 @@ if __name__ == '__main__':
     # find variant
     variant_table = fileFun.loadFile(variantFilename)
 
-    if args.variant_number is not None:
-        variant = args.variant_number
-        if variant_table.loc[variant].numTests < 1:
-            print 'Error: no clusters on chip with this variant number!'
-            sys.exit()
-    else:
-        if args.lib_characterization is None:
-            print 'Error: need to supply lib characterization if using variant sequence or index'
-            sys.exit()
-        libChar = pd.read_table(args.lib_characterization)
-        results = pd.concat([libChar, variant_table], axis=1)
-        
-        if args.variant_sequence is not None:
-            # find all variants on chip with this sequence
-            subset = results.loc[(results.sequence == args.variant_sequence)&(results.numTests >0)]
-            if len(subset) > 1:
-                print 'Error: more than one variant has clusters on chip and this sequence! %s'%args.variant_sequence
-                sys.exit()
-            if len(subset) == 0:
-                print 'Error: no clusters on chip with this variant sequence! %s'%args.variant_sequence
-                sys.exit()
-            variant = subset.index[0]
-        
-        if args.variant_index_name is not None:
-            # find all variants on chip with this sequence
-            subset = results.loc[(results.name == args.variant_index_name)&(results.numTests >0)]
-            if len(subset) > 1:
-                print 'Error: more than one variant has clusters on chip and this variant index name! %s'%args.variant_index_name
-                sys.exit()
-            if len(subset) == 0:
-                print 'Error: no clusters on chip with this variant index name! %s'%args.variant_index_name
-                sys.exit()
-            variant = subset.index[0]            
+      
             
     # load data
     annotatedClusters = fileFun.loadFile(annotatedClusterFile)

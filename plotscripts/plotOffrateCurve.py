@@ -45,15 +45,15 @@ parser.add_argument('-td', '--time_dict', metavar="timeDict.p",
                    help='file containining the timing information per tile')
 parser.add_argument('--tile', metavar="NNN", default='001',
                    help='plot one this tiles median values')
+parser.add_argument('-v', '--variant_numbers', nargs='+', metavar="N", 
+                   help='variant(s) or clusterId(s) to plot')
 
+
+group = parser.add_argument_group()
 parser.add_argument('-out', '--out_file', 
                    help='output filename. default is variant number + ".pdf"')
 parser.add_argument('--annotate', action="store_true",
                    help='flag if you want the plot annotated')
-
-group = parser.add_argument_group()
-group.add_argument('-v', '--variant_numbers', nargs='+', metavar="N", 
-                   help='index of variant(s) to plot')
 group.add_argument('-an', '--annotated_clusters', metavar="CPannot.pkl",
                    help='annotated cluster file. Supply if you wish to take medians per variant.'
                    'Otherwise assumes single cluster fits.')
@@ -61,39 +61,39 @@ group.add_argument('-an', '--annotated_clusters', metavar="CPannot.pkl",
 
 if __name__ == '__main__':
     args = parser.parse_args()
-    
     variantFilename = args.variant_file
     bindingSeriesFile = args.cpseries
     timeDeltaFile = args.time_dict
     annotatedClusterFile = args.annotated_clusters
     tile_to_subset = args.tile
-    
-    # find variant
-    variant_table = fileFun.loadFile(variantFilename)
-    #if not np.any(variant_table.loc[args.variant_numbers].numTests > 0):
-    #    print 'Error: no clusters on chip with any of these variant numbers!'
-    #    sys.exit()
 
+    if args.out_file is None:
+        args.out_file = 'offrate_curve'
+    
     # load data
+    variant_table = fileFun.loadFile(variantFilename)
     bindingSeries = fileFun.loadFile(bindingSeriesFile)
     timeDict = fileFun.loadFile(timeDeltaFile)
 
+    # load annotated clusters if given, else make a data structure that assigns the variant number to the cluster ID
     if annotatedClusterFile is not None:
         annotatedClusters = fileFun.loadFile(annotatedClusterFile)
     else:
         annotatedClusters = pd.DataFrame(bindingSeries.index.tolist(), index=bindingSeries.index, columns=['variant_number'])
 
+    # initialize class of results
     offRates = variantFun.perVariant(variant_table, annotatedClusters, bindingSeries, x=timeDict[tile_to_subset])
     
+    # plot
     for variant in args.variant_numbers:
         try:
             variant = int(variant)
         except ValueError:
             pass
         
+        # plot
         offRates.plotOffrateCurve(variant, annotate=args.annotate)
         
-        if args.out_file is None:
-            args.out_file = 'binding_curve.variant_%s.pdf'%str(variant)
-        
-        plt.savefig( args.out_file)
+        # save
+        outfile = '%s.%s.pdf'%(args.out_file, str(variant))
+        plt.savefig(out_file)

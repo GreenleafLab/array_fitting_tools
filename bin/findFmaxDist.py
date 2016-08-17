@@ -15,18 +15,15 @@ Returns:
 --------
 fmaxDistObject :
 """
-
+import argparse
+import sys
 import os
 import numpy as np
 import scipy.stats as st
-import seqfun
 from lmfit import Parameters, minimize
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
-from scipy.ndimage import gaussian_filter
-import argparse
-import sys
 import pickle
 from fittinglibs import (fitting, plotting, fileio, processing, distribution)
 

@@ -2,6 +2,15 @@
 
 add to python path: `array_fitting_tools/bin`
 
+## Requirements (parantheses indicate what I am using):
+Please update this list as you encounter dependencies not listed here!
+
+* pandas (0.16.2)
+* lmfit (0.8.3)
+* joblib (0.9.0b2)
+* seaborn (0.7.0)
+* scikits.bootstrap (0.3.2)
+
 ## scripts: 
 `findSeqDistribution` to annotate variants onto clusters.
 
@@ -22,6 +31,9 @@ add to python path: `array_fitting_tools/bin`
 * `run_all_binding_curves.sh` can be used to run all 4 scripts.
 * `compressBarcodes` can take in a CPseq file and find unique barcode file. Also assesses quality.
 * `fitBackgroundTile` will fit background clusters with the same method used above to better understand how noise contributes to fit values
+    * This one probably won't work out of the box: talk to me.
+* `medianSubsetCPseries` will take the per-variant median of a CPseries, and optionally subset to only include one tile.
+
 
 ## More
 For more info, see the [wiki page](https://github.com/GreenleafLab/array_fitting_tools/wiki)

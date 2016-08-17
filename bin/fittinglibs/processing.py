@@ -266,7 +266,11 @@ def getTimeDelta(timestamp_final, timestamp_initial):
     """Return the difference between two time stamps in seconds."""
     return (timestamp_final - timestamp_initial).seconds + (timestamp_final - timestamp_initial).microseconds/1E6 
 
-
+def loadCompressedBarcodeFile(filename):
+    """Load the unique_barcodes file."""
+    cols = ['sequence', 'barcode', 'clusters_per_barcode', 'fraction_consensus']
+    mydata = pd.read_table(filename)
+    return mydata
 
 def filterFitParameters(table):
     """Filter the fit parameters. """

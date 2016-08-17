@@ -7,8 +7,6 @@ from scikits.bootstrap import bootstrap
 import warnings
 import itertools
 import os
-import seqfun
-import IMlibs
 import scipy.stats as st
 import fitFun
 import fileFun
@@ -20,6 +18,7 @@ sns.set_style("white", {'xtick.major.size': 4,  'ytick.major.size': 4,
                         'lines.linewidth': 1, 'axes.linewidth':1, 'text.color': 'k', 'axes.labelcolor': 'k'})
 
 def findExtInList(directory, ext):
+    """Find files in directory with extension."""
     if os.path.isdir(directory):
         files = os.listdir(directory)
         return [os.path.join(directory, i) for i in files if i.find(ext)>-1 and i.find(ext)==len(i)-len(ext)]
@@ -28,6 +27,7 @@ def findExtInList(directory, ext):
         return []
 
 def loadFile(directory, ext):
+    """Load particular file with extension in directory."""
     filenames = findExtInList(directory, ext)
     if len(filenames)==1:
         data = fileFun.loadFile(filenames[0])
@@ -39,19 +39,6 @@ def loadFile(directory, ext):
         else:
             print 'Could not find extension %s in directory %s'%(ext, directory)
     return data
-
-def findFile(directory, ext):
-    filenames = findExtInList(directory, ext)
-    if len(filenames)==1:
-        filename = filenames[0]
-    else:
-        filename = None
-        if len(filenames) > 1:
-            print 'More than one file found: %s'%('\t\n'.join(filenames))
-        else:
-            print 'Could not find extension %s in directory %s'%(ext, directory)
-    return filename
-
 
 def initialize(directory):
     """ Find and load all files of normal structure in directory.
@@ -92,6 +79,7 @@ def initialize(directory):
     return variant_table, binding_series, cluster_table, annotated_clusters, time_series, tiles, times, concentrations, timedict
 
 def errorPropagateAverage(sigmas, weights):
+    """Propagate error using weights."""
     sigma_out = np.sqrt(np.sum([np.power(weight*sigma/weights.sum(), 2)
                                 if weight != 0
                                 else 0
@@ -99,6 +87,7 @@ def errorPropagateAverage(sigmas, weights):
     return sigma_out
 
 def errorPropagateAverageAll(sigmas, weights, index=None):
+    """Propagate error using weights."""
     if index is None:
         index = sigma_dGs.index
     subweights = weights.loc[index].astype(float)
@@ -110,6 +99,7 @@ def errorPropagateAverageAll(sigmas, weights, index=None):
     return sigma_out
 
 def weightedAverage(values, weights):
+    """Average using weights."""
     average = (np.sum([value*weight
                        if weight != 0
                        else 0
@@ -118,6 +108,7 @@ def weightedAverage(values, weights):
     return average
 
 def weightedAverageAll(values, weights, index=None):
+    """Return weighted average """
     if index is None:
         index = values.index
     
@@ -135,7 +126,7 @@ def getValueInTable(series, name):
         return np.nan
     
 class perVariant():
-
+    """For a given CPvariant file, plot stuff."""
     def __init__(self, variant_table=None, annotated_clusters=None, binding_series=None, x=None, cluster_table=None, tiles=None):
 
         self.binding_series = binding_series
@@ -146,19 +137,19 @@ class perVariant():
         self.cluster_table = cluster_table
         self.tiles = tiles
 
-
     def getVariantBindingSeries(self,variant ):
-        """ Return binding series for clusters of a particular variant. """
+        """Return binding series for clusters of a particular variant."""
         index = self.annotated_clusters == variant
         return self.binding_series.loc[index]
     
     def getVariantTiles(self, variant):
-        """ Return tile numbers for clusters of a particular variant. """
+        """Return tile numbers for clusters of a particular variant."""
         index = self.annotated_clusters == variant 
         return self.tiles.loc[index]
     
     
     def plotBindingCurve(self, variant):
+        """Plot a binding curve of a particular variant."""
         subSeries = self.getVariantBindingSeries(variant)
         concentrations = self.x
         variant_table = self.variant_table
@@ -170,10 +161,9 @@ class perVariant():
                             subSeries,
                             variant_table.loc[variant],
                             ax=ax)
-    
 
-    
     def plotOffrateCurve(self, variant, annotate=False):
+        """Plot an off rate curve of a particular variant."""
         subSeries = self.getVariantBindingSeries(variant)
         times = self.x
         variant_table = self.variant_table
@@ -202,7 +192,7 @@ class perVariant():
                         horizontalalignment='left', verticalalignment='top')
             
     def plotClusterOffrates(self, cluster=None, variant=None, idx=None):
-
+        """Plot an off rate curve of a particular cluster."""
         times = self.x
         
         if cluster is not None:
@@ -231,6 +221,7 @@ class perVariant():
                  log_axis=False, func=fitFun.objectiveFunctionOffRates, fittype='off')
 
     def plotClusterBinding(self, variant, cluster=None, idx=None):
+        """Plot a binding curve of a particular cluster."""
         concentrations = self.x
         
         if cluster is not None:
@@ -253,6 +244,7 @@ class perVariant():
                             ax=ax)
      
     def plotBootstrappedDist(self, variant, param, log_axis=False):
+        """Plot the distribution of a param."""
         variant_table = self.variant_table
         cluster_table = self.cluster_table
         subSeries = self.getVariantBindingSeries(variant)
@@ -282,6 +274,7 @@ class perVariant():
         plt.tight_layout()
         
     def plotFractionFit(self):
+        """Plot the fraction fit."""
         variant_table = self.variant_table
         pvalue_cutoff = 0.01
         # plot
@@ -316,7 +309,6 @@ class perVariant():
         plt.ylim(ylim)
         fix_axes(ax)
 
-
     def plotErrorByDeltaGBin(self, binedges=np.arange(-13, -6.1, 0.1), ylim=[0,0.8], min_n=5, xlim=None, ax=None, color='r', marker='>'):
         """ Plot how the ci changes with dG. """
         variant_table = self.variant_table
@@ -343,7 +335,6 @@ class perVariant():
         plt.ylim(ylim)
         plt.xlim(xlim)
         fix_axes(ax)
-
 
     def plotNumberOfMeasurments(self, xlim=[1,100], ax=None):
         """ Plot how the ci changes with dG. """
@@ -374,7 +365,7 @@ class perVariant():
         
     
     def getResultsFromVariantTable(self):
-        """ return results format for only one variant table. """
+        """Return results format for only one variant table. """
         parameters = fitFun.fittingParameters()
         dummy_variant_table = self.variant_table.copy()
         dummy_variant_table.numTests = 0
@@ -435,6 +426,7 @@ class perVariant():
 
         
 class perFlow():
+    """Class for plots that combine off rate and variant data."""
     def __init__(self, affinityData, offRate):
         self.affinityData = affinityData
         self.offRate = offRate

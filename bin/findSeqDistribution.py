@@ -16,11 +16,9 @@ import pandas as pd
 import sys
 import os
 import argparse
-import seqfun
-import IMlibs
 import seaborn as sns
 import matplotlib.pyplot as plt
-import fileFun
+from fittinglibs import fileio, processing, seqfun
 sns.set_style("white", {'xtick.major.size': 4,  'ytick.major.size': 4})
 
 ### MAIN ###
@@ -146,12 +144,12 @@ def findSeqMap(libCharacterizationFile, cpSignalFile, uniqueBarcodesFile=None,
     
     print "loading consensus sequences..."
     if uniqueBarcodesFile is not None:
-        consensus = IMlibs.loadCompressedBarcodeFile(uniqueBarcodesFile)
+        consensus = processing.loadCompressedBarcodeFile(uniqueBarcodesFile)
         
         # if using the unique barcode map, the unique identifier is the barcode
         identifyingColumn = 'barcode'
     elif cpSignalFile is not None:
-        consensus = fileFun.loadFile(cpSignalFile)
+        consensus = fileio.loadFile(cpSignalFile)
         consensus.loc[:, 'sequence'] = consensus.loc[:, seqCol]
         # if using the cpsignal, the unique identifier is the cluster Id
         identifyingColumn = 'clusterID'
@@ -160,7 +158,7 @@ def findSeqMap(libCharacterizationFile, cpSignalFile, uniqueBarcodesFile=None,
     consensus.sort('sequence', inplace=True)
 
     print "loading designed sequences..."
-    designed_library = fileFun.loadFile(libCharacterizationFile)
+    designed_library = fileio.loadFile(libCharacterizationFile)
     
     # make library sequences unique
     designed_sequences, unique_indices = np.unique(designed_library['sequence'], return_index=True)
@@ -203,7 +201,7 @@ def findSeqMap(libCharacterizationFile, cpSignalFile, uniqueBarcodesFile=None,
     cols = ['variant_number']
     if mapToBarcode:
         identifyingColumn = 'clusterID'
-        table = fileFun.loadFile(cpSignalFile)
+        table = fileio.loadFile(cpSignalFile)
         
         # make sure table has unique indices
         n_clusters = len(table)

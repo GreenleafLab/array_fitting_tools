@@ -18,7 +18,6 @@ import pandas as pd
 import sys
 import os
 import argparse
-import seqfun
 import datetime
 import seaborn as sns
 import scipy.stats as st
