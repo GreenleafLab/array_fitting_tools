@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -8,14 +9,9 @@ import warnings
 import itertools
 import os
 import scipy.stats as st
-import fitFun
-import fileFun
-import plotFun
 import matplotlib as mpl
-from plotFun import fix_axes
-sns.set_style("white", {'xtick.major.size': 4,  'ytick.major.size': 4,
-                        'xtick.minor.size': 2,  'ytick.minor.size': 2,
-                        'lines.linewidth': 1, 'axes.linewidth':1, 'text.color': 'k', 'axes.labelcolor': 'k'})
+from fittinglibs import plotting, fitting
+from plotting import fix_axes
 
 def findExtInList(directory, ext):
     """Find files in directory with extension."""
@@ -30,7 +26,7 @@ def loadFile(directory, ext):
     """Load particular file with extension in directory."""
     filenames = findExtInList(directory, ext)
     if len(filenames)==1:
-        data = fileFun.loadFile(filenames[0])
+        data = fileio.loadFile(filenames[0])
         print 'Loaded file: %s'%filenames[0]
     else:
         data = None
@@ -148,19 +144,36 @@ class perVariant():
         return self.tiles.loc[index]
     
     
-    def plotBindingCurve(self, variant):
+    def plotBindingCurve(self, variant, annotate=True):
         """Plot a binding curve of a particular variant."""
         subSeries = self.getVariantBindingSeries(variant)
         concentrations = self.x
         variant_table = self.variant_table
         
         # plot
-        fig = plt.figure(figsize=(4,3))
+        fig = plt.figure(figsize=(3,3))
         ax = fig.add_subplot(111)
-        plotFun.plotFitCurve(concentrations,
+        plotting.plotFitCurve(concentrations,
                             subSeries,
                             variant_table.loc[variant],
                             ax=ax)
+        if annotate:
+            names = ['dG', 'dG_lb', 'dG_ub', 'fmax', 'fmax_lb', 'fmax_ub', 'numTests', 'pvalue', 'rsq', 'flag']
+            vec = pd.Series([getValueInTable(variant_table.loc[variant], name) for name in names], index=names)
+            #vec.fillna('', inplace=True)
+            annotationText = ['dG= %4.2f (%4.2f, %4.2f)'%(vec.dG,
+                                                            vec.dG_lb,
+                                                            vec.dG_ub),
+                              'fmax= %4.2f (%4.2f, %4.2f)'%(vec.fmax,
+                                                            vec.fmax_lb,
+                                                            vec.fmax_ub),
+                              'Nclusters= %4.0f'%vec.numTests,
+                              'pvalue= %.1e'%vec.pvalue,
+                              'average Rsq= %4.2f'%vec.rsq,
+                              'fmax enforced=%s'%str(vec.flag)
+                              ]
+            ax.annotate('\n'.join(annotationText), xy=(0.05, .95), xycoords='axes fraction',
+                        horizontalalignment='left', verticalalignment='top', fontsize=9)
 
     def plotOffrateCurve(self, variant, annotate=False):
         """Plot an off rate curve of a particular variant."""
@@ -168,12 +181,12 @@ class perVariant():
         times = self.x
         variant_table = self.variant_table
         
-        fig = plt.figure(figsize=(4,3))
+        fig = plt.figure(figsize=(3,3))
         ax = fig.add_subplot(111)
         
         fitParameters = pd.DataFrame(columns=['fmax', 'koff', 'fmin'])
-        plotFun.plotFitCurve(times, subSeries, variant_table.loc[variant], fitParameters, ax=ax,
-                 log_axis=False, func=fitFun.objectiveFunctionOffRates, fittype='off')
+        plotting.plotFitCurve(times, subSeries, variant_table.loc[variant], fitParameters, ax=ax,
+                 log_axis=False, func=fitting.objectiveFunctionOffRates, fittype='off')
         if annotate:
             names = ['koff', 'koff_lb', 'koff_ub', 'fmax', 'fmax_lb', 'fmax_ub', 'numTests', 'pvalue', 'rsq']
             vec = pd.Series([getValueInTable(variant_table.loc[variant], name) for name in names], index=names)
@@ -217,8 +230,8 @@ class perVariant():
         ax = fig.add_subplot(111)
         
         fitParameters = pd.DataFrame(columns=['fmax', 'koff', 'fmin'])
-        plotFun.plotFitCurve(times, fluorescence, results, fitParameters, ax=ax,
-                 log_axis=False, func=fitFun.objectiveFunctionOffRates, fittype='off')
+        plotting.plotFitCurve(times, fluorescence, results, fitParameters, ax=ax,
+                 log_axis=False, func=fitting.objectiveFunctionOffRates, fittype='off')
 
     def plotClusterBinding(self, variant, cluster=None, idx=None):
         """Plot a binding curve of a particular cluster."""
@@ -238,7 +251,7 @@ class perVariant():
         # plot
         fig = plt.figure(figsize=(4,3))
         ax = fig.add_subplot(111)
-        plotFun.plotFitCurve(concentrations,
+        plotting.plotFitCurve(concentrations,
                             fluorescence,
                             cluster_table.loc[cluster],
                             ax=ax)
@@ -366,7 +379,7 @@ class perVariant():
     
     def getResultsFromVariantTable(self):
         """Return results format for only one variant table. """
-        parameters = fitFun.fittingParameters()
+        parameters = fitting.fittingParameters()
         dummy_variant_table = self.variant_table.copy()
         dummy_variant_table.numTests = 0
         variant_tables = [self.variant_table, dummy_variant_table]
@@ -439,7 +452,7 @@ class perFlow():
         return variants
     
     def plotDeltaGDoubleDagger(self, variant=None, dG_cutoff=None, plot_on=False, params=['koff', 'dG'], variants=None):
-        parameters = fitFun.fittingParameters()
+        parameters = fitting.fittingParameters()
         koff = self.offRate.variant_table.loc[self.all_variants, params[0]].astype( float)
         dG = self.affinityData.variant_table.loc[self.all_variants, params[1]].astype(float)
 
@@ -501,7 +514,7 @@ class perFlow():
         return x, y
     
     def plotKdVersusKoff(self, ):
-        parameters = fitFun.fittingParameters()
+        parameters = fitting.fittingParameters()
         results_off = self.offRate.variant_table.loc[self.all_variants]
         dG = self.affinityData.variant_table.dG.loc[self.all_variants]
         
@@ -514,7 +527,7 @@ class perFlow():
 
 
     def plotEquilibrationTimes(self, concentration, wait_time, initial=1E-9):
-        parameters = fitFun.fittingParameters()
+        parameters = fitting.fittingParameters()
         variants = self.getGoodVariants()
         koff = self.offRate.variant_table.loc[variants].koff
         dG = self.affinityData.variant_table.loc[variants].dG

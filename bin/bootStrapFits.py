@@ -247,7 +247,7 @@ if __name__ == '__main__':
         outFile = fileio.stripExtension(bindingCurveFilename)
 
     # make fig directory    
-    figDirectory = os.path.join(os.path.dirname(annotatedClusterFile),
+    figDirectory = os.path.join(os.path.dirname(variantFile),
                                 'figs_%s'%str(datetime.date.today()))
     if not os.path.exists(figDirectory):
         os.mkdir(figDirectory)
