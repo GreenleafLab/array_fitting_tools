@@ -25,6 +25,8 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 import pickle
+import ipdb
+
 from fittinglibs import (fitting, plotting, fileio, processing, distribution)
 
 
@@ -152,17 +154,29 @@ if __name__=="__main__":
     variant_table.to_pickle(outFile + '.init.CPvariant.pkl')
     
     # plot some examples
-    for n in np.percentile(variant_table.numTests, [10, 50, 90]):
-        n_valid = min(tight_binders.numTests.unique(), key=lambda x: abs(x - n))
-        bounds = [0, distribution.findUpperboundFromFmaxDistObject(fmaxDist)]
-        plotting.plotAnyN(tight_binders, fmaxDist, n_valid, bounds)
-        plt.savefig(os.path.join(figDirectory, 'fmax_dist.n_%d.pdf'%n_valid))
-    
+    bounds = [0, distribution.findUpperboundFromFmaxDistObject(fmaxDist)]
+    numExamples = tight_binders.numTests.value_counts()
+    minNumDist = 5
+    validNs = numExamples.loc[numExamples >= minNumDist].sort_index().index.tolist()
+    if len(validNs) == 0:
+        print 'Error: no number of measurements has at least %s variants. Not generating example distribution plots.'%minNumDist
+    else:
+        if len(validNs) < 3:
+            plotTheseNs = validNs
+        else:
+            plotTheseNs = np.percentile(validNs, [0, 50, 100])
+        for n in plotTheseNs:
+            plotting.plotAnyN(tight_binders, fmaxDist, n, bounds)
+            plt.xlim(bounds)
+            plt.savefig(os.path.join(figDirectory, 'fmax_dist.n_%d.pdf'%n))
+
     # plot fraction fit
     plotting.plotFractionFit(variant_table, pvalue_threshold=pvalue_cutoff)
     plt.savefig(os.path.join(figDirectory, 'fraction_passing_cutoff_in_affinity_bins.pdf'))
     plt.close()
     plt.savefig(os.path.join(figDirectory, 'histogram_fraction_fit.pdf'))
+    
+
     
 
                 
