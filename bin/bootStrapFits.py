@@ -10,7 +10,8 @@
 # fit parameters.
 #
 # Sarah Denny
-# July 2015
+# Updated by Anthony Ho
+# Aug 2016
 
 ##### IMPORT #####
 import numpy as np
@@ -245,12 +246,6 @@ if __name__ == '__main__':
     # find out file
     if outFile is None:
         outFile = fileio.stripExtension(bindingCurveFilename)
-
-    # make fig directory    
-    figDirectory = os.path.join(os.path.dirname(annotatedClusterFile),
-                                'figs_%s'%str(datetime.date.today()))
-    if not os.path.exists(figDirectory):
-        os.mkdir(figDirectory)
     
     # load data
     fmaxDistObject = fileio.loadFile(fmaxDistFile)
@@ -271,14 +266,5 @@ if __name__ == '__main__':
 
     # save
     variant_table.to_csv(outFile + '.CPvariant', sep='\t', index=True)
-        
-    # make plots    
-    plotting.plotFmaxInit(variant_table)
-    plt.savefig(os.path.join(figDirectory, 'initial_Kd_vs_final.colored_by_fmax.pdf'))
     
-    plotting.plotErrorInBins(variant_table, xdelta=10)
-    plt.savefig(os.path.join(figDirectory, 'error_in_bins.dG.pdf'))
-    
-    plotting.plotNumberInBins(variant_table, xdelta=10)
-    plt.savefig(os.path.join(figDirectory, 'number_in_bins.Kd.pdf'))
     
