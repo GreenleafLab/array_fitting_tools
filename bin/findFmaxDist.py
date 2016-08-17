@@ -156,9 +156,10 @@ if __name__=="__main__":
     
     # plot some examples
     for n in np.percentile(variant_table.numTests, [10, 50, 90]):
+        n_valid = min(tight_binders.numTests.unique(), key=lambda x: abs(x - n))
         bounds = [0, distribution.findUpperboundFromFmaxDistObject(fmaxDist)]
-        plotting.plotAnyN(tight_binders, fmaxDist, n, bounds)
-        plt.savefig(os.path.join(figDirectory, 'fmax_dist.n_%d.pdf'%n))
+        plotting.plotAnyN(tight_binders, fmaxDist, n_valid, bounds)
+        plt.savefig(os.path.join(figDirectory, 'fmax_dist.n_%d.pdf'%n_valid))
     
     # plot fraction fit
     plotting.plotFractionFit(variant_table, pvalue_threshold=pvalue_cutoff)
