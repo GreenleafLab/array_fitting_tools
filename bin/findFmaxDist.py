@@ -546,7 +546,7 @@ if __name__=="__main__":
     # load initial fits per cluster
     print 'Loading data...'
     initial_points = pd.concat([pd.read_pickle(annotatedClusterFile),
-                                pd.read_pickle(fittedBindingFilename)], axis=1).astype(float)
+                                pd.read_pickle(fittedBindingFilename).astype(float)], axis=1)
 
     # find variant_table
     variant_table = findVariantTable(initial_points).astype(float)
