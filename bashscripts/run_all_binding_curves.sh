@@ -11,7 +11,7 @@ c=$4
 
 set -e -o nounset
 # help
-if [ -z "$ftd" ]
+if [ -z "$mf" ]
 then
     echo "Script to process data, annotate sequences, fit single clusters,
     and bootstrap the fits."
@@ -32,30 +32,26 @@ fi
 
 # print command
 echo ""
-echo "run_all_binding_curves.sh $ftd $mf $od $an $c $f"
+echo "run_all_binding_curves.sh $mf $od $an $c"
 echo "start run at: "
 date
-# process data
-output=$(find $od -maxdepth 1  -name "*reduced.CPseries.pkl" -type f)
-if [ -z $output ];
-then
-    echo ""
-    echo "python -m processData -mf $mf -od $od -cf $an"
-    python -m processData -mf $mf -od $od -cf $an
-    output=$(find $od -maxdepth 1  -name "*reduced.CPseries.pkl" -type f)
 
-    # check success
-    if [ $? -eq 0 -a -f $output ];
-    then
-        echo "### Successfully processed data ###"
-    else
-        echo "!!! Error processing data !!!"
-        exit
-    fi
-    date
+# process data
+echo ""
+echo "python -m processData -mf $mf -od $od -cf $an"
+python -m processData -mf $mf -od $od -cf $an
+output=$(find $od -maxdepth 1  -name "*reduced.CPseries.pkl" -type f)
+
+# check success
+if [ $? -eq 0 -a -f $output ];
+then
+    echo "### Successfully processed data ###"
 else
-    echo "--> reduced CPseries file exists: "$output
+    echo "!!! Error processing data !!!"
+    exit
 fi
+date
+
 
 basename=$(echo $output | awk '{print substr($1, 1, length($1)-13)}')
 
