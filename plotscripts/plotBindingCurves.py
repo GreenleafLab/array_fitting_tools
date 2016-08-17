@@ -61,7 +61,7 @@ if __name__ == '__main__':
         annotatedClusters = pd.DataFrame(bindingSeries.index.tolist(), index=bindingSeries.index, columns=['variant_number'])
 
     # initialize class of results
-    affinityData = results.perVariant(variant_table, annotatedClusters, bindingSeries, x=concentrations)
+    affinityData = processresults.perVariant(variant_table, annotatedClusters, bindingSeries, x=concentrations)
     
     # plot
     for variant in args.variant_numbers:
