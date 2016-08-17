@@ -64,6 +64,7 @@ def splitAndFit(bindingSeries, concentrations, fitParameters, numCores,
         index = bindingSeries.index
     
     # split into parts
+    numCores = min(len(index), numCores)
     print 'Splitting clusters into %d groups:'%numCores
     # assume that list is sorted somehow
     indicesSplit = [index[i::numCores] for i in range(numCores)]
@@ -73,18 +74,15 @@ def splitAndFit(bindingSeries, concentrations, fitParameters, numCores,
     print 'Fitting binding curves:'
     fits = (Parallel(n_jobs=numCores, verbose=10)
             (delayed(fitting.fitSetClusters)(concentrations, subBindingSeries,
-                                     fitParameters, print_bool, change_params, kwargs=kwargs)
+                                     fitParameters, print_bool=print_bool, change_params=change_params, kwargs=kwargs)
              for subBindingSeries, print_bool in itertools.izip(bindingSeriesSplit, printBools)))
 
     return pd.concat(fits)
 
 # define functions
-def bindingSeriesByCluster(concentrations, bindingSeries, 
-                           numCores=None,  subset=None, fitParameters=None, func=None, kwargs=None):
+def bindingSeriesByCluster(concentrations, bindingSeries, numCores, subset=False,
+                           fitParameters=None, func=None, kwargs=None, index_all=None):
     """ Initialize fitting. """
-    if subset is None:
-        subset = False
-
     # find initial parameters
     if fitParameters is None:
         fitParameters = fitting.getInitialFitParameters(concentrations)
@@ -99,13 +97,15 @@ def bindingSeriesByCluster(concentrations, bindingSeries,
 
     # sort by fluorescence in null_column to try to get groups of equal
     # distributions of binders/nonbinders
-    fluorescence = bindingSeries.iloc[:, -1].copy()
-    fluorescence.sort()
-    index_all = bindingSeries.loc[fluorescence.index].dropna(axis=0, thresh=4).index
-
-    if subset:
-        num = 5E3
-        index_all = index_all[np.linspace(0, len(index_all)-1, num).astype(int)]
+    if not index_all:
+        fluorescence = bindingSeries.iloc[:, -1].copy()
+        fluorescence.sort()
+        index_all = bindingSeries.loc[fluorescence.index].dropna(axis=0, thresh=4).index
+    
+        if subset:
+            num = 5E3
+            index_all = index_all[np.linspace(0, len(index_all)-1, num).astype(int)]
+    
     
     fitResults = pd.DataFrame(index=bindingSeries.index,
                               columns=fitting.fitSingleCurve(concentrations,
@@ -153,8 +153,7 @@ if __name__=="__main__":
     if args.subset:
         outFile = '%s.subset'%outFile
     print "Loading binding series..."
-    bindingSeries = fileio.loadFile(bindingSeriesFilename)
-        
+    bindingSeries = fileio.loadFile(bindingSeriesFilename)  
     fitResults, fitParameters = bindingSeriesByCluster(concentrations, bindingSeries, 
                            numCores=numCores, subset=args.subset, 
                            fitParameters=fitParameters, kwargs={'slope':args.slope})
