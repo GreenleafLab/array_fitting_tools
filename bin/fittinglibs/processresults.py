@@ -127,11 +127,12 @@ class perVariant():
 
         self.binding_series = binding_series
         if annotated_clusters is not None:
-            self.annotated_clusters = annotated_clusters.loc[:, 'variant_number']
+            self.annotated_clusters = annotated_clusters.loc[binding_series.index.tolist(), 'variant_number']
         self.variant_table = variant_table
         self.x = x
         self.cluster_table = cluster_table
         self.tiles = tiles
+
 
     def getVariantBindingSeries(self,variant ):
         """Return binding series for clusters of a particular variant."""
@@ -147,6 +148,9 @@ class perVariant():
     def plotBindingCurve(self, variant, annotate=True):
         """Plot a binding curve of a particular variant."""
         subSeries = self.getVariantBindingSeries(variant)
+        if len(subSeries)==0:
+            print 'No fluorescence data associated with variant %s'%str(variant)
+            return
         concentrations = self.x
         variant_table = self.variant_table
         
@@ -175,18 +179,46 @@ class perVariant():
             ax.annotate('\n'.join(annotationText), xy=(0.05, .95), xycoords='axes fraction',
                         horizontalalignment='left', verticalalignment='top', fontsize=9)
 
-    def plotOffrateCurve(self, variant, annotate=False):
+    def plotOffrateCurve(self, variant, annotate=False, numtiles=None, tiles=None):
         """Plot an off rate curve of a particular variant."""
-        subSeries = self.getVariantBindingSeries(variant)
-        times = self.x
+        subSeries = self.getVariantBindingSeries(variant).dropna(how='all')
+        timeDict = self.x
         variant_table = self.variant_table
+        fitParameters = pd.DataFrame(columns=['fmax', 'koff', 'fmin'])
         
-        fig = plt.figure(figsize=(3,3))
+        if len(subSeries)==0:
+            print 'No fluorescence data associated with variant %s'%str(variant)
+            return
+        
+        # find tiles with variant cluster
+        clusterTiles = self.getVariantTiles(variant)
+        if tiles is None:
+            tileNum = clusterTiles.value_counts()
+            tileInit = tileNum.idxmax() # start by plotting the tile with the most clusters
+            if numtiles is None: # plot as many tiles as there are clusters if num tiles is not specified
+                numtiles = len(tileNum)
+            otherTiles = tileNum.iloc[1:numtiles].index.tolist()
+        else:
+            # if tile is specified, just plot that tile.
+            tileInit, otherTiles = tiles[0], tiles[1:]
+
+        if np.in1d(clusterTiles, np.hstack([tileInit, otherTiles])).sum()==0:
+            print 'No fluorescence data associated with variant %s'%str(variant)
+            return 
+        
+        # initiae plot
+        fig = plt.figure(figsize=(3.5,3))
         ax = fig.add_subplot(111)
         
-        fitParameters = pd.DataFrame(columns=['fmax', 'koff', 'fmin'])
-        plotting.plotFitCurve(times, subSeries, variant_table.loc[variant], fitParameters, ax=ax,
+        # plot fit and one tile's data
+        plotting.plotFitCurve(timeDict[tileInit], subSeries.loc[clusterTiles==tileInit], variant_table.loc[variant], fitParameters, ax=ax, capsize=0,
                  log_axis=False, func=fitting.objectiveFunctionOffRates, fittype='off')
+        
+        # plot the other tile's data
+        for tile in otherTiles:
+            plotting.plotDataErrorbars(timeDict[tile], subSeries.loc[clusterTiles==tile], ax, capsize=0)
+        
+        # annotate
         if annotate:
             names = ['koff', 'koff_lb', 'koff_ub', 'fmax', 'fmax_lb', 'fmax_ub', 'numTests', 'pvalue', 'rsq']
             vec = pd.Series([getValueInTable(variant_table.loc[variant], name) for name in names], index=names)
@@ -201,8 +233,9 @@ class perVariant():
                               'pvalue= %.1e'%vec.pvalue,
                               'average Rsq= %4.2f'%vec.rsq,
                               ]
-            ax.annotate('\n'.join(annotationText), xy=(.25, .95), xycoords='axes fraction',
-                        horizontalalignment='left', verticalalignment='top')
+            ax.annotate('\n'.join(annotationText), xy=(.05, .95), xycoords='axes fraction',
+                        horizontalalignment='left', verticalalignment='top', fontsize=9)
+        return ax
             
     def plotClusterOffrates(self, cluster=None, variant=None, idx=None):
         """Plot an off rate curve of a particular cluster."""
