@@ -13,8 +13,8 @@ import sys
 import itertools
 import scipy.stats as st
 import matplotlib.pyplot as plt
-import fileFun
-import plotFun
+
+from fittinglibs import (plotting, fileio)
 ### MAIN ###
 
 ################ Parse input parameters ################
@@ -55,7 +55,7 @@ def boundFluorescence(signal, plot=False, bounds=None):
             print 'Using given bounds: %4.3f, %4.3f'%(lowerbound, upperbound)
         
         if plot:
-            plotFun.plotBoundFluorescence(signal, [lowerbound, upperbound])
+            plotting.plotBoundFluorescence(signal, [lowerbound, upperbound])
         signal.loc[signal < lowerbound] = lowerbound
         signal.loc[signal > upperbound] = upperbound
     
@@ -70,19 +70,19 @@ if __name__=="__main__":
     
     # find out file and fig directory
     if args.out_file is None:
-        args.out_file = fileFun.stripExtension(args.binding_series) + '_normalized.CPseries'
+        args.out_file = fileio.stripExtension(args.binding_series) + '_normalized.CPseries'
     
-    figDirectory = os.path.join(os.path.dirname(args.out_file), fileFun.returnFigDirectory())
+    figDirectory = os.path.join(os.path.dirname(args.out_file), fileio.returnFigDirectory())
     if not os.path.exists(figDirectory):
         os.mkdir(figDirectory)
     
     # use only first columns of allCluster signal file
     print "Loading all RNA signal..."
-    allClusterSignal = fileFun.loadFile(args.all_cluster).iloc[:, 0]
+    allClusterSignal = fileio.loadFile(args.all_cluster).iloc[:, 0]
     
     # laod whole binding Series
     print "Loading series..."
-    bindingSeries = fileFun.loadFile(args.binding_series)
+    bindingSeries = fileio.loadFile(args.binding_series)
 
     # make normalized binding series
     print "Normalizing..."

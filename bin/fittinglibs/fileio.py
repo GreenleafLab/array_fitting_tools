@@ -5,6 +5,7 @@ import pandas as pd
 import pickle
 import itertools
 import datetime
+from fittinglibs import distribution
 
 def returnFigDirectory():
     return 'figs_%s'%str(datetime.date.today())

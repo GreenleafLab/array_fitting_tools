@@ -3,12 +3,11 @@
 # take the number of bases that occur before a given sequence (i.e. RNAP promoter)
 # and make a new fastq file of these bases. Expected 16 bases.
 
-ftd=$1
-mf=$2
-od=$3
-an=$4
-c=$5
-f=$(echo $@ | awk '{for (i=6; i<=NF; i++) print $i}')
+mf=$1
+od=$2
+an=$3
+c=$4
+
 
 set -e -o nounset
 # help
@@ -17,20 +16,17 @@ then
     echo "Script to process data, annotate sequences, fit single clusters,
     and bootstrap the fits."
     echo "Arguments:
-    (1) a directory of CPseq files,
-    (2) a map file of CPfluor dirs,
+    (1) a map file of CPfluor dirs,
     (3) an output directory,
     (4) the CPannot file generated per chip
     (5) file of concentrations
     (6) a list of filter names to fit."
     echo "Example:"
     echo "run_all_binding_curves.sh \\
-    ../seqData/tiles/filtered_tiles_indexed/ \\
     bindingCurves/bindingCurves.map \\
     bindingCurves \\
     ../seqData/dummy_dir/AKPP5_ALL_Bottom_filtered_anyRNA.CPannot.pkl \\
-    concentrations.txt \\
-    anyRNA "
+    concentrations.txt "
     exit
 fi
 
@@ -44,8 +40,8 @@ output=$(find $od -maxdepth 1  -name "*reduced.CPseries.pkl" -type f)
 if [ -z $output ];
 then
     echo ""
-    echo "python -m processData -fs $ftd -mf $mf -od $od -fp $f -cf $an"
-    python -m processData -fs $ftd -mf $mf -od $od -fp $f -cf $an
+    echo "python -m processData -mf $mf -od $od -cf $an"
+    python -m processData -mf $mf -od $od -cf $an
     output=$(find $od -maxdepth 1  -name "*reduced.CPseries.pkl" -type f)
 
     # check success

@@ -16,8 +16,7 @@ from joblib import Parallel, delayed
 from scikits.bootstrap import bootstrap
 import itertools
 import warnings
-import fileFun
-import findFmaxDist
+from fittinglibs import fileio, processing
 
 ### MAIN ###
 
@@ -42,9 +41,10 @@ group.add_argument('-n', '--numCores', default=20, type=int, metavar="N",
  
 
 def filterFits(table):
+    """Filter fits specific to off rates."""
     table = table.astype(float)
     index = ((table.rsq > 0.5)&(table.fmax_stde < table.fmax)&
-             (table.koff_stde<table.koff)&
+             (table.koff_stde < table.koff)&
              (table.fmin_stde < table.fmin))
     return table.loc[index]
 
@@ -65,7 +65,7 @@ def bootstrapErrors(params, group, name, n_samples):
 
 def findPerVariantInfo(annotated_results, param_name):
     """ Group results by variant number and find median param_name, fmin, and fmax. """
-    variant_table = findFmaxDist.findVariantTable(annotated_results,
+    variant_table = processing.findVariantTable(annotated_results,
                                                   parameter=param_name,
                                                   filterFunction=filterFits)    
     return variant_table
@@ -108,22 +108,22 @@ if __name__ == '__main__':
     
     # find out file
     if outFile is None:
-        outFile = fileFun.stripExtension(args.single_cluster_fits)
+        outFile = fileio.stripExtension(args.single_cluster_fits)
 
     # laod data
     print 'Loading data..'
     
     # load sing cluster fits and make sure param is in columns
-    cluster_data = fileFun.loadFile(fittedBindingFilename)
+    cluster_data = fileio.loadFile(fittedBindingFilename)
     if not param in cluster_data.columns.tolist():
         print "Error: Param name %s not in single cluster fit file."%param
         sys.exit()
     
     # load annotations
-    annotated_clusters = fileFun.loadFile(annotatedClusterFile)
+    annotated_clusters = fileio.loadFile(annotatedClusterFile)
 
     # load annotations for bootstrapping
-    annotated_results = pd.concat([annotated_clusters, cluster_data], axis=1).dropna()
+    annotated_results = pd.concat([annotated_clusters, cluster_data], axis=1).dropna(subset=annotated_clusters.columns.tolist() + [param])
     
     # save
     variant_table = findPerVariantInfo(annotated_results, param)

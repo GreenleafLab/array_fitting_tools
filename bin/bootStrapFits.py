@@ -20,18 +20,15 @@ import os
 import argparse
 import seqfun
 import datetime
-import IMlibs
 import seaborn as sns
 import scipy.stats as st
 import matplotlib.pyplot as plt
 from joblib import Parallel, delayed
 import lmfit
 import itertools
-import fitFun
-import plotFun
-import fileFun
-import findFmaxDist
-import singleClusterFits
+from fittinglibs import fitting, plotting, fileio
+
+
 ### MAIN ###
 
 ################ Parse input parameters ################
@@ -71,7 +68,7 @@ def getInitialFitParameters(concentrations):
     """ Return initial fit parameters from single cluster fits.
     
     Add a row 'vary' that indicates whether parameter should vary or not. """
-    fitParameters = singleClusterFits.getInitialFitParameters(concentrations)
+    fitParameters = fitting.getInitialFitParameters(concentrations)
     return pd.concat([fitParameters.astype(object),
                       pd.DataFrame(True, columns=fitParameters.columns,
                                          index=['vary'], dtype=bool)])
@@ -87,7 +84,7 @@ def perVariant(concentrations, subSeries, fitParameters, fmaxDistObject, initial
     
     # define fitting function
     if func is None:
-        func = fitFun.bindingCurveObjectiveFunction
+        func = fitting.bindingCurveObjectiveFunction
 
     # change initial guess on fit parameters if given previous fit
     fitParametersPer = fitParameters.copy()
@@ -99,7 +96,7 @@ def perVariant(concentrations, subSeries, fitParameters, fmaxDistObject, initial
     fmaxDist = fmaxDistObject.getDist(len(subSeries))
     
     # fit variant
-    results, singles = fitFun.bootstrapCurves(concentrations, subSeries, fitParameters,
+    results, singles = fitting.bootstrapCurves(concentrations, subSeries, fitParameters,
                                               func=func,
                                               enforce_fmax=enforce_fmax,
                                               fmaxDist=fmaxDist,
@@ -108,7 +105,7 @@ def perVariant(concentrations, subSeries, fitParameters, fmaxDistObject, initial
                                               kwargs=kwargs)
     # plot
     if plot:
-        plotFun.plotFitCurve(concentrations,
+        plotting.plotFitCurve(concentrations,
                                      subSeries,
                                      results,
                                      fitParameters,
@@ -118,7 +115,7 @@ def perVariant(concentrations, subSeries, fitParameters, fmaxDistObject, initial
         if initial_points is not None:
             try:
                 more_concentrations = np.logspace(0, 4)
-                fit = func(fitFun.returnParamsFromResults(initial_points),
+                fit = func(fitting.returnParamsFromResults(initial_points),
                                                            more_concentrations)
                 plt.plot(more_concentrations, fit, 'k--')
             except: pass
@@ -169,7 +166,7 @@ def returnFminFromFluorescence(initialPoints, fluorescenceMat, cutoff):
 def initiateFitting(variant_table, fluorescenceMat, fluorescenceMatSplit, concentrations, fmaxDistObject):
     
     # get parameters
-    parameters = fitFun.fittingParameters(concentrations)
+    parameters = fitting.fittingParameters(concentrations)
 
     # make sure initial points have all of keys that table does
     initialPoints = findInitialPoints(variant_table)
@@ -248,7 +245,7 @@ if __name__ == '__main__':
     
     # find out file
     if outFile is None:
-        outFile = fileFun.stripExtension(bindingCurveFilename)
+        outFile = fileio.stripExtension(bindingCurveFilename)
 
     # make fig directory    
     figDirectory = os.path.join(os.path.dirname(annotatedClusterFile),
@@ -257,8 +254,8 @@ if __name__ == '__main__':
         os.mkdir(figDirectory)
     
     # load data
-    fmaxDistObject = fileFun.loadFile(fmaxDistFile)
-    variant_table = fileFun.loadFile(variantFile)
+    fmaxDistObject = fileio.loadFile(fmaxDistFile)
+    variant_table = fileio.loadFile(variantFile)
     fluorescenceMat, fluorescenceMatSplit = loadGroupDict(bindingCurveFilename, annotatedClusterFile)
         
     # subset
@@ -277,12 +274,12 @@ if __name__ == '__main__':
     variant_table.to_csv(outFile + '.CPvariant', sep='\t', index=True)
         
     # make plots    
-    plotFun.plotFmaxInit(variant_table)
+    plotting.plotFmaxInit(variant_table)
     plt.savefig(os.path.join(figDirectory, 'initial_Kd_vs_final.colored_by_fmax.pdf'))
     
-    plotFun.plotErrorInBins(variant_table, xdelta=10)
+    plotting.plotErrorInBins(variant_table, xdelta=10)
     plt.savefig(os.path.join(figDirectory, 'error_in_bins.dG.pdf'))
     
-    plotFun.plotNumberInBins(variant_table, xdelta=10)
+    plotting.plotNumberInBins(variant_table, xdelta=10)
     plt.savefig(os.path.join(figDirectory, 'number_in_bins.Kd.pdf'))
     

@@ -21,8 +21,8 @@ import numpy as np
 import pandas as pd
 import datetime
 import itertools
-import IMlibs
-import fileFun
+from fittinglibs import (processing, fileio)
+
 
 
 ### MAIN ###
@@ -62,31 +62,31 @@ if not len(sys.argv) > 1:
 #parse command line arguments
 args = parser.parse_args()
 
-# import CPseq filtered files split by tile
-
 numCores = args.num_cores
-
-# import directory names to analyze
-print 'Finding CPfluor files in directories given in "%s"...'%args.map_CPfluors
-fluorDirsAll, fluorDirsSignal = IMlibs.loadMapFile(args.map_CPfluors)
-if args.rates:
-    fluorNamesByTileDict, timeDeltaDict = IMlibs.getFluorFileNamesOffrates(fluorDirsSignal)
-    timeDeltaFile = os.path.join(args.output_dir, 'rates.timeDict.p')
-    IMlibs.saveTimeDeltaDict(timeDeltaFile, timeDeltaDict)
-else:
-    fluorNamesByTileDict = IMlibs.getFluorFileNames(fluorDirsSignal)
-fluorNamesByTileRedDict = IMlibs.getFluorFileNames(fluorDirsAll)
 
 # make output base directory
 if not os.path.exists(args.output_dir):
     os.mkdir(args.output_dir)
+    
+# import directory names to analyze
+print 'Finding CPfluor files in directories given in "%s"...'%args.map_CPfluors
+fluorDirsAll, fluorDirsSignal = processing.loadMapFile(args.map_CPfluors)
+if args.rates:
+    fluorNamesByTileDict, timeDeltaDict = processing.getFluorFileNamesOffrates(fluorDirsSignal)
+    timeDeltaFile = os.path.join(args.output_dir, 'rates.timeDict.p')
+    processing.saveTimeDeltaDict(timeDeltaFile, timeDeltaDict)
+else:
+    fluorNamesByTileDict = processing.getFluorFileNames(fluorDirsSignal)
+fluorNamesByTileRedDict = processing.getFluorFileNames(fluorDirsAll)
+
+
 
 ################ Make signal files ################
 signalDirectory = os.path.join(args.output_dir, 'CPseries')
-signalNamesByTileDict = IMlibs.getCPseriesDictfromFluorDict(fluorNamesByTileDict,
+signalNamesByTileDict = processing.getCPseriesDictfromFluorDict(fluorNamesByTileDict,
                                                             signalDirectory)
 redSignalDirectory = os.path.join(args.output_dir, 'redCPseries')
-redSignalNamesByTileDict = IMlibs.getCPseriesDictfromFluorDict(fluorNamesByTileRedDict,
+redSignalNamesByTileDict = processing.getCPseriesDictfromFluorDict(fluorNamesByTileRedDict,
                                                             redSignalDirectory)
 if not os.path.exists(signalDirectory):
     os.mkdir(signalDirectory)
@@ -111,7 +111,7 @@ for directory, fluorDirs, outputFiles in itertools.izip([signalDirectory, redSig
     # parallelize making them
     if np.sum(already_exist) < len(outputFiles.values()):
         (Parallel(n_jobs=numCores, verbose=10)
-            (delayed(IMlibs.makeCPseriesFile)(outputFiles[tile],
+            (delayed(processing.makeCPseriesFile)(outputFiles[tile],
                                               fluorDirs[tile])
                      for i, tile in enumerate(tileList) if not already_exist[i]))
     
@@ -127,9 +127,9 @@ for directory, fluorDirs, outputFiles in itertools.izip([signalDirectory, redSig
     
 ################ Make concatenated, reduced signal file ########################
 reducedSignalDirectory = args.output_dir
-reducedCPsignalFile = IMlibs.getReducedCPsignalFilename(signalNamesByTileDict, reducedSignalDirectory)
-reducedRedCPsignalFile = IMlibs.getReducedCPsignalFilename(redSignalNamesByTileDict, reducedSignalDirectory, 'red')
-tileOutputFile = IMlibs.getTileOutputFilename(signalNamesByTileDict, reducedSignalDirectory)
+reducedCPsignalFile = processing.getReducedCPsignalFilename(signalNamesByTileDict, reducedSignalDirectory)
+reducedRedCPsignalFile = processing.getReducedCPsignalFilename(redSignalNamesByTileDict, reducedSignalDirectory, 'red')
+tileOutputFile = processing.getTileOutputFilename(signalNamesByTileDict, reducedSignalDirectory)
 # if file was given that has index of clusters to keep, use only these clusters
 
 fileWithIndexToKeep = args.clusters_to_keep_file
@@ -143,13 +143,13 @@ if fileWithIndexToKeep is None:
         print 'Finding clusterIDs with filter name incuding one of: {%s}'%(' '.join(args.filter_pos))
         clustersToKeepFile = os.path.join(reducedSignalDirectory, 'indices_to_keep.txt')
         print 'Finding CPseq files in directory "%s"...'%args.filtered_CPseqs
-        filteredCPseqFilenameDict = IMlibs.findTileFilesInDirectory(args.filtered_CPseqs,
+        filteredCPseqFilenameDict = processing.findTileFilesInDirectory(args.filtered_CPseqs,
                                                                     ['CPseq'])
-        IMlibs.makeIndexFile(filteredCPseqFilenameDict, args.filter_pos, clustersToKeepFile)
-        indices = fileFun.loadFile(clustersToKeepFile)
+        processing.makeIndexFile(filteredCPseqFilenameDict, args.filter_pos, clustersToKeepFile)
+        indices = fileio.loadFile(clustersToKeepFile)
 else:
     print 'Using clusterIDs in %s'%(fileWithIndexToKeep)
-    indices = fileFun.loadFile(fileWithIndexToKeep).index
+    indices = fileio.loadFile(fileWithIndexToKeep).index
 
 print 'Concatenating CPseries files...'
 alreadySavedTiles = False
@@ -157,7 +157,7 @@ for outputFiles, reducedOutputFile in itertools.izip([signalNamesByTileDict, red
                                                      [reducedCPsignalFile, reducedRedCPsignalFile]):
     print '\tSaving to: %s'%reducedOutputFile
     if not alreadySavedTiles:
-        IMlibs.reduceCPseriesFiles(outputFiles, reducedOutputFile, indices, tileOutputFile)
+        processing.reduceCPseriesFiles(outputFiles, reducedOutputFile, indices, tileOutputFile)
         alreadySavedTiles = True
     else:
-        IMlibs.reduceCPseriesFiles(outputFiles, reducedOutputFile, indices)   
+        processing.reduceCPseriesFiles(outputFiles, reducedOutputFile, indices)   

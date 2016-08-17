@@ -9,22 +9,13 @@ import pandas as pd
 import sys
 import os
 import argparse
-import seqfun
-import IMlibs
+import itertools
 import seaborn as sns
 import scipy.stats as st
 import matplotlib.pyplot as plt
 from joblib import Parallel, delayed
-sns.set_style("white", {'xtick.major.size': 4,  'ytick.major.size': 4})
 import lmfit
-from scikits.bootstrap import bootstrap
-import fitFun
-from fitFun import objectiveFunctionOffRates, objectiveFunctionOnRates
-import itertools
-import warnings
-import fileFun
-import singleClusterFits
-import findFmaxDist
+from fittinglibs import fitting, distribution, fileio
 
 ### MAIN ###
 
@@ -126,7 +117,7 @@ def splitAndFit(bindingSeries, timeDict, tileSeries, fitParameters, numCores,
 
     print 'Fitting binding curves:'
     fits = (Parallel(n_jobs=numCores, verbose=10)
-            (delayed(singleClusterFits.fitSetClusters)
+            (delayed(fitting.fitSetClusters)
              (np.array(timeDict[tile]), bindingSeriesSplit[tile], fitParameters,
               printBools[i], change_params, func, kwargs={'bleach_fraction':bleach_fraction,
                                                           'image_ns':imageNDict[tile]})
@@ -156,12 +147,12 @@ if __name__ == '__main__':
     
     # find out file
     if outFile is None:
-        outFile = fileFun.stripExtension(bindingSeriesFile)
+        outFile = fileio.stripExtension(bindingSeriesFile)
         
     if fittype == 'off':
-        func = objectiveFunctionOffRates
+        func = fitting.objectiveFunctionOffRates
     elif fittype == 'on':
-        func = objectiveFunctionOnRates
+        func = fitting.objectiveFunctionOnRates
     else:
         print ('Error: fittype "%s" not recognized. Valid options are '
                '"on" or "off".')%fittype
@@ -170,11 +161,11 @@ if __name__ == '__main__':
     # laod data
     print 'Loading data..'
     # load time series data
-    bindingSeries = fileFun.loadFile(bindingSeriesFile)
-    timeDict = fileFun.loadFile(timeDeltaFile)
-    tileSeries = fileFun.loadFile(tileFile)
+    bindingSeries = fileio.loadFile(bindingSeriesFile)
+    timeDict = fileio.loadFile(timeDeltaFile)
+    tileSeries = fileio.loadFile(tileFile)
     if imageNFile is not None:
-        imageNDict = fileFun.loadFile(imageNFile)
+        imageNDict = fileio.loadFile(imageNFile)
     else:
         imageNDict = None
     # find fitParameters
@@ -184,10 +175,10 @@ if __name__ == '__main__':
     # fit gamm distribution for last binding point
     if fittype=="off":
         fitParameters.loc['initial', 'fmin'] = (
-            findFmaxDist.fitGammaDistribution(bindingSeries.dropna(how='all', axis=1).iloc[:, -1].dropna(), plot=True, set_offset=0).loc['mean'])
+            distribution.fitGammaDistribution(bindingSeries.dropna(how='all', axis=1).iloc[:, -1].dropna(), plot=True, set_offset=0).loc['mean'])
     else:
         fitParameters.loc['initial', 'fmin'] = (
-            findFmaxDist.fitGammaDistribution(bindingSeries.iloc[:, 0].dropna(), plot=True, set_offset=0).loc['mean'])
+            distribution.fitGammaDistribution(bindingSeries.iloc[:, 0].dropna(), plot=True, set_offset=0).loc['mean'])
       
     # subset if option is given
     if args.subset:

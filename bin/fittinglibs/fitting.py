@@ -3,12 +3,11 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
+import sys
 from scikits.bootstrap import bootstrap
-from statsmodels.stats.weightstats import DescrStatsW
+from statsmodels.distributions.empirical_distribution import ECDF
 import warnings
 import itertools
-import seqfun
-import IMlibs
 import scipy.stats as st
 
 sns.set_style("white", {'xtick.major.size': 4,  'ytick.major.size': 4,
@@ -75,6 +74,34 @@ class fittingParameters():
     
     def find_Kd_from_frac_bound_concentration(self, frac_bound, concentration):
         return concentration/float(frac_bound) - concentration
+
+def getInitialFitParameters(concentrations):
+    """ Return fitParameters object with minimal constraints.
+    
+    Input: concentrations
+    Uses concencetration to provide constraints on dG
+    """
+    parameters = fittingParameters(concentrations=concentrations)
+    
+    fitParameters = pd.DataFrame(index=['lowerbound', 'initial', 'upperbound'],
+                                 columns=['fmax', 'dG', 'fmin'])
+    
+    # find fmin
+    param = 'fmin'
+    fitParameters.loc[:, param] = [0, 0, np.inf]
+
+    # find fmax
+    param = 'fmax'
+    fitParameters.loc[:, param] = [0, np.nan, np.inf]
+    
+    # find dG
+    fitParameters.loc[:, 'dG'] = [parameters.find_dG_from_Kd(
+        parameters.find_Kd_from_frac_bound_concentration(frac_bound, concentration))
+             for frac_bound, concentration in itertools.izip(
+                                    [0.99, 0.5, 0.01],
+                                    [concentrations[0], concentrations[-1], concentrations[-1]])]
+ 
+    return fitParameters
 
 def objectiveFunctionOffRates(params, times, data=None, weights=None, index=None, bleach_fraction=1, image_ns=None):
     """ Return fit value, residuals, or weighted residuals of off rate objective function. """
@@ -440,6 +467,58 @@ def bootstrapCurves(x, subSeries, fitParameters, fmaxDist=None,
     
     return results, singles
 
+def fitSetClusters(concentrations, subBindingSeries, fitParameters, print_bool=None,
+                   change_params=None, func=None, kwargs=None):
+    """ Fit a set of binding curves. """
+    if print_bool is None: print_bool = True
+
+    #print print_bool
+    singles = []
+    for i, idx in enumerate(subBindingSeries.index):
+        if print_bool:
+            num_steps = max(min(100, (int(len(subBindingSeries)/100.))), 1)
+            if (i+1)%num_steps == 0:
+                print ('working on %d out of %d iterations (%d%%)'
+                       %(i+1, len(subBindingSeries.index), 100*(i+1)/
+                         float(len(subBindingSeries.index))))
+                sys.stdout.flush()
+        fluorescence = subBindingSeries.loc[idx]
+        singles.append(perCluster(concentrations, fluorescence, fitParameters,
+                                  change_params=change_params, func=func, kwargs=kwargs))
+
+    return pd.concat(singles)
+
+def perCluster(concentrations, fluorescence, fitParameters, plot=None, change_params=None, func=None,
+               fittype=None, kwargs=None, verbose=False):
+    """ Fit a single binding curve. """
+    if plot is None:
+        plot = False
+    if func is None:
+        func = bindingCurveObjectiveFunction
+    if change_params is None:
+        change_params = True
+    try:
+        if change_params:
+            a, b = np.percentile(fluorescence.dropna(), [0, 100])
+            fitParameters = fitParameters.copy()
+            fitParameters.loc['initial', 'fmax'] = b
+        #index = np.isfinite(fluorescence)
+        fluorescence = fluorescence[:len(concentrations)]
+        single = fitSingleCurve(concentrations,
+                                                       fluorescence,
+                                                       fitParameters, func, kwargs=kwargs)
+    except IndexError as e:
+        if verbose: print e
+        print 'Error with %s'%fluorescence.name
+        single = fitSingleCurve(concentrations,
+                                                       fluorescence,
+                                                       fitParameters, func,
+                                                       do_not_fit=True)
+    if plot:
+        print "plotting.plotFitCurve(concentrations, fluorescence, single, param_names=fitParameters.columns.tolist(), func=func, fittype=fittype, kwargs=kwargs)"             
+    return pd.DataFrame(columns=[fluorescence.name],
+                        data=single).transpose()
+
 def plotFitDistributions(results, singles, fitParameters):
     """ Plot a distribtion of fit parameters. """
     for param in fitParameters.columns.tolist():
@@ -490,3 +569,4 @@ def errorProgagationKdFromdG(dG, sigma_dG):
     parameters = fittingParameters()
     sigma_kd = parameters.find_Kd_from_dG(dG)/parameters.RT*sigma_dG
     return sigma_kd
+
