@@ -106,22 +106,38 @@ def splitAndFit(bindingSeries, timeDict, tileSeries, fitParameters, numCores,
     # split into parts
     print 'Splitting clusters into %d groups:'%numCores
     tiles = timeDict.keys()
+    numTiles = len(tiles)
+    sizePerTile = tileSeries.loc[index].value_counts()
+    avgSplitPerTile = sizePerTile/sizePerTile.sum()*numCores
+    splitPerTile = np.around(avgSplitPerTile)
+    
+    # change number of splits per tile to make sure number of splits corresponds to number of cores
+    if splitPerTile.sum() > numCores:
+        diff = splitPerTile.sum() - numCores
+        index_to_subtract = avgSplitPerTile.loc[splitPerTile > 1].order().index[:diff]
+        splitPerTile.loc[index_to_subtract] -= 1
+    elif splitPerTile.sum() < numCores:
+        diff = numCores - splitPerTile.sum()
+        index_to_add = avgSplitPerTile.order(ascending=False).index[:diff]
+        splitPerTile.loc[index_to_add] += 1
+
+    # split CPseries    
     bindingSeriesSplit = {}
-
-    for tile in tiles:
+    for tile, numSplits in splitPerTile.iteritems():
         mat = bindingSeries.loc[index].loc[tileSeries.loc[index]==tile].dropna(axis=0, thresh=5).copy()
-        if len(mat) > 0:
-            bindingSeriesSplit[tile] = mat
-
+        indicesSplit = np.array_split(mat.index.tolist(), numSplits)
+        for i, indices in enumerate(indicesSplit):
+            bindingSeriesSplit[(tile, i)] = mat.loc[indices]
+            
     printBools = [True] + [False]*(numCores-1)
 
     print 'Fitting binding curves:'
     fits = (Parallel(n_jobs=numCores, verbose=10)
             (delayed(fitting.fitSetClusters)
-             (np.array(timeDict[tile]), bindingSeriesSplit[tile], fitParameters,
+             (np.array(timeDict[tile]), bindingSeriesSplit[(tile, idx)], fitParameters,
               printBools[i], change_params, func, kwargs={'bleach_fraction':bleach_fraction,
                                                           'image_ns':imageNDict[tile]})
-             for i, tile in enumerate(bindingSeriesSplit.keys())))
+             for i, (tile, idx) in enumerate(bindingSeriesSplit.keys())))
 
     return pd.concat(fits)
 
