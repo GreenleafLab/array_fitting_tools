@@ -173,7 +173,7 @@ class perVariant():
             fit = fitting.bindingCurveObjectiveFunction(fitting.returnParamsFromResults(initialPoints.loc[variant]), more_concentrations, **func_kwargs)
             ax.plot(more_concentrations, fit, 'm--')            
 
-    def plotOffrateCurve(self, variant, annotate=False, numtiles=None, tiles=None):
+    def plotOffrateCurve(self, variant, annotate=False, numtiles=None, tiles=None, no_errors=False):
         """Plot an off rate curve of a particular variant."""
         subSeries = self.getVariantBindingSeries(variant).dropna(how='all')
         timeDict = self.x
@@ -205,12 +205,22 @@ class perVariant():
         ax = fig.add_subplot(111)
         
         # plot fit and one tile's data
+        if no_errors:
+            errors = [np.nan*np.ones(len(timeDict[tileInit]))]*2
+        else:
+            errors = None
+
         plotting.plotFitCurve(timeDict[tileInit], subSeries.loc[clusterTiles==tileInit], variant_table.loc[variant], fitParameters, ax=ax, capsize=0,
-                 log_axis=False, func=fitting.objectiveFunctionOffRates, fittype='off')
+                 log_axis=False, func=fitting.objectiveFunctionOffRates, fittype='off', errors=errors)
         
         # plot the other tile's data
         for tile in otherTiles:
-            plotting.plotDataErrorbars(timeDict[tile], subSeries.loc[clusterTiles==tile], ax, capsize=0)
+            # plot fit and one tile's data
+            if no_errors:
+                errors = [np.nan*np.ones(len(timeDict[tileInit]))]*2
+            else:
+                errors = None
+            plotting.plotDataErrorbars(timeDict[tile], subSeries.loc[clusterTiles==tile], ax, capsize=0, errors=errors)
         
         # annotate
         if annotate:
@@ -218,6 +228,44 @@ class perVariant():
             vec = pd.Series([getValueInTable(variant_table.loc[variant], name) for name in names], index=names)
             ax = annotateOffrate(vec, ax)
         return ax
+    
+    def plotOffrateCurveBinned(self, variant, annotate=False, no_errors=False):
+        """Plot off rate curve as above, but bin the tiles into time bins."""
+        subSeries = self.getVariantBindingSeries(variant).dropna(how='all')
+        timeDict = self.x
+        variant_table = self.variant_table
+        fitParameters = pd.DataFrame(columns=['fmax', 'koff', 'fmin'])
+        clusterTiles = self.getVariantTiles(variant)
+        
+        if len(subSeries)==0:
+            print 'No fluorescence data associated with variant %s'%str(variant)
+            return
+        
+        time_delta = np.min([(np.array(times[1:]) - np.array(times[:-1])).min() for times in timeDict.values()])
+        max_time = np.max([np.max(times) for times in timeDict.values()])
+        time_bins = np.arange(0, max_time+time_delta*2, time_delta)
+        
+        # bin the times
+        d  = []
+        for key, times in timeDict.items():
+            idx = np.digitize(times, time_bins) - 1
+            subMat = subSeries.loc[clusterTiles==key]
+            subMat.columns=idx
+            d.append(subMat)
+        newMat = pd.concat(d)
+                
+        # drop empty bins
+        times = np.array([(time_bins[i]+time_bins[i+1])*0.5 for i in newMat.columns.tolist()])
+        
+        if no_errors:
+            errors = [np.nan*np.ones(len(times))]*2
+        else:
+            errors = None
+        # initiae plot
+        fig = plt.figure(figsize=(3.5,3))
+        ax = fig.add_subplot(111)
+        plotting.plotFitCurve(times, newMat, variant_table.loc[variant], fitParameters, ax=ax, capsize=0,
+                 log_axis=False, func=fitting.objectiveFunctionOffRates, fittype='off', errors=errors)
             
     def plotClusterOffrates(self, cluster=None, variant=None, idx=None):
         """Plot an off rate curve of a particular cluster."""
@@ -616,8 +664,8 @@ class perFlow():
                           ]
         ax.annotate('\n'.join(annotationText), xy=(.05, .95), xycoords='axes fraction',
                     horizontalalignment='left', verticalalignment='top')
-        
-        return x, y
+        residuals = y - (x*slope+intercept)
+        return variants, residuals
     
     def plotKdVersusKoff(self, ):
         parameters = fitting.fittingParameters()
@@ -960,7 +1008,7 @@ class manyFlows():
             names = np.arange(len(perVariants))
         self.names = names
         
-    def plotAllInitVsFinal(self, param='dG', colorby='fmax_init', limits=[-12.5, -6], **kwargs):
+    def plotAllInitVsFinal(self, param='dG', colorby='fmax_init', limits=[-12.5, -6], order=None, **kwargs):
         """For each of the variant tables, plot the dG init versus dG final"""
         alldata = []
         for name, data in zip(self.names, self.flowData):
@@ -970,8 +1018,10 @@ class manyFlows():
             alldata.append(subdata)
         alldata = pd.concat(alldata)      
 
+        if order is None: order = self.names
+
         cmap = sns.diverging_palette(220, 10, center="dark", as_cmap=True)
-        g = sns.FacetGrid(alldata, col="expt", col_wrap=4, xlim=limits, ylim=limits)
+        g = sns.FacetGrid(alldata, col="expt", col_order=order, col_wrap=4, xlim=limits, ylim=limits)
         g.map(my_scatterfun, '%s_init'%param, param, "colorby", cmap=cmap,
               edgecolor='none', marker='.', **kwargs)
             

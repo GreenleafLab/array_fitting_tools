@@ -62,6 +62,8 @@ group.add_argument('--subset',action="store_true", default=False,
 group.add_argument('--slope', default=0, type=float,
                     help='if provided, use this value for the slope of a linear fit.'
                     'upperbound/lowerbounds')
+group.add_argument('--min_error',type=float, default=0,
+                   help='set this value for the minimum amount of error per fluorescence point, in units of percent of fmax. default=0')
 group.add_argument('--no_weights', action="store_true",
                    help='Flag if you would like to not weight the fit')
 group.add_argument('--fmin_float', action="store_true",
@@ -114,39 +116,8 @@ def initiateFitting(variant_table, fluorescenceMat, fluorescenceMatSplit, concen
     return initialPoints, pd.concat(fitParameters, axis=1)
 
 
-def fitBindingCurves(variant_table, fluorescenceMat,
-                     fluorescenceMatSplit, concentrations, fmaxDistObject,
-                     numCores=20, n_samples=100, variants=None,
-                     enforce_fmax=None, weighted_fit=True, fmin_float=False, func_kwargs={}):
-    
-    # process before fitting
-    initialPoints, fitParameters = initiateFitting(variant_table, fluorescenceMat,
-                                                   fluorescenceMatSplit, concentrations,
-                                                   fmaxDistObject, fmin_float=fmin_float)
-    
-    # add slope to fitParameters if supposed to fit it 
-    if 'fit_slope' in func_kwargs.keys():
-        fitParameters.loc[:, 'slope'] = fitting.getFitParam('slope', vary=func_kwargs['fit_slope'])
-    
-    if variants is None:
-        variants = fluorescenceMatSplit.keys()
-    
-    print '\tMultiprocessing bootstrapping...'
-    # parallelize fitting
-    results = (Parallel(n_jobs=numCores, verbose=10)
-                (delayed(fitting.perVariant)(concentrations,
-                                        fluorescenceMatSplit[variant],
-                                        fitParameters,
-                                        fmaxDistObject,
-                                        initial_points=initialPoints.loc[variant],
-                                        n_samples=n_samples,
-                                        enforce_fmax=enforce_fmax,
-                                        weighted_fit=weighted_fit,
-                                        func_kwargs=func_kwargs)
-                 for variant in variants if variant in fluorescenceMatSplit.keys()))      
-     
-    results = pd.concat(results, axis=1).transpose()
-    results.index = [variant for variant in variants if variant in fluorescenceMatSplit.keys()]
+def parseResults(variant_table, results):
+    """Parse the results table into the variant table final. """
 
     # save final results as one dataframe
     variant_final = pd.DataFrame(
@@ -154,7 +125,12 @@ def fitBindingCurves(variant_table, fluorescenceMat,
         columns=np.unique(variant_table.columns.tolist() + results.columns.tolist()))
     variant_final.loc[variant_table.index, variant_table.columns] = variant_table
     variant_final.loc[results.index, results.columns] = results
+    
+    col_order = variant_table.columns.tolist()
+    """
+    to return all columns:
     col_order = variant_table.columns.tolist() + [col for col in results if col not in variant_table]
+    """
     return variant_final.loc[:, col_order].astype(float)
 
 
@@ -185,19 +161,47 @@ if __name__ == '__main__':
     variant_table = fileio.loadFile(variantFile)
     fluorescenceMat, fluorescenceMatSplit = loadGroupDict(bindingCurveFilename, annotatedClusterFile)
     func_kwargs = {'slope':args.slope, 'fit_slope':args.fit_slope}
-    
+    min_error = fmaxDistObject.getDist(1).mean()*args.min_error/100.
+        
     # subset
     variants = variant_table.index.tolist()
     if args.subset:
         variants = variants[-100:]
         outFile = outFile + '_subset'
+
+    # process before fitting
+    initialPoints, fitParameters = initiateFitting(variant_table, fluorescenceMat,
+                                                   fluorescenceMatSplit, concentrations,
+                                                   fmaxDistObject, fmin_float=fmin_float)
+    
+    # add slope to fitParameters if supposed to fit it 
+    if 'fit_slope' in func_kwargs.keys():
+        fitParameters.loc[:, 'slope'] = fitting.getFitParam('slope', vary=func_kwargs['fit_slope'])
+    
+    # adjust min error
+    if min_error > 0:
+        outFile = outFile + '_error%.1e'%min_error
+
+    print '\tMultiprocessing bootstrapping...'
+    # parallelize fitting
+    results = (Parallel(n_jobs=numCores, verbose=10)
+                (delayed(fitting.perVariant)(concentrations,
+                                        fluorescenceMatSplit[variant],
+                                        fitParameters,
+                                        fmaxDistObject,
+                                        initial_points=initialPoints.loc[variant],
+                                        n_samples=n_samples,
+                                        enforce_fmax=enforce_fmax,
+                                        weighted_fit=weighted_fit,
+                                        min_error=min_error,
+                                        func_kwargs=func_kwargs)
+                 for variant in variants if variant in fluorescenceMatSplit.keys()))      
+     
+    results = pd.concat(results, axis=1).transpose()
+    results.index = [variant for variant in variants if variant in fluorescenceMatSplit.keys()]
         
     # fit
-    variant_table = fitBindingCurves(variant_table, fluorescenceMat,
-                 fluorescenceMatSplit, concentrations, fmaxDistObject,
-                 numCores=numCores, n_samples=n_samples, variants=variants,
-                 enforce_fmax=enforce_fmax, weighted_fit=weighted_fit, fmin_float=fmin_float,
-                 func_kwargs=func_kwargs)
+    variant_table = parseResults(variant_table, results)
 
     # save
     variant_table.to_csv(outFile + '.CPvariant', sep='\t', index=True)
