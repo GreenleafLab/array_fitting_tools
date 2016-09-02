@@ -6,7 +6,8 @@ add to python path: `array_fitting_tools/bin`
 Please update this list as you encounter dependencies not listed here!
 
 * pandas (0.16.2)
-* lmfit (0.8.3)
+* lmfit (0.8.3) 
+** Note that [lmfit 0.9.0+](https://lmfit.github.io/lmfit-py/faq.html#why-did-my-script-break-when-upgrading-from-lmfit-0-8-3-to-0-9-0) would NOT work with the current pipeline. 
 * joblib (0.9.0b2)
 * seaborn (0.7.0)
 * scikits.bootstrap (0.3.2)
