@@ -259,12 +259,12 @@ if __name__ == '__main__':
         outFile = outFile + '_subset'
         
     # fit
-    variant_table = fitBindingCurves(variant_table, fluorescenceMat,
+    variant_final = fitBindingCurves(variant_table, fluorescenceMat,
                  fluorescenceMatSplit, concentrations, fmaxDistObject,
                  numCores=numCores, n_samples=n_samples, variants=variants,
                  enforce_fmax=enforce_fmax, kwargs={'slope':args.slope})
 
     # save
-    variant_table.to_csv(outFile + '.CPvariant', sep='\t', index=True)
+    variant_final.to_csv(outFile + '.CPvariant', sep='\t', index=True)
     
     

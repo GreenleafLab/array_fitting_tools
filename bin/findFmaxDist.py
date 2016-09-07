@@ -152,18 +152,25 @@ if __name__=="__main__":
     # save variant table
     variant_table.to_pickle(outFile + '.init.CPvariant.pkl')
     
-    # plot some examples
+    # generate example distributions
     bounds = [0, distribution.findUpperboundFromFmaxDistObject(fmaxDist)]
     numExamples = tight_binders.numTests.value_counts()
-    minNumDist = 5
-    validNs = numExamples.loc[numExamples >= minNumDist].sort_index().index.tolist()
+    minNumDist = 20
+    while minNumDist >= 5:
+        validNs = pd.Series(numExamples.loc[numExamples >= minNumDist].sort_index().index.tolist())
+        if len(validNs) < 3:
+            minNumDist = minNumDist/2
+        else:
+            break
+        
     if len(validNs) == 0:
         print 'Error: no number of measurements has at least %s variants. Not generating example distribution plots.'%minNumDist
     else:
-        if len(validNs) < 3:
+        if len(validNs) <= 5:
             plotTheseNs = validNs
         else:
-            plotTheseNs = np.percentile(validNs, [0, 50, 100])
+            plotTheseNs = validNs.quantile([0, 0.1, 0.5, 0.9, 1], interpolation='nearest')
+            
         for n in plotTheseNs:
             plotting.plotAnyN(tight_binders, fmaxDist, n, bounds)
             plt.xlim(bounds)

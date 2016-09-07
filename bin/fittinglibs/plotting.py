@@ -29,6 +29,9 @@ import fittinglibs.fitting as fitting
 def fix_axes(ax):
     ax.tick_params(which='minor', top='off', right='off')
     ax.tick_params(top='off', right='off', pad=2, labelsize=10, labelcolor='k')
+    
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
     return ax
 
 def get_c(x, y, distance_threshold=None):

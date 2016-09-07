@@ -12,6 +12,7 @@ import scipy.stats as st
 import matplotlib as mpl
 from fittinglibs import plotting, fitting
 from plotting import fix_axes
+import ipdb
 
 def findExtInList(directory, ext):
     """Find files in directory with extension."""
@@ -410,63 +411,15 @@ class perVariant():
                 ax.axvline(plot_n, color='k', linewidth=0.5)
         
     
-    def getResultsFromVariantTable(self):
+    def getResultsFromVariantTable(self, other_variant_table=None):
         """Return results format for only one variant table. """
         parameters = fitting.fittingParameters()
-        dummy_variant_table = self.variant_table.copy()
-        dummy_variant_table.numTests = 0
-        variant_tables = [self.variant_table, dummy_variant_table]
-        
-        # make flags
-        # 0x1 data from rep 1
-        # 0x2 data from rep 2
-        # 0x4 data not measured in rep 1
-        # 0x8 data not measured in rep 2
-        
-        index = ((pd.concat(variant_tables, axis=1).loc[:, 'numTests'] >=5).all(axis=1)&
-                 (pd.concat(variant_tables, axis=1).loc[:, 'dG'] < parameters.cutoff_dG).all(axis=1))
-        values = pd.concat([table.dG for table in variant_tables],
-                           axis=1, keys=['0', '1'])
-        numTests = pd.concat([table.numTests for table in variant_tables],
-                           axis=1, keys=['0', '1'])
-        numTests.fillna(0, inplace=True)
-        
-        # correct for offset between 1st and 2nd measurement
-        offset = 0.24
-        values.iloc[:, 1] -= offset
-        
-        # find error measurements
-        eminus = pd.concat([(table.dG - table.dG_lb) for table in variant_tables],
-                             axis=1, keys=values.columns)
-        eplus  = pd.concat([(table.dG_ub - table.dG) for table in variant_tables],
-                             axis=1, keys=values.columns)
-        variance = ((eminus + eplus)/2)**2
-        weights = pd.DataFrame(data=1, index=variance.index, columns=variance.columns)
-        index = (variance > 0).all(axis=1)
-        weights.loc[index] = 1/variance.loc[index]
-        
-        # final variant table
-        cols =  ['numTests1', 'numTests2', 'weights1', 'weights2', 'numTests', 'dG', 'eminus', 'eplus', 'flag']
-        
-        results = pd.DataFrame(index=pd.concat(variant_tables, axis=1).index, columns=cols)
-        results.loc[:, ['numTests1', 'numTests2', 'numTests', 'flag']] = 0
-        
-        # if one of the measurements has less than 5 clusters, use only the other measurement
-        indexes = [(numTests.iloc[:, 0] < 5)&(numTests.iloc[:, 1] >= 5),
-                   (numTests.iloc[:, 0] >= 5)&(numTests.iloc[:, 1] < 5),
-                   (numTests >= 5).all(axis=1)]
-        weights.loc[indexes[0], '0'] = 0
-        weights.loc[indexes[1], '1'] = 0
-        
-        for i, index in enumerate(indexes):
-            results.loc[index, 'dG']     = weightedAverageAll(values, weights, index=index)
-            results.loc[index, 'eminus'] = errorPropagateAverageAll(eminus, weights, index=index)
-            results.loc[index, 'eplus']  = errorPropagateAverageAll(eplus, weights, index=index)
-            results.loc[index, 'flag']  += np.power(2, i)
-            results.loc[index, ['numTests1', 'numTests2']] = numTests.loc[index].values
-            results.loc[index, ['weights1', 'weights2']]   = weights.loc[index].values
-            results.loc[index, 'numTests'] = weightedAverageAll(numTests, weights, index=index)
-        return results
+        if other_variant_table is None:
+            other_variant_table = self.variant_table.copy()
+            other_variant_table.numTests = 0
+        variant_tables = [self.variant_table, other_variant_table]
+        offset = 0
+        return getResultsFromVariantTables(variant_tables, offset)
 
 
 
@@ -592,9 +545,11 @@ class perFlow():
     
 class compareFlow():
     def __init__(self, affinityData1, affinityData2):
+        self.all_variants = np.intersect1d(*[np.array(affinityData.variant_table.index.tolist())
+                                             for affinityData in [affinityData1, affinityData2]])
         self.expt1 = affinityData1
         self.expt2 = affinityData2
-        self.all_variants = pd.concat([affinityData1.variant_table, affinityData2.variant_table], axis=1).index
+        #self.all_variants = pd.concat([affinityData1.variant_table, affinityData2.variant_table], axis=1).index
 
     def getGoodVariants(self, ):
         variants = (pd.concat([self.expt1.variant_table.pvalue < 0.01,
@@ -661,7 +616,7 @@ class compareFlow():
         """ Combine two variant tables with some relevant info to reproducibilty. """
         if offset is None:
             offset = 0
-        variant_tables = [self.expt1.variant_table, self.expt2.variant_table]
+        variant_tables = [self.expt1.variant_table.loc[self.all_variants], self.expt2.variant_table.loc[self.all_variants]]
         eminus = pd.concat([(table.dG - table.dG_lb) for table in variant_tables],
                          axis=1, keys=['rep1', 'rep2'])
         eplus  = pd.concat([(table.dG_ub - table.dG) for table in variant_tables],
@@ -750,6 +705,11 @@ class compareFlow():
         plt.xlim([-0.5, len(binedges)+0.5])
         fix_axes(ax)
         plt.tight_layout()
+    
+    def getResults(self, offset):
+        """ Combine variant tables to make results table."""
+        variant_tables = [self.expt1.variant_table.loc[self.all_variants], self.expt2.variant_table.loc[self.all_variants]]
+        return getResultsFromVariantTables(variant_tables, offset) 
     
             
         
@@ -902,3 +862,56 @@ def returnFractionGroupedBy(mat, param_in, param_out):
         yerr = np.array([np.abs(bootstrap.ci(group, method='pi', n_samples=100) - y.loc[name])
                          for name, group in grouped]).transpose()
     return x, y, yerr   
+
+def getResultsFromVariantTables(variant_tables, offset):
+    """combine variant tables to form a results table."""
+    # make flags
+    # 0x1 data from rep 1
+    # 0x2 data from rep 2
+    # 0x4 data not measured in rep 1
+    # 0x8 data not measured in rep 2
+    parameters = fitting.fittingParameters()
+    
+    index = ((pd.concat(variant_tables, axis=1).loc[:, 'numTests'] >=5).all(axis=1)&
+             (pd.concat(variant_tables, axis=1).loc[:, 'dG'] < parameters.cutoff_dG).all(axis=1))
+    values = pd.concat([table.dG for table in variant_tables],
+                       axis=1, keys=['0', '1']).astype(float)
+    numTests = pd.concat([table.numTests for table in variant_tables],
+                       axis=1, keys=['0', '1'])
+    numTests.fillna(0, inplace=True)
+    
+    # correct for offset between 1st and 2nd measurement
+    values.iloc[:, 1] -= offset
+    
+    # find error measurements
+    eminus = pd.concat([(table.dG - table.dG_lb) for table in variant_tables],
+                         axis=1, keys=values.columns)
+    eplus  = pd.concat([(table.dG_ub - table.dG) for table in variant_tables],
+                         axis=1, keys=values.columns)
+    variance = (((eminus + eplus)/2)**2).astype(float)
+    weights = pd.DataFrame(data=1, index=variance.index, columns=variance.columns).astype(float)
+    index = (variance > 0).all(axis=1)
+    weights.loc[index] = 1/variance.loc[index]
+    
+    # final variant table
+    cols =  ['numTests1', 'numTests2', 'weights1', 'weights2', 'numTests', 'dG', 'eminus', 'eplus', 'flag']
+    
+    results = pd.DataFrame(index=pd.concat(variant_tables, axis=1).index, columns=cols)
+    results.loc[:, ['numTests1', 'numTests2', 'numTests', 'flag']] = 0
+    
+    # if one of the measurements has less than 5 clusters, use only the other measurement
+    indexes = [(numTests.iloc[:, 0] < 5)&(numTests.iloc[:, 1] >= 5),
+               (numTests.iloc[:, 0] >= 5)&(numTests.iloc[:, 1] < 5),
+               (numTests >= 5).all(axis=1)]
+    weights.loc[indexes[0], '0'] = 0
+    weights.loc[indexes[1], '1'] = 0
+
+    for i, index in enumerate(indexes):
+        results.loc[index, 'dG']     = weightedAverageAll(values, weights, index=index)
+        results.loc[index, 'eminus'] = errorPropagateAverageAll(eminus, weights, index=index)
+        results.loc[index, 'eplus']  = errorPropagateAverageAll(eplus, weights, index=index)
+        results.loc[index, 'flag']  += np.power(2, i)
+        results.loc[index, ['numTests1', 'numTests2']] = numTests.loc[index].values
+        results.loc[index, ['weights1', 'weights2']]   = weights.loc[index].values
+        results.loc[index, 'numTests'] = weightedAverageAll(numTests, weights, index=index)
+    return results
