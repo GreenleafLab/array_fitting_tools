@@ -7,10 +7,11 @@ import seaborn as sns
 from scikits.bootstrap import bootstrap
 import warnings
 import itertools
+import ipdb
 import os
 import scipy.stats as st
 import matplotlib as mpl
-from fittinglibs import plotting, fitting
+from fittinglibs import plotting, fitting, distribution
 from plotting import fix_axes
 import ipdb
 
@@ -124,29 +125,29 @@ def getValueInTable(series, name):
     
 class perVariant():
     """For a given CPvariant file, plot stuff."""
-    def __init__(self, variant_table=None, annotated_clusters=None, binding_series=None, x=None, cluster_table=None, tiles=None):
+    def __init__(self, variant_table=None, annotated_clusters=None, binding_series=None, x=None, cluster_table=None, tiles=None, fmaxdist=None):
 
         self.binding_series = binding_series
         if annotated_clusters is not None:
-            self.annotated_clusters = annotated_clusters.loc[binding_series.index.tolist(), 'variant_number']
+            self.annotated_clusters = annotated_clusters.loc[:,'variant_number']
         self.variant_table = variant_table
         self.x = x
         self.cluster_table = cluster_table
         self.tiles = tiles
-
+        self.fmaxdist = fmaxdist
 
     def getVariantBindingSeries(self,variant ):
         """Return binding series for clusters of a particular variant."""
         index = self.annotated_clusters == variant
-        return self.binding_series.loc[index]
+        return self.binding_series.loc[self.annotated_clusters.index.tolist()].loc[index]
     
     def getVariantTiles(self, variant):
         """Return tile numbers for clusters of a particular variant."""
         index = self.annotated_clusters == variant 
-        return self.tiles.loc[index]
+        return self.tiles.loc[self.annotated_clusters.index.tolist()].loc[index]
     
     
-    def plotBindingCurve(self, variant, annotate=True):
+    def plotBindingCurve(self, variant, annotate=True, func_kwargs={}, plot_init=False):
         """Plot a binding curve of a particular variant."""
         subSeries = self.getVariantBindingSeries(variant)
         if len(subSeries)==0:
@@ -161,24 +162,17 @@ class perVariant():
         plotting.plotFitCurve(concentrations,
                             subSeries,
                             variant_table.loc[variant],
-                            ax=ax)
+                            ax=ax, kwargs=func_kwargs)
         if annotate:
             names = ['dG', 'dG_lb', 'dG_ub', 'fmax', 'fmax_lb', 'fmax_ub', 'numTests', 'pvalue', 'rsq', 'flag']
             vec = pd.Series([getValueInTable(variant_table.loc[variant], name) for name in names], index=names)
-            #vec.fillna('', inplace=True)
-            annotationText = ['dG= %4.2f (%4.2f, %4.2f)'%(vec.dG,
-                                                            vec.dG_lb,
-                                                            vec.dG_ub),
-                              'fmax= %4.2f (%4.2f, %4.2f)'%(vec.fmax,
-                                                            vec.fmax_lb,
-                                                            vec.fmax_ub),
-                              'Nclusters= %4.0f'%vec.numTests,
-                              'pvalue= %.1e'%vec.pvalue,
-                              'average Rsq= %4.2f'%vec.rsq,
-                              'fmax enforced=%s'%str(vec.flag)
-                              ]
-            ax.annotate('\n'.join(annotationText), xy=(0.05, .95), xycoords='axes fraction',
-                        horizontalalignment='left', verticalalignment='top', fontsize=9)
+            ax = annotateBindingCurve(vec, ax)
+        
+        if plot_init:
+            initialPoints = distribution.findInitialPoints(variant_table)
+            more_concentrations = np.logspace(np.log10(concentrations[0]/10.), np.log10(concentrations[-1]*10.))
+            fit = fitting.bindingCurveObjectiveFunction(fitting.returnParamsFromResults(initialPoints.loc[variant]), more_concentrations, **func_kwargs)
+            ax.plot(more_concentrations, fit, 'm--')            
 
     def plotOffrateCurve(self, variant, annotate=False, numtiles=None, tiles=None):
         """Plot an off rate curve of a particular variant."""
@@ -223,19 +217,7 @@ class perVariant():
         if annotate:
             names = ['koff', 'koff_lb', 'koff_ub', 'fmax', 'fmax_lb', 'fmax_ub', 'numTests', 'pvalue', 'rsq']
             vec = pd.Series([getValueInTable(variant_table.loc[variant], name) for name in names], index=names)
-            #vec.fillna('', inplace=True)
-            annotationText = ['koff= %4.2e (%4.2e, %4.2e)'%(vec.koff,
-                                                            vec.koff_lb,
-                                                            vec.koff_ub),
-                              'fmax= %4.2f (%4.2f, %4.2f)'%(vec.fmax,
-                                                            vec.fmax_lb,
-                                                            vec.fmax_ub),
-                              'Nclusters= %4.0f'%vec.numTests,
-                              'pvalue= %.1e'%vec.pvalue,
-                              'average Rsq= %4.2f'%vec.rsq,
-                              ]
-            ax.annotate('\n'.join(annotationText), xy=(.05, .95), xycoords='axes fraction',
-                        horizontalalignment='left', verticalalignment='top', fontsize=9)
+            ax = annotateOffrate(vec, ax)
         return ax
             
     def plotClusterOffrates(self, cluster=None, variant=None, idx=None):
@@ -279,11 +261,12 @@ class perVariant():
                 fluorescence = subSeries.iloc[idx]
             else:
                 fluorescence = subSeries.iloc[0]
+         
         cluster = fluorescence.name
         cluster_table = self.cluster_table
         
         # plot
-        fig = plt.figure(figsize=(4,3))
+        fig = plt.figure(figsize=(3,3))
         ax = fig.add_subplot(111)
         plotting.plotFitCurve(concentrations,
                             fluorescence,
@@ -432,7 +415,100 @@ class perVariant():
         results = fitting.perCluster(concentrations, fluorescence, fitParameters,
                                   change_params=False, func=func)
         return results
+
+    def redoBootstrapped(self, variant, fmaxDistObject, weighted_fit=True, fmin_float=False, func_kwargs={}, original_slope=0.0006):
+        """Redo the bootstrapping step here."""
+        concentrations = self.x
+        variant_table = self.variant_table
+        subSeries = self.getVariantBindingSeries(variant)
+        fluorescenceMat = pd.concat([self.annotated_clusters, self.binding_series.astype(float)], axis=1).sort('variant_number')
         
+        # get parameters
+        parameters = fitting.fittingParameters(concentrations)
+
+        # initiate fitParameters and initial points
+        initialPoints = distribution.findInitialPoints(variant_table)
+        fmin_fixed = distribution.returnFminFromFluorescence(initialPoints, fluorescenceMat, parameters.mindG)
+        fitParameters = fitting.getInitialFitParametersVary(concentrations)
+        fitParameters.loc['vary', 'fmin'] = fmin_float
+        fitParameters.loc['initial', 'fmin'] = fmin_fixed
+        fitParameters.loc['initial', 'fmax'] = fmaxDistObject.getDist(1).stats(moments='m')
+        
+        fittype = 'binding'
+        if 'fit_slope' in func_kwargs.keys():
+            if func_kwargs['fit_slope']:
+                fitParameters.loc[:, 'slope'] = [0, 0.0006, np.inf, True]
+                fittype = 'binding_linear'
+        print fitParameters
+        
+        # fit
+        results = fitting.perVariant(concentrations, subSeries,
+                                        fitParameters,
+                                        fmaxDistObject,
+                                        initial_points=initialPoints.loc[variant],
+                                        weighted_fit=weighted_fit,
+                                        kwargs=func_kwargs)
+        # plot results
+        fig = plt.figure(figsize=(4,3))
+        ax = fig.add_subplot(111)
+        plotting.plotFitCurve(concentrations,
+                            subSeries,
+                            results,
+                            fittype=fittype,
+                            kwargs=func_kwargs,
+                            ax=ax)
+        names = ['dG', 'dG_lb', 'dG_ub', 'fmax', 'fmax_lb', 'fmax_ub',  'fmin', 'fmin_lb', 'fmin_ub', 'slope', 'numTests', 'pvalue', 'rsq', 'flag']
+        vec = pd.Series([getValueInTable(results, name) for name in names], index=names)
+        annotationText = ['dG= %4.2f (%4.2f, %4.2f)'%(vec.dG, vec.dG_lb, vec.dG_ub),
+                      'fmax= %4.2f (%4.2f, %4.2f)'%(vec.fmax, vec.fmax_lb, vec.fmax_ub),
+                      'fmin= %4.2f (%4.2f, %4.2f)'%(vec.fmin, vec.fmin_lb, vec.fmin_ub),
+                      'Nclusters= %4.0f'%len(subSeries),
+                      'average Rsq= %4.2f'%vec.rsq,
+                      'slope= %4.1e'%vec.slope,
+                      'weighted= %d'%weighted_fit,
+                      'fmin float= %d'%fmin_float]
+        ax.annotate('\n'.join(annotationText), xy=(0.05, .95), xycoords='axes fraction',
+                horizontalalignment='left', verticalalignment='top', fontsize=9)
+        more_concentrations = np.logspace(np.log10(concentrations[0]/10.), np.log10(concentrations[-1]*10.))
+        try:
+            fit = fitting.bindingCurveObjectiveFunction(fitting.returnParamsFromResults(initialPoints.loc[variant]), more_concentrations, slope=original_slope)
+            ax.plot(more_concentrations, fit, 'm--')
+        except:
+            pass
+        return results
+    
+    def plotResiduals(self, func_kwargs={}, bounds=None):
+        """For a given range of dG bounds, plot the residuals in the final and initial data."""
+        variant_series = pd.concat([self.annotated_clusters, self.binding_series.astype(float)], axis=1).groupby('variant_number').median()
+        variant_table = self.variant_table
+        initial_points = distribution.findInitialPoints(variant_table)
+        concentrations = self.x
+        
+        resMany = []
+        if bounds is None:
+            binedges = variant_table.loc[variant_table.pvalue<0.01].dG_init.quantile(np.linspace(0, 1, 20))
+        else:
+            binedges = bounds
+        for lb, ub in zip(binedges.iloc[:-1], binedges.iloc[1:]):
+        # find variants within bounds
+            variants = variant_table.loc[(variant_table.dG_init < ub)&(variant_table.dG_init >= lb)].index.tolist()
+            
+            func = fitting.bindingCurveObjectiveFunction
+            resMat = pd.melt(pd.concat([func(fitting.returnParamsFromResults( variant_table.loc[variant]), concentrations, **func_kwargs) - variant_series.loc[variant] for variant in variants], axis=1).transpose(), value_name='final').set_index('variable')
+            resMatInit = pd.melt(pd.concat([func(fitting.returnParamsFromResults( initial_points.loc[variant]), concentrations, **func_kwargs) - variant_series.loc[variant] for variant in variants], axis=1).transpose(), value_name='init').set_index('variable')
+            resAll = pd.melt(pd.concat([resMat, resMatInit], axis=1).reset_index(), id_vars=['variable'], var_name='fit')
+            resAll.loc[:, 'dGbin'] = '%4.1f_%4.1f'%(lb, ub)
+            resMany.append(resAll)
+        resMany = pd.concat(resMany)
+        
+        sns.factorplot(x="variable", y="value", data=resMany, hue="fit", kind='box', boxprops={'linewidth':1}, whiskerprops={'linewidth':1}, capprops={'linewidth':1})
+        plt.title('final')
+        plt.axhline(0, color='r', linewidth=0.5)
+
+        return resMany
+
+
+       
 class perFlow():
     """Class for plots that combine off rate and variant data."""
     def __init__(self, affinityData, offRate):
@@ -848,6 +924,33 @@ class compareFluor():
         plt.tight_layout()
         return alpha, lb, ub
 
+class manyFlows():
+    """Class to store many different perVariant classes"""
+    def __init__(self, perVariants, names=None):
+        self.flowData = perVariants
+        if names is None:
+            names = np.arange(len(perVariants))
+        self.names = names
+        
+    def plotAllInitVsFinal(self, param='dG', colorby='fmax_init', limits=[-12.5, -6], **kwargs):
+        """For each of the variant tables, plot the dG init versus dG final"""
+        alldata = []
+        for name, data in zip(self.names, self.flowData):
+            subdata = data.variant_table.loc[:, ['%s_init'%param, param]]
+            subdata.loc[:, 'expt'] = name
+            subdata.loc[:, 'colorby'] = data.variant_table.loc[:, colorby]
+            alldata.append(subdata)
+        alldata = pd.concat(alldata)      
+
+        cmap = sns.diverging_palette(220, 10, center="dark", as_cmap=True)
+        g = sns.FacetGrid(alldata, col="expt", col_wrap=4, xlim=limits, ylim=limits)
+        g.map(my_scatterfun, '%s_init'%param, param, "colorby", cmap=cmap,
+              edgecolor='none', marker='.', **kwargs)
+            
+
+def my_scatterfun(x, y, c, **kwargs):
+    plt.scatter(x, y, c=c, **kwargs)
+
 def fraction_equilibrated(kobs, time_waited):
     return 1-np.exp(-kobs*time_waited)
  
@@ -872,6 +975,7 @@ def returnFractionGroupedBy(mat, param_in, param_out):
                          for name, group in grouped]).transpose()
     return x, y, yerr   
 
+<<<<<<< HEAD
 def getResultsFromVariantTables(variant_tables, offset):
     """combine variant tables to form a results table."""
     # make flags
@@ -924,3 +1028,37 @@ def getResultsFromVariantTables(variant_tables, offset):
         results.loc[index, ['weights1', 'weights2']]   = weights.loc[index].values
         results.loc[index, 'numTests'] = weightedAverageAll(numTests, weights, index=index)
     return results
+=======
+def annotateBindingCurve(vec, ax):
+    """Given a pd.Series of things ot annotate, annotate them onto ax"""
+    annotationText = ['dG= %4.2f (%4.2f, %4.2f)'%(vec.dG,
+                                                    vec.dG_lb,
+                                                    vec.dG_ub),
+                      'fmax= %4.2f (%4.2f, %4.2f)'%(vec.fmax,
+                                                    vec.fmax_lb,
+                                                    vec.fmax_ub),
+                      'Nclusters= %4.0f'%vec.numTests,
+                      'pvalue= %.1e'%vec.pvalue,
+                      'average Rsq= %4.2f'%vec.rsq,
+                      'fmax enforced=%s'%str(vec.flag)
+                      ]
+    ax.annotate('\n'.join(annotationText), xy=(0.05, .95), xycoords='axes fraction',
+                horizontalalignment='left', verticalalignment='top', fontsize=9)
+    return ax
+
+def annotateOffrate(vec, ax):
+    """Given a pd.Series of things ot annotate, annotate them onto ax"""
+    annotationText = ['koff= %4.2e (%4.2e, %4.2e)'%(vec.koff,
+                                                    vec.koff_lb,
+                                                    vec.koff_ub),
+                      'fmax= %4.2f (%4.2f, %4.2f)'%(vec.fmax,
+                                                    vec.fmax_lb,
+                                                    vec.fmax_ub),
+                      'Nclusters= %4.0f'%vec.numTests,
+                      'pvalue= %.1e'%vec.pvalue,
+                      'average Rsq= %4.2f'%vec.rsq,
+                      ]
+    ax.annotate('\n'.join(annotationText), xy=(.05, .95), xycoords='axes fraction',
+                horizontalalignment='left', verticalalignment='top', fontsize=9)
+    return ax
+>>>>>>> optimize getting fitting params, moved some stuff out of bootstrap fits

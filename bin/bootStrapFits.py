@@ -26,7 +26,7 @@ import matplotlib.pyplot as plt
 from joblib import Parallel, delayed
 import lmfit
 import itertools
-from fittinglibs import fitting, plotting, fileio
+from fittinglibs import fitting, plotting, fileio, distribution
 
 
 ### MAIN ###
@@ -62,70 +62,14 @@ group.add_argument('--subset',action="store_true", default=False,
 group.add_argument('--slope', default=0, type=float,
                     help='if provided, use this value for the slope of a linear fit.'
                     'upperbound/lowerbounds')
+group.add_argument('--no_weights', action="store_true",
+                   help='Flag if you would like to not weight the fit')
+group.add_argument('--fmin_float', action="store_true",
+                   help='Flag if you would like to allow the fmin to float')
+group.add_argument('--fit_slope', action="store_true",
+                   help='Flag if you would like to fit a linear slope')
 
 ##### functions #####
-def getInitialFitParameters(concentrations):
-    """ Return initial fit parameters from single cluster fits.
-    
-    Add a row 'vary' that indicates whether parameter should vary or not. """
-    fitParameters = fitting.getInitialFitParameters(concentrations)
-    return pd.concat([fitParameters.astype(object),
-                      pd.DataFrame(True, columns=fitParameters.columns,
-                                         index=['vary'], dtype=bool)])
-
-
-def perVariant(concentrations, subSeries, fitParameters, fmaxDistObject, initial_points=None,
-               plot=None, n_samples=None, enforce_fmax=None, func=None, fittype=None, kwargs=None):
-    """ Fit a variant to objective function by bootstrapping median fluorescence. """
-    
-    # default id to not plot results
-    if plot is None:
-        plot = False
-    
-    # define fitting function
-    if func is None:
-        func = fitting.bindingCurveObjectiveFunction
-
-    # change initial guess on fit parameters if given previous fit
-    fitParametersPer = fitParameters.copy()
-    if initial_points is not None:
-        params_to_change = fitParameters.loc[:, fitParametersPer.loc['vary'].astype(bool)].columns
-        fitParametersPer.loc['initial', params_to_change] = (initial_points.loc[params_to_change])
-    
-    # find actual distribution of fmax given number of measurements
-    fmaxDist = fmaxDistObject.getDist(len(subSeries))
-    
-    # fit variant
-    results, singles = fitting.bootstrapCurves(concentrations, subSeries, fitParameters,
-                                              func=func,
-                                              enforce_fmax=enforce_fmax,
-                                              fmaxDist=fmaxDist,
-                                              n_samples=n_samples,
-                                              verbose=plot,
-                                              kwargs=kwargs)
-    # plot
-    if plot:
-        plotting.plotFitCurve(concentrations,
-                                     subSeries,
-                                     results,
-                                     fitParameters,
-                                     log_axis=True,
-                                     func=func, fittype=fittype, kwargs=kwargs)
-        # also plot initial
-        if initial_points is not None:
-            try:
-                more_concentrations = np.logspace(0, 4)
-                fit = func(fitting.returnParamsFromResults(initial_points),
-                                                           more_concentrations)
-                plt.plot(more_concentrations, fit, 'k--')
-            except: pass
-
-    return results
-
-def getMedianFirstBindingPoint(table):
-    """ Return the median fluoresence in first binding point of each variant. """
-    return table.groupby('variant_number').median().iloc[:, 0]
-
 def loadGroupDict(bindingCurveFilename, annotatedClusterFile):
     """ Return the fluorescence values, split by variant. """
     
@@ -147,55 +91,42 @@ def loadGroupDict(bindingCurveFilename, annotatedClusterFile):
         fluorescenceMatSplit[name] = group.iloc[:, 1:]
     return fluorescenceMat, fluorescenceMatSplit
 
-
-def findInitialPoints(variant_table):
-    """ Return initial points with different column names. """
-    initialPoints = variant_table.loc[:, ['fmax_init', 'dG_init', 'fmin_init', 'numTests']]
-    initialPoints.columns = ['fmax', 'dG', 'fmin', 'numTests']  
-    return initialPoints
-
-def returnFminFromFluorescence(initialPoints, fluorescenceMat, cutoff):
-    """ Return the estimated fixed fmin based on affinity and fluroescence. """
-    # if cutoff is not given, use parameters
-
-    initial_dG = initialPoints.loc[:, 'dG']
-
-    firstBindingPoint = getMedianFirstBindingPoint(fluorescenceMat)
-    return firstBindingPoint.loc[initial_dG.index].loc[initial_dG > cutoff].median()
-
-def initiateFitting(variant_table, fluorescenceMat, fluorescenceMatSplit, concentrations, fmaxDistObject):
-    
+def initiateFitting(variant_table, fluorescenceMat, fluorescenceMatSplit, concentrations, fmaxDistObject,
+                    fmin_float=False):
+    """Get fit parameters and initial points."""
     # get parameters
     parameters = fitting.fittingParameters(concentrations)
 
     # make sure initial points have all of keys that table does
-    initialPoints = findInitialPoints(variant_table)
+    initialPoints = distribution.findInitialPoints(variant_table)
     missing_variants = (np.array(fluorescenceMatSplit.keys())
                         [np.logical_not(np.in1d(fluorescenceMatSplit.keys(), initialPoints.index))])
     initialPoints = pd.concat([initialPoints, pd.DataFrame(index=missing_variants,
                                                            columns=initialPoints.columns)])
     
     # find fmin
-    fmin_fixed = returnFminFromFluorescence(initialPoints, fluorescenceMat, parameters.mindG)
-    
-    # find constraints on fmin and delta G
-    fitParameters = getInitialFitParameters(concentrations)
-    fitParameters.loc['vary', 'fmin'] = False
-    fitParameters.loc['initial', 'fmin'] = fmin_fixed
-    fitParameters.loc['initial', 'fmax'] = fmaxDistObject.getDist(1).stats(moments='m')
+    fmin_fixed = distribution.returnFminFromFluorescence(initialPoints, fluorescenceMat, parameters.mindG)
+    fitParameters = []
+    fitParameters.append(fitting.getFitParam('fmax', init_val=fmaxDistObject.getDist(1).stats(moments='m'), vary=True))
+    fitParameters.append(fitting.getFitParam('dG', concentrations, vary=True))
+    fitParameters.append(fitting.getFitParam('fmin', init_val=fmin_fixed, vary=fmin_float))
         
+    return initialPoints, pd.concat(fitParameters, axis=1)
 
-    return initialPoints, fitParameters
 
 def fitBindingCurves(variant_table, fluorescenceMat,
                      fluorescenceMatSplit, concentrations, fmaxDistObject,
                      numCores=20, n_samples=100, variants=None,
-                     enforce_fmax=None, kwargs=None):
+                     enforce_fmax=None, weighted_fit=True, fmin_float=False, func_kwargs={}):
     
     # process before fitting
     initialPoints, fitParameters = initiateFitting(variant_table, fluorescenceMat,
                                                    fluorescenceMatSplit, concentrations,
-                                                   fmaxDistObject)
+                                                   fmaxDistObject, fmin_float=fmin_float)
+    
+    # add slope to fitParameters if supposed to fit it 
+    if 'fit_slope' in func_kwargs.keys():
+        fitParameters.loc[:, 'slope'] = fitting.getFitParam('slope', vary=func_kwargs['fit_slope'])
     
     if variants is None:
         variants = fluorescenceMatSplit.keys()
@@ -203,14 +134,15 @@ def fitBindingCurves(variant_table, fluorescenceMat,
     print '\tMultiprocessing bootstrapping...'
     # parallelize fitting
     results = (Parallel(n_jobs=numCores, verbose=10)
-                (delayed(perVariant)(concentrations,
+                (delayed(fitting.perVariant)(concentrations,
                                         fluorescenceMatSplit[variant],
                                         fitParameters,
                                         fmaxDistObject,
                                         initial_points=initialPoints.loc[variant],
                                         n_samples=n_samples,
                                         enforce_fmax=enforce_fmax,
-                                        kwargs=kwargs)
+                                        weighted_fit=weighted_fit,
+                                        func_kwargs=func_kwargs)
                  for variant in variants if variant in fluorescenceMatSplit.keys()))      
      
     results = pd.concat(results, axis=1).transpose()
@@ -219,12 +151,11 @@ def fitBindingCurves(variant_table, fluorescenceMat,
     # save final results as one dataframe
     variant_final = pd.DataFrame(
         index  =np.unique(variant_table.index.tolist() + results.index.tolist()),
-        columns=variant_table.columns)
+        columns=np.unique(variant_table.columns.tolist() + results.columns.tolist()))
     variant_final.loc[variant_table.index, variant_table.columns] = variant_table
-    columns = results.columns[np.in1d(results.columns, variant_table.columns)]
-    variant_final.loc[results.index, columns] = results.loc[:, columns]
-
-    return variant_final.astype(float)
+    variant_final.loc[results.index, results.columns] = results
+    col_order = variant_table.columns.tolist() + [col for col in results if col not in variant_table]
+    return variant_final.loc[:, col_order].astype(float)
 
 
 
@@ -242,6 +173,8 @@ if __name__ == '__main__':
     outFile  = args.out_file
     enforce_fmax = args.enforce_fmax
     concentrations = np.loadtxt(args.concentrations)
+    fmin_float = args.fmin_float
+    weighted_fit = not args.no_weights
     
     # find out file
     if outFile is None:
@@ -251,7 +184,8 @@ if __name__ == '__main__':
     fmaxDistObject = fileio.loadFile(fmaxDistFile)
     variant_table = fileio.loadFile(variantFile)
     fluorescenceMat, fluorescenceMatSplit = loadGroupDict(bindingCurveFilename, annotatedClusterFile)
-        
+    func_kwargs = {'slope':args.slope, 'fit_slope':args.fit_slope}
+    
     # subset
     variants = variant_table.index.tolist()
     if args.subset:
@@ -262,7 +196,8 @@ if __name__ == '__main__':
     variant_final = fitBindingCurves(variant_table, fluorescenceMat,
                  fluorescenceMatSplit, concentrations, fmaxDistObject,
                  numCores=numCores, n_samples=n_samples, variants=variants,
-                 enforce_fmax=enforce_fmax, kwargs={'slope':args.slope})
+                 enforce_fmax=enforce_fmax, weighted_fit=weighted_fit, fmin_float=fmin_float,
+                 func_kwargs=func_kwargs)
 
     # save
     variant_final.to_csv(outFile + '.CPvariant', sep='\t', index=True)

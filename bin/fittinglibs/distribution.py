@@ -300,6 +300,25 @@ def returnFminFromFits(variant_table, cutoff):
     """ Return the estimated fixed fmin based on affinity and fits. """
     return variant_table.loc[variant_table.dG_init> cutoff].fmin_init.median()
 
+def findInitialPoints(variant_table):
+    """ Return initial points with different column names. """
+    initialPoints = variant_table.loc[:, ['fmax_init', 'dG_init', 'fmin_init', 'numTests']]
+    initialPoints.columns = ['fmax', 'dG', 'fmin', 'numTests']  
+    return initialPoints
+
+def returnFminFromFluorescence(initialPoints, fluorescenceMat, cutoff):
+    """ Return the estimated fixed fmin based on affinity and fluroescence. """
+    # if cutoff is not given, use parameters
+
+    initial_dG = initialPoints.loc[:, 'dG']
+
+    firstBindingPoint = getMedianFirstBindingPoint(fluorescenceMat)
+    return firstBindingPoint.loc[initial_dG.index].loc[initial_dG > cutoff].median()
+
+def getMedianFirstBindingPoint(table):
+    """ Return the median fluoresence in first binding point of each variant. """
+    return table.groupby('variant_number').median().iloc[:, 0]
+
 def getFmaxMeanAndBounds(tight_binders, cutoff=1E-12):
     """ Return median fmaxes of variants. """
     # find defined mean shared by all variants by fitting all

@@ -75,6 +75,41 @@ class fittingParameters():
     def find_Kd_from_frac_bound_concentration(self, frac_bound, concentration):
         return concentration/float(frac_bound) - concentration
 
+def getFitParam(param, concentrations=None, init_val=None, vary=None):
+    """For a given fit parameter, return reasonable lowerbound, initial guess, and upperbound.
+    
+    Different inputs may be provided.
+    - For param='dG', need to provide the concentrations, (i.e. dG_params = {'concentrations':[1,2,4,8]} so that reasonable bounds can be found on the dG.
+    - can specify 'vary', which will be a bool by default set to true, in addition to the lb, initial, and ub.
+    - For param='fmin', may want to provide the 
+    """
+    fitParam = pd.Series(index=['lowerbound', 'initial', 'upperbound'], name=param)
+    if param=='dG':
+        if concentrations is None:
+            print 'must specify concentrations to find initial parameters for dG'
+            return fitParams
+        parameters = fittingParameters(concentrations=concentrations)
+        fitParam.loc['lowerbound'] = parameters.find_dG_from_Kd(parameters.find_Kd_from_frac_bound_concentration(0.99, concentrations[0]))
+        fitParam.loc['initial'] = parameters.find_dG_from_Kd(parameters.find_Kd_from_frac_bound_concentration(0.5, concentrations[-1]))
+        fitParam.loc['upperbound'] = parameters.find_dG_from_Kd(parameters.find_Kd_from_frac_bound_concentration(0.01, concentrations[-1]))
+    elif param=='fmin':
+        fitParam.loc[:] = [0, 0, np.inf]
+    elif param=='fmax':
+        fitParam.loc[:] = [0, np.nan, np.inf]
+    elif param=='slope':
+        fitParam.loc[:] = [0, 3E-4, np.inf]
+    else:
+        print 'param %s not recognized.'%param
+    
+    # change vary
+    if vary is not None:
+        fitParam.loc['vary'] = vary
+        
+    # change init param
+    if init_val is not None:
+        fitParam.loc['initial'] = init_val
+    return fitParam
+    
 def getInitialFitParameters(concentrations):
     """ Return fitParameters object with minimal constraints.
     
@@ -102,6 +137,15 @@ def getInitialFitParameters(concentrations):
                                     [concentrations[0], concentrations[-1], concentrations[-1]])]
  
     return fitParameters
+
+def getInitialFitParametersVary(concentrations):
+    """ Return initial fit parameters from single cluster fits.
+    
+    Add a row 'vary' that indicates whether parameter should vary or not. """
+    fitParameters = getInitialFitParameters(concentrations)
+    return pd.concat([fitParameters.astype(object),
+                      pd.DataFrame(True, columns=fitParameters.columns,
+                                         index=['vary'], dtype=bool)])
 
 def objectiveFunctionOffRates(params, times, data=None, weights=None, index=None, bleach_fraction=1, image_ns=None):
     """ Return fit value, residuals, or weighted residuals of off rate objective function. """
@@ -334,17 +378,10 @@ def enforceFmaxDistribution(median_fluorescence, fmaxDist, verbose=None, cutoff=
     return redoFitFmax
 
 
-def bootstrapCurves(x, subSeries, fitParameters, fmaxDist=None,
-                    default_errors=None, use_default=None, verbose=None, n_samples=None,
-                    enforce_fmax=None, func=None, kwargs={}):
+def bootstrapCurves(x, subSeries, fitParameters, fmaxDist, func,
+                    weighted_fit=True, verbose=False, n_samples=100,
+                    enforce_fmax=None, func_kwargs={}):
     """ Bootstrap fit of a model to multiple measurements of a single molecular variant. """
-    
-    # set defaults for various parameters
-    if n_samples is None:
-        n_samples = 100
-        
-    if verbose is None:
-        verbose = False
 
     # if last point in binding series is below fmax constraints, do by method B
     median_fluorescence = subSeries.median()
@@ -353,41 +390,24 @@ def bootstrapCurves(x, subSeries, fitParameters, fmaxDist=None,
         # if enforce_fmax is not set, decide based on median fluorescence in last binding point
         enforce_fmax = enforceFmaxDistribution(median_fluorescence,
                                                fmaxDist, verbose=verbose)
-    else:
-        if verbose:
-            if enforce_fmax:
-                print "using enforced fmax because of user settings"
-            else:
-                print "not enforcing fmax because of user settings"
+
             
     if enforce_fmax and (fmaxDist is None):
         print ('Error: if you wish to enforce fmax, need to define "fmaxDist"\n'
                'which is a instance of a normal distribution with mean and sigma\n'
                'defining the expected distribution of fmax')
-        
-    if use_default is None:
-        use_default = False # if flagged, use only default errors
-    
-    # if func is not given, assume fit to binding curve.
-    if func is None:
-        func = bindingCurveObjectiveFunction
+        sys.exit()
         
     # estimate weights to use in weighted least squares fitting
-    if default_errors is None:
-        default_errors = np.ones(len(x))*np.nan
-    if not use_default:
+    eminus = eplus = np.ones(len(x))*np.nan
+    if weighted_fit:
         try:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
                 eminus, eplus = findErrorBarsBindingCurve(subSeries)
         except:
-            use_default=True
-            
-    # option to use only default errors provdided for quicker runtime
-    if use_default:
-        numTestsAny = np.array([len(subSeries.loc[:, col].dropna()) for col in subSeries])
-        eminus = eplus = default_errors/np.sqrt(numTestsAny)
-    
+            pass
+        
     # find number of samples to bootstrap
     numTests = len(subSeries)
     if numTests <10 and np.power(numTests, numTests) <= n_samples:
@@ -439,7 +459,7 @@ def bootstrapCurves(x, subSeries, fitParameters, fmaxDist=None,
                                     fitParameters,
                                     errors=[eminus[index.values], eplus[index.values]],
                                     func=func,
-                                    do_not_fit=do_not_fit, kwargs=kwargs)
+                                    do_not_fit=do_not_fit, kwargs=func_kwargs)
     # concatenate all resulting iterations
     singles = pd.concat(singles, axis=1).transpose()
     
@@ -518,6 +538,29 @@ def perCluster(concentrations, fluorescence, fitParameters, plot=None, change_pa
         print "plotting.plotFitCurve(concentrations, fluorescence, single, param_names=fitParameters.columns.tolist(), func=func, fittype=fittype, kwargs=kwargs)"             
     return pd.DataFrame(columns=[fluorescence.name],
                         data=single).transpose()
+
+def perVariant(concentrations, subSeries, fitParameters, fmaxDistObject, initial_points=None,
+               n_samples=100, enforce_fmax=None, func=None, weighted_fit=True, func_kwargs={}):
+    """ Fit a variant to objective function by bootstrapping median fluorescence. """
+    
+    # define fitting function
+    if func is None:
+        func = bindingCurveObjectiveFunction
+
+    # change initial guess on fit parameters if given previous fit
+    fitParametersPer = fitParameters.copy()
+    if initial_points is not None:
+        params_to_change = fitParameters.loc[:, fitParametersPer.loc['vary'].astype(bool)].columns
+        fitParametersPer.loc['initial', params_to_change] = (initial_points.loc[params_to_change])
+    
+    # find actual distribution of fmax given number of measurements
+    fmaxDist = fmaxDistObject.getDist(len(subSeries))
+    
+    # fit variant
+    results, singles = bootstrapCurves(concentrations, subSeries, fitParameters, fmaxDist, func,
+                    weighted_fit=weighted_fit, n_samples=n_samples,
+                    enforce_fmax=enforce_fmax, func_kwargs=func_kwargs)
+    return results
 
 def plotFitDistributions(results, singles, fitParameters):
     """ Plot a distribtion of fit parameters. """
