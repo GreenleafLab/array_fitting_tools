@@ -62,20 +62,23 @@ def my_smoothed_scatterplot(x,y, distance_threshold=None, color=None,**kwargs):
 
 
 
-def plotDataErrorbars(x, subSeries, ax=None, capsize=2):
+def plotDataErrorbars(x, subSeries, ax=None, capsize=2, errors=None):
     """ Find errorbars on set of cluster fluorescence and plot. """
     
     # set errors to NaN unless successfully find them later on with bootstrapping
-    default_errors = np.ones(len(x))*np.nan
-
+    if errors is None:
+        use_default=False
+        default_errors = [np.ones(len(x))*np.nan]*2 
+    else:
+        use_default = True
+        default_errors = errors
+    
     # if subseries is a dataframe, find errors along columns. if verctor, no errors will be found.
     if len(subSeries.shape) == 1:
         fluorescence = subSeries
-        use_default = True
         numTests = np.array([1 for col in subSeries])
     else:
         fluorescence = subSeries.median()
-        use_default = False
         numTests = np.array([len(subSeries.loc[:, col].dropna()) for col in subSeries])
     
     # option to use only default errors provdided for quicker runtime
@@ -84,8 +87,8 @@ def plotDataErrorbars(x, subSeries, ax=None, capsize=2):
             warnings.simplefilter("ignore")
             eminus, eplus = fitting.findErrorBarsBindingCurve(subSeries)
     else:
-        eminus, eplus = [default_errors]*2
-
+        eminus, eplus = default_errors
+    
     # if ax is given, plot to that. else
     if ax is None:
         ax = plt.gca()
@@ -122,7 +125,7 @@ def plotFitBounds(x, params_lb, params_ub, func, ax=None, fit_kwargs=None):
     return ax
 
 def plotFitCurve(x, subSeries, results, param_names=None, ax=None, log_axis=True, capsize = 2,
-                 func=fitting.bindingCurveObjectiveFunction, fittype='binding', kwargs=None):
+                 func=fitting.bindingCurveObjectiveFunction, fittype='binding', kwargs=None, errors=None):
     if kwargs is None:
         kwargs = {}
 
@@ -179,7 +182,7 @@ def plotFitCurve(x, subSeries, results, param_names=None, ax=None, log_axis=True
         more_x = np.linspace(x.min(), x.max(), 100)
 
     # plot the data
-    plotDataErrorbars(x, subSeries, ax, capsize=capsize)
+    plotDataErrorbars(x, subSeries, ax, capsize=capsize, errors=errors)
 
     # plot fit
     plotFit(more_x, params, func, ax=ax, fit_kwargs=kwargs)

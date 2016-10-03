@@ -317,7 +317,7 @@ def fitSingleCurve(x, fluorescence, fitParameters, func,
     
     return final_params
 
-def findErrorBarsBindingCurve(subSeries):
+def findErrorBarsBindingCurve(subSeries, min_error=0):
     """ Return bootstrapped confidence intervals on columns of an input data matrix.
     
     Assuming rows represent replicate measurments, i.e. clusters. """
@@ -340,9 +340,10 @@ def findErrorBarsBindingCurve(subSeries):
         else:
             eminus.append(np.nan)
             eplus.append(np.nan)
-    eminus = pd.Series(eminus, index=subSeries.columns)
-    eplus = pd.Series(eplus, index=subSeries.columns)
-
+            
+    
+    eminus = pd.Series([max(min_error, e) for e in eminus], index=subSeries.columns)
+    eplus = pd.Series([max(min_error, e) for e in eplus], index=subSeries.columns)
     return eminus, eplus
 
 def enforceFmaxDistribution(median_fluorescence, fmaxDist, verbose=None, cutoff=None):
@@ -380,7 +381,7 @@ def enforceFmaxDistribution(median_fluorescence, fmaxDist, verbose=None, cutoff=
 
 def bootstrapCurves(x, subSeries, fitParameters, fmaxDist, func,
                     weighted_fit=True, verbose=False, n_samples=100,
-                    enforce_fmax=None, func_kwargs={}):
+                    enforce_fmax=None, min_error=0, func_kwargs={}):
     """ Bootstrap fit of a model to multiple measurements of a single molecular variant. """
 
     # if last point in binding series is below fmax constraints, do by method B
@@ -404,7 +405,7 @@ def bootstrapCurves(x, subSeries, fitParameters, fmaxDist, func,
         try:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
-                eminus, eplus = findErrorBarsBindingCurve(subSeries)
+                eminus, eplus = findErrorBarsBindingCurve(subSeries, min_error)
         except:
             pass
         
@@ -540,7 +541,7 @@ def perCluster(concentrations, fluorescence, fitParameters, plot=None, change_pa
                         data=single).transpose()
 
 def perVariant(concentrations, subSeries, fitParameters, fmaxDistObject, initial_points=None,
-               n_samples=100, enforce_fmax=None, func=None, weighted_fit=True, func_kwargs={}):
+               n_samples=100, enforce_fmax=None, func=None, weighted_fit=True, min_error=0, func_kwargs={}):
     """ Fit a variant to objective function by bootstrapping median fluorescence. """
     
     # define fitting function
@@ -558,7 +559,7 @@ def perVariant(concentrations, subSeries, fitParameters, fmaxDistObject, initial
     
     # fit variant
     results, singles = bootstrapCurves(concentrations, subSeries, fitParameters, fmaxDist, func,
-                    weighted_fit=weighted_fit, n_samples=n_samples,
+                    weighted_fit=weighted_fit, n_samples=n_samples, min_error=min_error,
                     enforce_fmax=enforce_fmax, func_kwargs=func_kwargs)
     return results
 
