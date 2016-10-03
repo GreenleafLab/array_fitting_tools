@@ -44,9 +44,9 @@ def get_c(x, y, distance_threshold=None):
     return c
 
 
-def my_smoothed_scatterplot(x,y, color=None,**kwargs):
+def my_smoothed_scatterplot(x,y, distance_threshold=None, color=None,**kwargs):
     """ given x and y, plot a scatterplot with color according to density."""
-    c = get_c(x, y)
+    c = get_c(x, y, distance_threshold=distance_threshold)
     if 'cmap' not in kwargs.keys():
         if color is not None:
             cmap = sns.dark_palette(color, as_cmap=True)

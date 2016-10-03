@@ -51,6 +51,20 @@ def loadFile(filename):
         return pd.read_table(filename, index_col=0)
     else:
         print 'Extension %s not recognized. No file loaded.'%ext
+        
+def saveFile(filename, data):
+    """Save data to a file according to extension."""
+    if filename is None:
+        print "Error: No filename given!"
+        sys.exit()
+    ext = os.path.splitext(filename)[-1]
+    if ext == '.pkl':
+        data.to_pickle(filename)
+    elif ext == '.CPvariant':
+        data.to_csv(filename, sep='\t')
+    else:
+        print 'Extension %s not recognized. No file loaded.'%ext
+        
     
 def _loadCPseq(filename):
     """ Return CPseq file. """
