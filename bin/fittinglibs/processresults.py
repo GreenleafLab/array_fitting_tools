@@ -452,6 +452,7 @@ class perVariant():
         offset = 0
         return getResultsFromVariantTables(variant_tables, offset)
 
+<<<<<<< HEAD
     def fitVariant(self, variant, func, kwargs={}):
         """Fit a variant to the objective function 'func'."""
         concentrations = self.x
@@ -463,6 +464,16 @@ class perVariant():
         results = fitting.perCluster(concentrations, fluorescence, fitParameters,
                                   change_params=False, func=func)
         return results
+
+    def redoBootstrapped(self, variant, fmaxDistObject, weighted_fit=True, fmin_float=False, func_kwargs={}, original_slope=0.0006):
+        """Redo the bootstrapping step here."""
+        concentrations = self.x
+        variant_table = self.variant_table
+        subSeries = self.getVariantBindingSeries(variant)
+        fluorescenceMat = pd.concat([self.annotated_clusters, self.binding_series.astype(float)], axis=1).sort('variant_number')
+        
+        # get parameters
+        parameters = fitting.fittingParameters(concentrations)
 
     def redoBootstrapped(self, variant, fmaxDistObject, weighted_fit=True, fmin_float=False, func_kwargs={}, original_slope=0.0006):
         """Redo the bootstrapping step here."""
@@ -1026,6 +1037,7 @@ def returnFractionGroupedBy(mat, param_in, param_out):
     return x, y, yerr   
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 def getResultsFromVariantTables(variant_tables, offset):
     """combine variant tables to form a results table."""
     # make flags
@@ -1079,6 +1091,8 @@ def getResultsFromVariantTables(variant_tables, offset):
         results.loc[index, 'numTests'] = weightedAverageAll(numTests, weights, index=index)
     return results
 =======
+=======
+>>>>>>> 29a295629bf4cd0b17bb08fdbeb053669447c2ea
 def annotateBindingCurve(vec, ax):
     """Given a pd.Series of things ot annotate, annotate them onto ax"""
     annotationText = ['dG= %4.2f (%4.2f, %4.2f)'%(vec.dG,
@@ -1110,5 +1124,9 @@ def annotateOffrate(vec, ax):
                       ]
     ax.annotate('\n'.join(annotationText), xy=(.05, .95), xycoords='axes fraction',
                 horizontalalignment='left', verticalalignment='top', fontsize=9)
+<<<<<<< HEAD
     return ax
 >>>>>>> optimize getting fitting params, moved some stuff out of bootstrap fits
+=======
+    return ax
+>>>>>>> 29a295629bf4cd0b17bb08fdbeb053669447c2ea
