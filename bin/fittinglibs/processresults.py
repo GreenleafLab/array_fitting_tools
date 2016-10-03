@@ -421,7 +421,9 @@ class perVariant():
         offset = 0
         return getResultsFromVariantTables(variant_tables, offset)
 
-
+    def fitVariant(self, variant, func):
+        """Fit a variant to the objective function 'func'."""
+        
 
         
 class perFlow():

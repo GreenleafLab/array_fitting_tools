@@ -58,3 +58,35 @@ def exponential(params, x, y=None, weights=None):
     else:
         return (y - y_pred)*weights    
     
+def bindingCurveNonspecificTermNonlinear(params, concentrations, data=None, weights=None, index=None):
+    """  Return fit value, residuals, or weighted residuals of a binding curve with nonlinear, nonspecific term.
+    
+    Hill coefficient 1. """
+    if index is None:
+        index = np.ones(len(concentrations)).astype(bool)
+        
+    parameters = fittingParameters()
+    
+    parvals = params.valuesdict()
+    fmax = parvals['fmax']
+    dG   = parvals['dG']
+    fmin = parvals['fmin']
+    dG_ns = parvales['dG_ns']
+
+    Kd = np.exp(dG/parameters.RT)/parameters.concentration_units
+    Kd_ns = np.exp(dG_ns/parameters.RT)/parameters.concentration_units
+    fracbound = (fmin +
+                 fmax*(concentrations/(concentrations + Kd) +
+                       concentrations**2/(concentrations + Kd)/Kd_ns))
+    
+    # return fit value of data is not given
+    if data is None:
+        return fracbound[index]
+    
+    # return residuals if data is given
+    elif weights is None:
+        return (fracbound - data)[index]
+    
+    # return weighted residuals if data is given
+    else:
+        return ((fracbound - data)*weights)[index]
