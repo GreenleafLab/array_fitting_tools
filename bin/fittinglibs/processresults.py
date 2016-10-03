@@ -421,10 +421,17 @@ class perVariant():
         offset = 0
         return getResultsFromVariantTables(variant_tables, offset)
 
-    def fitVariant(self, variant, func):
+    def fitVariant(self, variant, func, kwargs={}):
         """Fit a variant to the objective function 'func'."""
-        
-
+        concentrations = self.x
+        fluorescence = self.getVariantBindingSeries(variant).median().rename(variant)       
+        fitParameters = fitting.getInitialFitParameters(concentrations)
+        if func == objfunctions.bindingCurveNonspecificTermNonlinear:
+            fitParameters.loc[:, 'dG_ns'] = [-np.inf, fitParameters.loc['upperbound', 'dG'], np.inf]
+        fitParameters.loc['initial', 'fmax'] = fluorescence.max()
+        results = fitting.perCluster(concentrations, fluorescence, fitParameters,
+                                  change_params=False, func=func)
+        return results
         
 class perFlow():
     """Class for plots that combine off rate and variant data."""

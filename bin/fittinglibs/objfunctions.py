@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-
+from fittinglibs.fitting import fittingParameters
 
 def objectiveFunctionOnRates(params, times, data=None, weights=None, index=None,  bleach_fraction=1, image_ns=None):
     """ Return fit value, residuals, or weighted residuals of on rate objective function. """
@@ -72,7 +72,7 @@ def bindingCurveNonspecificTermNonlinear(params, concentrations, data=None, weig
     fmax = parvals['fmax']
     dG   = parvals['dG']
     fmin = parvals['fmin']
-    dG_ns = parvales['dG_ns']
+    dG_ns = parvals['dG_ns']
 
     Kd = np.exp(dG/parameters.RT)/parameters.concentration_units
     Kd_ns = np.exp(dG_ns/parameters.RT)/parameters.concentration_units
