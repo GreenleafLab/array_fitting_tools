@@ -57,6 +57,7 @@ def exponential(params, x, y=None, weights=None):
         return (y - y_pred)
     else:
         return (y - y_pred)*weights    
+
     
 def bindingCurveNonspecificTermNonlinear(params, concentrations, data=None, weights=None, index=None):
     """  Return fit value, residuals, or weighted residuals of a binding curve with nonlinear, nonspecific term.
@@ -90,3 +91,5 @@ def bindingCurveNonspecificTermNonlinear(params, concentrations, data=None, weig
     # return weighted residuals if data is given
     else:
         return ((fracbound - data)*weights)[index]
+
+
