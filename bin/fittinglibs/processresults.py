@@ -452,7 +452,6 @@ class perVariant():
         offset = 0
         return getResultsFromVariantTables(variant_tables, offset)
 
-<<<<<<< HEAD
     def fitVariant(self, variant, func, kwargs={}):
         """Fit a variant to the objective function 'func'."""
         concentrations = self.x
@@ -994,7 +993,7 @@ class manyFlows():
     def plotAllInitVsFinal(self, param='dG', colorby='fmax_init', limits=[-12.5, -6], order=None, **kwargs):
         """For each of the variant tables, plot the dG init versus dG final"""
         alldata = []
-        for name, data in zip(self.names, self.flowData):
+        for name, data in self.flowData.items():
             subdata = data.variant_table.loc[:, ['%s_init'%param, param]]
             subdata.loc[:, 'expt'] = name
             subdata.loc[:, 'colorby'] = data.variant_table.loc[:, colorby]
@@ -1036,8 +1035,6 @@ def returnFractionGroupedBy(mat, param_in, param_out):
                          for name, group in grouped]).transpose()
     return x, y, yerr   
 
-<<<<<<< HEAD
-<<<<<<< HEAD
 def getResultsFromVariantTables(variant_tables, offset):
     """combine variant tables to form a results table."""
     # make flags
@@ -1090,9 +1087,7 @@ def getResultsFromVariantTables(variant_tables, offset):
         results.loc[index, ['weights1', 'weights2']]   = weights.loc[index].values
         results.loc[index, 'numTests'] = weightedAverageAll(numTests, weights, index=index)
     return results
-=======
-=======
->>>>>>> 29a295629bf4cd0b17bb08fdbeb053669447c2ea
+
 def annotateBindingCurve(vec, ax):
     """Given a pd.Series of things ot annotate, annotate them onto ax"""
     annotationText = ['dG= %4.2f (%4.2f, %4.2f)'%(vec.dG,
@@ -1124,9 +1119,5 @@ def annotateOffrate(vec, ax):
                       ]
     ax.annotate('\n'.join(annotationText), xy=(.05, .95), xycoords='axes fraction',
                 horizontalalignment='left', verticalalignment='top', fontsize=9)
-<<<<<<< HEAD
+
     return ax
->>>>>>> optimize getting fitting params, moved some stuff out of bootstrap fits
-=======
-    return ax
->>>>>>> 29a295629bf4cd0b17bb08fdbeb053669447c2ea

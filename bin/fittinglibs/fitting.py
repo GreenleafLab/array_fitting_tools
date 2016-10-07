@@ -75,7 +75,7 @@ class fittingParameters():
     def find_Kd_from_frac_bound_concentration(self, frac_bound, concentration):
         return concentration/float(frac_bound) - concentration
 
-def getFitParam(param, concentrations=None, init_val=None, vary=None):
+def getFitParam(param, concentrations=None, init_val=None, vary=None, ub=None, lb=None):
     """For a given fit parameter, return reasonable lowerbound, initial guess, and upperbound.
     
     Different inputs may be provided.
@@ -92,12 +92,19 @@ def getFitParam(param, concentrations=None, init_val=None, vary=None):
         fitParam.loc['lowerbound'] = parameters.find_dG_from_Kd(parameters.find_Kd_from_frac_bound_concentration(0.99, concentrations[0]))
         fitParam.loc['initial'] = parameters.find_dG_from_Kd(parameters.find_Kd_from_frac_bound_concentration(0.5, concentrations[-1]))
         fitParam.loc['upperbound'] = parameters.find_dG_from_Kd(parameters.find_Kd_from_frac_bound_concentration(0.01, concentrations[-1]))
+    elif param=='dGns':
+        parameters = fittingParameters(concentrations=concentrations)
+        fitParam.loc['lowerbound'] = parameters.find_dG_from_Kd(parameters.find_Kd_from_frac_bound_concentration(0.99, concentrations[0]))
+        fitParam.loc['initial'] = parameters.find_dG_from_Kd(parameters.find_Kd_from_frac_bound_concentration(0.01, concentrations[-1]))
+        fitParam.loc['upperbound'] = np.inf
+        
     elif param=='fmin':
         fitParam.loc[:] = [0, 0, np.inf]
     elif param=='fmax':
         fitParam.loc[:] = [0, np.nan, np.inf]
     elif param=='slope':
         fitParam.loc[:] = [0, 3E-4, np.inf]
+
     else:
         print 'param %s not recognized.'%param
     
@@ -108,6 +115,12 @@ def getFitParam(param, concentrations=None, init_val=None, vary=None):
     # change init param
     if init_val is not None:
         fitParam.loc['initial'] = init_val
+        
+    # change ub
+    if ub is not None:
+        fitParam.loc['upperbound'] = ub
+    if lb is not None:
+        fitParam.loc['lowerbound'] = lb        
     return fitParam
     
 def getInitialFitParameters(concentrations):
@@ -147,90 +160,6 @@ def getInitialFitParametersVary(concentrations):
                       pd.DataFrame(True, columns=fitParameters.columns,
                                          index=['vary'], dtype=bool)])
 
-def objectiveFunctionOffRates(params, times, data=None, weights=None, index=None, bleach_fraction=1, image_ns=None):
-    """ Return fit value, residuals, or weighted residuals of off rate objective function. """
-    if index is None:
-        index = np.ones(len(times)).astype(bool)
-    if image_ns is None:
-        image_ns = np.arange(len(times))
-        
-    parvals = params.valuesdict()
-    fmax = parvals['fmax']
-    koff = parvals['koff']
-    fmin = parvals['fmin']
-    fracbound = (fmin +
-                 (fmax - fmin)*np.exp(-koff*times)*
-                 np.power(bleach_fraction,image_ns))
-
-    # return fit value of data is not given
-    if data is None:
-        return fracbound[index]
-    
-    # return residuals if data is given
-    elif weights is None:
-        return (fracbound - data)[index]
-    
-    # return weighted residuals if data is given
-    else:
-        return ((fracbound - data)*weights)[index]  
-    
-    
-def objectiveFunctionOnRates(params, times, data=None, weights=None, index=None,  bleach_fraction=1, image_ns=None):
-    """ Return fit value, residuals, or weighted residuals of on rate objective function. """
-    if index is None:
-        index = np.ones(len(times)).astype(bool)
-    if image_ns is None:
-        image_ns = np.arange(len(times))
-        
-    parvals = params.valuesdict()
-    fmax = parvals['fmax']
-    koff = parvals['kobs']
-    fmin = parvals['fmin']
-    fracbound = fmin + (fmax*(1 - np.exp(-koff*times)*np.power(bleach_fraction,image_ns)));
-
-    # return fit value of data is not given
-    if data is None:
-        return fracbound[index]
-    
-    # return residuals if data is given
-    elif weights is None:
-        return (fracbound - data)[index]
-    
-    # return weighted residuals if data is given
-    else:
-        return ((fracbound - data)*weights)[index]  
-        
-def bindingCurveObjectiveFunction(params, concentrations, data=None, weights=None, index=None,
-                                  slope=0, fit_slope=False):
-    """  Return fit value, residuals, or weighted residuals of a binding curve.
-    
-    Hill coefficient 1. """
-    if index is None:
-        index = np.ones(len(concentrations)).astype(bool)
-        
-    parameters = fittingParameters()
-    
-    parvals = params.valuesdict()
-    fmax = parvals['fmax']
-    dG   = parvals['dG']
-    fmin = parvals['fmin']
-    if fit_slope:
-        slope = parvals['slope']
-    fracbound = (fmin + fmax*concentrations/
-                 (concentrations + np.exp(dG/parameters.RT)/
-                  parameters.concentration_units)) + slope*concentrations
-    
-    # return fit value of data is not given
-    if data is None:
-        return fracbound[index]
-    
-    # return residuals if data is given
-    elif weights is None:
-        return (fracbound - data)[index]
-    
-    # return weighted residuals if data is given
-    else:
-        return ((fracbound - data)*weights)[index]
     
 def convertFitParametersToParams(fitParameters):
     """ Return lmfit params structure starting with descriptive dataframe. """
@@ -245,7 +174,7 @@ def convertFitParametersToParams(fitParameters):
         if 'lowerbound' in fitParameters.loc[:, param].index.tolist():
             lowerbound = fitParameters.loc['lowerbound', param]
         else:
-            lowerbound = -np.inf
+            lowerbound = None
         if 'upperbound' in fitParameters.loc[:, param].index.tolist():
             upperbound = fitParameters.loc['upperbound', param]
         else:
@@ -540,25 +469,24 @@ def perCluster(concentrations, fluorescence, fitParameters, plot=None, change_pa
     return pd.DataFrame(columns=[fluorescence.name],
                         data=single).transpose()
 
-def perVariant(concentrations, subSeries, fitParameters, fmaxDistObject, initial_points=None,
-               n_samples=100, enforce_fmax=None, func=None, weighted_fit=True, min_error=0, func_kwargs={}):
+def perVariant(concentrations, subSeries, fitParameters, fmaxDistObject, func, initial_points=None,
+               n_samples=100, enforce_fmax=None, weighted_fit=True, min_error=0, func_kwargs={}):
     """ Fit a variant to objective function by bootstrapping median fluorescence. """
-    
-    # define fitting function
-    if func is None:
-        func = bindingCurveObjectiveFunction
 
     # change initial guess on fit parameters if given previous fit
     fitParametersPer = fitParameters.copy()
     if initial_points is not None:
-        params_to_change = fitParameters.loc[:, fitParametersPer.loc['vary'].astype(bool)].columns
+        params = fitParameters.columns.tolist()
+        old_params = initial_points.index.tolist()
+        change_params = pd.concat([fitParameters.loc['vary'].astype(bool), pd.Series(np.in1d(params, old_params), index=params)], axis=1).all(axis=1)
+        params_to_change = change_params.loc[change_params].index.tolist()
         fitParametersPer.loc['initial', params_to_change] = (initial_points.loc[params_to_change])
     
     # find actual distribution of fmax given number of measurements
     fmaxDist = fmaxDistObject.getDist(len(subSeries))
     
     # fit variant
-    results, singles = bootstrapCurves(concentrations, subSeries, fitParameters, fmaxDist, func,
+    results, singles = bootstrapCurves(concentrations, subSeries, fitParametersPer, fmaxDist, func,
                     weighted_fit=weighted_fit, n_samples=n_samples, min_error=min_error,
                     enforce_fmax=enforce_fmax, func_kwargs=func_kwargs)
     return results

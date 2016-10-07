@@ -26,7 +26,8 @@ import matplotlib.pyplot as plt
 from joblib import Parallel, delayed
 import lmfit
 import itertools
-from fittinglibs import fitting, plotting, fileio, distribution
+import ipdb
+from fittinglibs import fitting, plotting, fileio, distribution, objfunctions
 
 
 ### MAIN ###
@@ -59,17 +60,24 @@ group.add_argument('-n', '--numCores', default=20, type=int, metavar="N",
                    help='number of cores')
 group.add_argument('--subset',action="store_true", default=False,
                     help='if flagged, will only do a subset of the data for test purposes')
-group.add_argument('--slope', default=0, type=float,
-                    help='if provided, use this value for the slope of a linear fit.'
-                    'upperbound/lowerbounds')
-group.add_argument('--min_error',type=float, default=0,
-                   help='set this value for the minimum amount of error per fluorescence point, in units of percent of fmax. default=0')
-group.add_argument('--no_weights', action="store_true",
-                   help='Flag if you would like to not weight the fit')
-group.add_argument('--fmin_float', action="store_true",
-                   help='Flag if you would like to allow the fmin to float')
-group.add_argument('--fit_slope', action="store_true",
-                   help='Flag if you would like to fit a linear slope')
+group.add_argument('--variants',
+                    help='fit only variants listed in this text file')
+group.add_argument('--no_weights',action="store_true", default=False,
+                    help="if flagged, won't weight the fit by error bars on median fluorescence")
+
+group = parser.add_argument_group('arguments about fitting function')
+group.add_argument('--func', default = 'binding_curve',
+                   help='fitting function. default is "binding_curve", referring to module names in fittinglibs.objfunctions.')
+group.add_argument('--params', nargs='+',
+                   help='list of param names in fitting function.')
+group.add_argument('--params_init', nargs='+', type=float,
+                   help='initial values for params in params init. Has presets for most param types.')
+group.add_argument('--params_ub', nargs='+', type=float,
+                   help='upper bounds for params in params init. Has presets for most param types.')
+group.add_argument('--params_lb', nargs='+', type=float,
+                   help='lower bounds for params in params init. Has presets for most param types.')
+group.add_argument('--params_vary', nargs='+', type=int,
+                   help='Whether to vary params in params init. Has presets for most param types.')
 
 ##### functions #####
 def loadGroupDict(bindingCurveFilename, annotatedClusterFile):
@@ -92,6 +100,16 @@ def loadGroupDict(bindingCurveFilename, annotatedClusterFile):
     for name, group in fluorescenceMat.groupby('variant_number'):
         fluorescenceMatSplit[name] = group.iloc[:, 1:]
     return fluorescenceMat, fluorescenceMatSplit
+
+def findInitialPoints(variant_table, variants):
+    """Return initial points from variant table."""
+    # make sure initial points have all of keys that table does
+    initialPoints = distribution.findInitialPoints(variant_table)
+    missing_variants = (np.array(variants)
+                        [np.logical_not(np.in1d(np.array(variants).astype(str), np.array(initialPoints.index.tolist()).astype(str)))])
+    initialPoints = pd.concat([initialPoints, pd.DataFrame(index=missing_variants,
+                                                           columns=initialPoints.columns)])
+    return initialPoints
 
 def initiateFitting(variant_table, fluorescenceMat, fluorescenceMatSplit, concentrations, fmaxDistObject,
                     fmin_float=False):
@@ -125,12 +143,13 @@ def parseResults(variant_table, results):
         columns=np.unique(variant_table.columns.tolist() + results.columns.tolist()))
     variant_final.loc[variant_table.index, variant_table.columns] = variant_table
     variant_final.loc[results.index, results.columns] = results
-    
+    """
     col_order = variant_table.columns.tolist()
-    """
+
     to return all columns:
-    col_order = variant_table.columns.tolist() + [col for col in results if col not in variant_table]
     """
+    col_order = variant_table.columns.tolist() + [col for col in results if col not in variant_table]
+    
     return variant_final.loc[:, col_order].astype(float)
 
 
@@ -147,40 +166,81 @@ if __name__ == '__main__':
     n_samples = args.n_samples
     numCores = args.numCores
     outFile  = args.out_file
+    
     enforce_fmax = args.enforce_fmax
     concentrations = np.loadtxt(args.concentrations)
-    fmin_float = args.fmin_float
     weighted_fit = not args.no_weights
     
     # find out file
     if outFile is None:
         outFile = fileio.stripExtension(bindingCurveFilename)
-    
+
     # load data
     fmaxDistObject = fileio.loadFile(fmaxDistFile)
     variant_table = fileio.loadFile(variantFile)
     fluorescenceMat, fluorescenceMatSplit = loadGroupDict(bindingCurveFilename, annotatedClusterFile)
-    func_kwargs = {'slope':args.slope, 'fit_slope':args.fit_slope}
-    min_error = fmaxDistObject.getDist(1).mean()*args.min_error/100.
+
+    # find table of initial points
+    parameters = fitting.fittingParameters(concentrations)
+    initialPoints = findInitialPoints(variant_table, fluorescenceMatSplit.keys())
+    fmin_fixed = distribution.returnFminFromFluorescence(initialPoints, fluorescenceMat, parameters.mindG)
         
     # subset
-    variants = variant_table.index.tolist()
+    if args.variants is None:
+        variants = variant_table.index.tolist()
+    else:
+        variants = np.loadtxt(args.variants)
     if args.subset:
         variants = variants[-100:]
         outFile = outFile + '_subset'
-
-    # process before fitting
-    initialPoints, fitParameters = initiateFitting(variant_table, fluorescenceMat,
-                                                   fluorescenceMatSplit, concentrations,
-                                                   fmaxDistObject, fmin_float=fmin_float)
     
-    # add slope to fitParameters if supposed to fit it 
-    if 'fit_slope' in func_kwargs.keys():
-        fitParameters.loc[:, 'slope'] = fitting.getFitParam('slope', vary=func_kwargs['fit_slope'])
+    # parse input
+    func = getattr(objfunctions, args.func)
     
-    # adjust min error
-    if min_error > 0:
-        outFile = outFile + '_error%.1e'%min_error
+    # find initial params
+    if args.func == 'binding_curve':
+        param_names = ['fmin', 'dG', 'fmax']
+    elif args.func == 'binding_curve_linear':
+        param_names = ['fmin', 'dG', 'fmax', 'slope']
+    elif args.func == 'rates_on':
+        param_names = ['fmin', 'kobs', 'fmax']
+    elif args.func == 'rates_off':
+        param_names = ['fmin', 'koff', 'fmax']
+    elif args.func == 'binding_curve_nonlinear':
+        param_names = ['fmin', 'dG', 'fmax', 'dGns']
+    param_changes = {}    
+    if args.params is not None:
+        if args.params_init is None: args.params_init=[None]*len(param_names)
+        if args.params_ub is None: args.params_ub=[None]*len(param_names)   
+        if args.params_lb is None: args.params_lb=[None]*len(param_names)
+        if args.params_vary is None: args.params_vary=[None]*len(param_names)          
+        for i, param in enumerate(args.params):
+            param_changes[param] = [args.params_lb[i], args.params_init[i], args.params_ub[i], args.params_vary[i]]
+                                                 
+    fitParameters = []
+    for i, param_name in enumerate(param_names):
+        # add default initial values
+        if param_name in param_changes.keys():
+            lowerbound, init_val, upperbound , vary = param_changes[param]
+        else:
+            lowerbound, init_val, upperbound , vary = None, None, None, None
+        
+        # edit to default chnges if None
+        if init_val is None:
+            if param_name == 'fmax':
+                init_val = fmaxDistObject.getDist(1).stats(moments='m')
+            elif param_name == 'fmin':
+                init_val = fmin_fixed        
+        if vary is None:
+            if param_name == 'fmin':
+                vary = False
+            else:
+                vary = True
+    
+        # load defaults    
+        fitParameters.append(fitting.getFitParam(param_name, concentrations=concentrations, init_val=init_val, vary=vary, ub=upperbound, lb=lowerbound))       
+    fitParameters = pd.concat(fitParameters, axis=1)
+    fitParameters.to_csv(outFile + '.fitParameters', sep='\t', index=True)
 
     print '\tMultiprocessing bootstrapping...'
     # parallelize fitting
@@ -189,25 +249,18 @@ if __name__ == '__main__':
                                         fluorescenceMatSplit[variant],
                                         fitParameters,
                                         fmaxDistObject,
+                                        func,
                                         initial_points=initialPoints.loc[variant],
                                         n_samples=n_samples,
                                         enforce_fmax=enforce_fmax,
-                                        weighted_fit=weighted_fit,
-                                        min_error=min_error,
-                                        func_kwargs=func_kwargs)
+                                        weighted_fit=weighted_fit)
                  for variant in variants if variant in fluorescenceMatSplit.keys()))      
      
     results = pd.concat(results, axis=1).transpose()
     results.index = [variant for variant in variants if variant in fluorescenceMatSplit.keys()]
         
     # fit
-    variant_final = fitBindingCurves(variant_table, fluorescenceMat,
-                 fluorescenceMatSplit, concentrations, fmaxDistObject,
-                 numCores=numCores, n_samples=n_samples, variants=variants,
-                 enforce_fmax=enforce_fmax, weighted_fit=weighted_fit, fmin_float=fmin_float,
-                 func_kwargs=func_kwargs)
-
-    variant_table = parseResults(variant_table, results)
+    variant_final = parseResults(variant_table, results)
 
     # save
     variant_final.to_csv(outFile + '.CPvariant', sep='\t', index=True)

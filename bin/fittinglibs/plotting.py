@@ -23,7 +23,7 @@ from joblib import Parallel, delayed
 sns.set_style("white", {'xtick.major.size': 4,  'ytick.major.size': 4,
                         'xtick.minor.size': 2,  'ytick.minor.size': 2,
                         'lines.linewidth': 1})
-
+from  fittinglibs import objfunctions
 import fittinglibs.fitting as fitting
 
 def fix_axes(ax):
@@ -125,7 +125,7 @@ def plotFitBounds(x, params_lb, params_ub, func, ax=None, fit_kwargs=None):
     return ax
 
 def plotFitCurve(x, subSeries, results, param_names=None, ax=None, log_axis=True, capsize = 2,
-                 func=fitting.bindingCurveObjectiveFunction, fittype='binding', kwargs=None, errors=None):
+                 func=objfunctions.binding_curve, fittype='binding', kwargs=None, errors=None):
     if kwargs is None:
         kwargs = {}
 

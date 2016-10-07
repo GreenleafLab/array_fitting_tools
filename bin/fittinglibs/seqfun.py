@@ -4,6 +4,7 @@ import matplotlib.colors as colors
 import matplotlib.cm as cmx
 import scipy.misc
 import scipy.stats as st
+import pandas as pd
 from sklearn.decomposition import PCA as sklearnPCA
 
 def reverseComplement(seq, rna=None):
@@ -148,9 +149,19 @@ def getCorrelation(vec1, vec2):
     index = np.all(np.isfinite(np.vstack([vec1, vec2]).astype(float)), axis=0)
     return st.pearsonr(vec1[index], vec2[index])[0]
 
-def doPCA(submat):
+def fillNAMat(submat):
+    """For any NaN values in matrix, fill with the average value for that column."""
+    submatnew = submat.copy()
+    for col in submat:
+        submatnew.loc[submat.loc[:, col].isnull(), col] = submat.loc[:, col].mean()
+    return submatnew
 
-    sklearn_pca = sklearnPCA(n_components=None, whiten=whiten)
+
+def doPCA(submat, fillna=False):
+    """Perform PCA on a matrix."""
+    if fillna:
+        submat = fillNAMat(submat)
+    sklearn_pca = sklearnPCA(n_components=None, whiten=False)
     sklearn_transf = sklearn_pca.fit_transform(submat)
     pca_projections = np.dot(np.linalg.inv(np.dot(sklearn_transf.T, sklearn_transf)),
                                  np.dot(sklearn_transf.T, submat))
