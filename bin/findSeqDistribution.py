@@ -16,6 +16,7 @@ import pandas as pd
 import sys
 import os
 import argparse
+import ipdb
 import seaborn as sns
 import matplotlib.pyplot as plt
 from fittinglibs import fileio, processing, seqfun
@@ -187,14 +188,15 @@ def findSeqMap(libCharacterizationFile, cpSignalFile, uniqueBarcodesFile=None,
     # original block of seqeunces
     num_bc_per_variant, is_designed = findSequenceRepresentation(
         consensus.sequence.values, compare_to)
-    
+
     # is_designed gives the variant number for those clusters that successfully mapped
     barcodeMap = pd.concat([pd.DataFrame(is_designed, consensus.index,
                                          columns=['variant_number']),
                             consensus], axis=1)
-    barcodeMap.index = barcodeMap.loc[:, identifyingColumn]
     barcodeMap.sort('variant_number',  inplace=True)
-    barcodeMap.drop(identifyingColumn, axis=1, inplace=True)
+    if not barcodeMap.index.name == identifyingColumn:
+        barcodeMap.index = barcodeMap.loc[:, identifyingColumn]
+        barcodeMap.drop(identifyingColumn, axis=1, inplace=True)
     
     # return not the barcode map but the seqMap. If mapped di
     print 'Mapping to cluster IDs...'

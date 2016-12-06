@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+from fittinglibs import fitting
 from fittinglibs.fitting import fittingParameters
   
 
@@ -182,4 +183,46 @@ def binding_curve_nonlinear(params, concentrations, data=None, weights=None, ind
     else:
         return ((fracbound - data)*weights)[index]
 
+   
+def processFuncInputs(func_name, x, params_to_change=None, params_init=None, params_lb=None, params_ub=None, params_vary=None):
+    """Return FitParameters structure given user input."""
+    
+    # find what the param names should be given the func_name. If func_name not recognized, assume you've specified all param_names.
+    if func_name == 'binding_curve':
+        param_names = ['fmin', 'dG', 'fmax']
+    elif func_name == 'binding_curve_linear':
+        param_names = ['fmin', 'dG', 'fmax', 'slope']
+    elif func_name == 'rates_on':
+        param_names = ['fmin', 'kobs', 'fmax']
+    elif func_name == 'rates_off':
+        param_names = ['fmin', 'koff', 'fmax']
+    elif func_name == 'binding_curve_nonlinear':
+        param_names = ['fmin', 'dG', 'fmax', 'dGns']
+    else:
+        print "Function %s not recognized. Must have default param names for each func in objfunctions!."%func_name
+        sys.exit()
+    
+    # change the params specified by "params_to_change", to values specified in other arguments.
+    if params_to_change is None: params_to_change = []
+    param_changes = {}    
+    if params_init is None: params_init=[None]*len(param_names)
+    if params_ub is None: params_ub=[None]*len(param_names)   
+    if params_lb is None: params_lb=[None]*len(param_names)
+    if params_vary is None: params_vary=[None]*len(param_names)          
+    for i, param in enumerate(params_to_change):
+        param_changes[param] = [params_lb[i], params_init[i], params_ub[i], params_vary[i]]
 
+    # Go through and either use defaults defined in fitting.getFitParam, or use the ones specified above.                                                 
+    fitParameters = []
+    for i, param_name in enumerate(param_names):
+        # add default initial values
+        if param_name in param_changes.keys():
+            lowerbound, init_val, upperbound , vary = param_changes[param]
+        else:
+            lowerbound, init_val, upperbound , vary = None, None, None, None
+        # load defaults    
+        fitParameters.append(fitting.getFitParam(param_name, concentrations=x, init_val=init_val, vary=vary, ub=upperbound, lb=lowerbound))
+    fitParameters = pd.concat(fitParameters, axis=1)
+    return fitParameters
+
+  

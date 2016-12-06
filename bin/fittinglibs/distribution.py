@@ -309,9 +309,7 @@ def findInitialPoints(variant_table):
 def returnFminFromFluorescence(initialPoints, fluorescenceMat, cutoff):
     """ Return the estimated fixed fmin based on affinity and fluroescence. """
     # if cutoff is not given, use parameters
-
     initial_dG = initialPoints.loc[:, 'dG']
-
     firstBindingPoint = getMedianFirstBindingPoint(fluorescenceMat)
     return firstBindingPoint.loc[initial_dG.index].loc[initial_dG > cutoff].median()
 

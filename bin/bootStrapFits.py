@@ -196,50 +196,11 @@ if __name__ == '__main__':
     
     # parse input
     func = getattr(objfunctions, args.func)
-    
-    # find initial params
-    if args.func == 'binding_curve':
-        param_names = ['fmin', 'dG', 'fmax']
-    elif args.func == 'binding_curve_linear':
-        param_names = ['fmin', 'dG', 'fmax', 'slope']
-    elif args.func == 'rates_on':
-        param_names = ['fmin', 'kobs', 'fmax']
-    elif args.func == 'rates_off':
-        param_names = ['fmin', 'koff', 'fmax']
-    elif args.func == 'binding_curve_nonlinear':
-        param_names = ['fmin', 'dG', 'fmax', 'dGns']
-    param_changes = {}    
-    if args.params is not None:
-        if args.params_init is None: args.params_init=[None]*len(param_names)
-        if args.params_ub is None: args.params_ub=[None]*len(param_names)   
-        if args.params_lb is None: args.params_lb=[None]*len(param_names)
-        if args.params_vary is None: args.params_vary=[None]*len(param_names)          
-        for i, param in enumerate(args.params):
-            param_changes[param] = [args.params_lb[i], args.params_init[i], args.params_ub[i], args.params_vary[i]]
-                                                 
-    fitParameters = []
-    for i, param_name in enumerate(param_names):
-        # add default initial values
-        if param_name in param_changes.keys():
-            lowerbound, init_val, upperbound , vary = param_changes[param]
-        else:
-            lowerbound, init_val, upperbound , vary = None, None, None, None
-        
-        # edit to default chnges if None
-        if init_val is None:
-            if param_name == 'fmax':
-                init_val = fmaxDistObject.getDist(1).stats(moments='m')
-            elif param_name == 'fmin':
-                init_val = fmin_fixed        
-        if vary is None:
-            if param_name == 'fmin':
-                vary = False
-            else:
-                vary = True
-    
-        # load defaults    
-        fitParameters.append(fitting.getFitParam(param_name, concentrations=concentrations, init_val=init_val, vary=vary, ub=upperbound, lb=lowerbound))       
-    fitParameters = pd.concat(fitParameters, axis=1)
+    fitParameters = objfunctions.processFuncInputs(args.func, concentrations, args.params, args.params_init, args.params_lb, args.params_ub, args.params_vary)
+    fitParameters.loc['vary'] = True
+    fitParameters.loc['vary', 'fmin'] = False
+    fitParameters.loc['initial', 'fmin'] = fmin_fixed
+    fitParameters.loc['initial', 'fmax'] = fmaxDistObject.getDist(1).stats(moments='m')
     fitParameters.to_csv(outFile + '.fitParameters', sep='\t', index=True)
 
     print '\tMultiprocessing bootstrapping...'

@@ -87,7 +87,7 @@ def getFitParam(param, concentrations=None, init_val=None, vary=None, ub=None, l
     if param=='dG':
         if concentrations is None:
             print 'must specify concentrations to find initial parameters for dG'
-            return fitParams
+            return fitParam
         parameters = fittingParameters(concentrations=concentrations)
         fitParam.loc['lowerbound'] = parameters.find_dG_from_Kd(parameters.find_Kd_from_frac_bound_concentration(0.99, concentrations[0]))
         fitParam.loc['initial'] = parameters.find_dG_from_Kd(parameters.find_Kd_from_frac_bound_concentration(0.5, concentrations[-1]))
@@ -443,8 +443,6 @@ def perCluster(concentrations, fluorescence, fitParameters, plot=None, change_pa
     """ Fit a single binding curve. """
     if plot is None:
         plot = False
-    if func is None:
-        func = bindingCurveObjectiveFunction
     if change_params is None:
         change_params = True
     try:

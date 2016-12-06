@@ -167,5 +167,5 @@ def doPCA(submat, fillna=False):
                                  np.dot(sklearn_transf.T, submat))
     
     
-    return (sklearn_pca, pd.DataFrame(sklearn_transf, index=submat.index),
-            pd.DataFrame(pca_projections, columns=submat.columns))
+    return (sklearn_pca, pd.DataFrame(sklearn_transf, index=submat.index, columns=['pc_%d'%i for i in np.arange(sklearn_transf.shape[1])]),
+            pd.DataFrame(pca_projections, columns=submat.columns, index=['pc_%d'%i for i in np.arange(sklearn_transf.shape[1])]))
