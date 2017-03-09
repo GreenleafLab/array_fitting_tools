@@ -253,6 +253,32 @@ def reduceCPseriesFiles(outputFiles, reducedOutputFile, indices=None, tileOutput
 
     return
 
+def makeIndexFile(filteredCPseqFilenameDict, filterPos, outputFile):
+    """Concatenate the CPseries files, find those that have the filter, and save."""
+    # takes about 35 seconds to run on ~2 million indices
+    call = "cat %s | grep -w '%s' | cut -f1 > %s"%(' '.join(list(itertools.chain(*filteredCPseqFilenameDict.values()))),
+                                                    '\|'.join(filterPos),
+                                                    outputFile)
+    print call
+    os.system(call)
+    return
+
+def makeIndexFileNoGrep(filteredCPseqFilenameDict, filterPos, outputFile):
+    """Concatenate the CPseries files, find those that have the filter IN COL 2, and save.
+    
+    Note this may be preferable to function above."""
+    
+    # takes about 61 seconds to run on ~2 million indices
+    awkFilterText = ' || '.join(['(a[i]==\"%s\")'%s for s in filterPos]) 
+    call = ("cat %s | "
+            "awk '{n=split($2, a,\":\"); b=0; for (i=1; i<=n; i++) if (%s) b=1; "
+            "if (b==1) print $1}' > %s")%(' '.join(filteredCPseqFilenameDict.values()),
+                                          awkFilterText, outputFile)
+    print call
+    os.system(call)
+    return
+
+
 def saveTimeDeltaDict(filename, timeDeltaDict):
     """Save the time delta dict.
     
