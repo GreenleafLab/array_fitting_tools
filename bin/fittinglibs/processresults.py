@@ -1035,7 +1035,7 @@ def returnFractionGroupedBy(mat, param_in, param_out):
                          for name, group in grouped]).transpose()
     return x, y, yerr   
 
-def getResultsFromVariantTables(variant_tables, offset):
+def getResultsFromVariantTables(variant_tables, offset=0, param='dG', include_fmax=False):
     """combine variant tables to form a results table."""
     # make flags
     # 0x1 data from rep 1
@@ -1044,10 +1044,11 @@ def getResultsFromVariantTables(variant_tables, offset):
     # 0x8 data not measured in rep 2
     parameters = fitting.fittingParameters()
     
-    index = ((pd.concat(variant_tables, axis=1).loc[:, 'numTests'] >=5).all(axis=1)&
-             (pd.concat(variant_tables, axis=1).loc[:, 'dG'] < parameters.cutoff_dG).all(axis=1))
-    values = pd.concat([table.dG for table in variant_tables],
+
+    values = pd.concat([table.loc[:, param] for table in variant_tables],
                        axis=1, keys=['0', '1']).astype(float)
+    fmax = pd.concat([table.loc[:, 'fmax'] for table in variant_tables],
+                       axis=1, keys=['0', '1']).astype(float)    
     numTests = pd.concat([table.numTests for table in variant_tables],
                        axis=1, keys=['0', '1'])
     numTests.fillna(0, inplace=True)
@@ -1056,9 +1057,9 @@ def getResultsFromVariantTables(variant_tables, offset):
     values.iloc[:, 1] -= offset
     
     # find error measurements
-    eminus = pd.concat([(table.dG - table.dG_lb) for table in variant_tables],
+    eminus = pd.concat([(table.loc[:, param] - table.loc[:, '%s_lb'%param]) for table in variant_tables],
                          axis=1, keys=values.columns)
-    eplus  = pd.concat([(table.dG_ub - table.dG) for table in variant_tables],
+    eplus  = pd.concat([(table.loc[:, '%s_ub'%param] - table.loc[:, param]) for table in variant_tables],
                          axis=1, keys=values.columns)
     variance = (((eminus + eplus)/2)**2).astype(float)
     weights = pd.DataFrame(data=1, index=variance.index, columns=variance.columns).astype(float)
@@ -1066,8 +1067,11 @@ def getResultsFromVariantTables(variant_tables, offset):
     weights.loc[index] = 1/variance.loc[index]
     
     # final variant table
-    cols =  ['numTests1', 'numTests2', 'weights1', 'weights2', 'numTests', 'dG', 'eminus', 'eplus', 'flag']
-    
+    if include_fmax:
+        cols =  ['numTests1', 'numTests2', 'weights1', 'weights2', 'numTests', param, 'eminus', 'eplus', 'fmax', 'flag']
+    else:
+        cols =  ['numTests1', 'numTests2', 'weights1', 'weights2', 'numTests', param, 'eminus', 'eplus', 'flag']
+        
     results = pd.DataFrame(index=pd.concat(variant_tables, axis=1).index, columns=cols)
     results.loc[:, ['numTests1', 'numTests2', 'numTests', 'flag']] = 0
     
@@ -1079,9 +1083,12 @@ def getResultsFromVariantTables(variant_tables, offset):
     weights.loc[indexes[1], '1'] = 0
 
     for i, index in enumerate(indexes):
-        results.loc[index, 'dG']     = weightedAverageAll(values, weights, index=index)
+        results.loc[index, param]     = weightedAverageAll(values, weights, index=index)
         results.loc[index, 'eminus'] = errorPropagateAverageAll(eminus, weights, index=index)
         results.loc[index, 'eplus']  = errorPropagateAverageAll(eplus, weights, index=index)
+        if include_fmax:
+            results.loc[index, 'fmax']  = weightedAverageAll(fmax, weights, index=index)
+        
         results.loc[index, 'flag']  += np.power(2, i)
         results.loc[index, ['numTests1', 'numTests2']] = numTests.loc[index].values
         results.loc[index, ['weights1', 'weights2']]   = weights.loc[index].values

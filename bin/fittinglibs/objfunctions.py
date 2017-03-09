@@ -147,8 +147,24 @@ def exponential(params, x, y=None, weights=None):
     elif weights is None:
         return (y - y_pred)
     else:
-        return (y - y_pred)*weights    
+        return (y - y_pred)*weights
 
+def powerexp(params, x, y=None, weights=None, index=None):
+    """"""
+    if index is None: index = np.ones(len(x)).astype(bool)
+    parvals = params.valuesdict()
+    c = parvals['c']
+    k = parvals['base']
+    A = parvals['amplitude']
+
+    y_pred = A*np.power(k, x) + c
+    if y is None:
+        return y_pred[index]
+    elif weights is None:
+        return (y - y_pred)[index]
+    else:
+        return ((y - y_pred)*weights)[index]
+    
     
 def binding_curve_nonlinear(params, concentrations, data=None, weights=None, index=None):
     """  Return fit value, residuals, or weighted residuals of a binding curve with nonlinear, nonspecific term.
