@@ -11,6 +11,9 @@ Please update this list as you encounter dependencies not listed here!
 * joblib (0.9.0b2)
 * seaborn (0.7.0)
 * scikits.bootstrap (0.3.2)
+* statsmodels (0.6.1)
+* scipy (0.16.0)
+* numpy (1.11.1)
 
 ## scripts: 
 `findSeqDistribution` to annotate variants onto clusters.
