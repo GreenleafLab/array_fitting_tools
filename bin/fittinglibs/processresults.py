@@ -1,6 +1,10 @@
 #!/usr/bin/env python
 import numpy as np
 import pandas as pd
+# Force matplotlib to use a non-interactive backend
+import matplotlib
+matplotlib.use('Agg')
+# This will prevent it from trying to show plots during code execution
 import matplotlib.pyplot as plt
 from matplotlib import gridspec
 import seaborn as sns
@@ -128,7 +132,8 @@ class perVariant():
 
         self.binding_series = binding_series
         if annotated_clusters is not None:
-            self.annotated_clusters = annotated_clusters.loc[binding_series.index.tolist(), 'variant_number']
+            # self.annotated_clusters = annotated_clusters.loc[binding_series.index.tolist(), 'variant_number']
+            self.annotated_clusters = annotated_clusters.loc[binding_series.index.tolist(), 'variant_ID']
         self.variant_table = variant_table
         self.x = x
         self.cluster_table = cluster_table
@@ -178,7 +183,7 @@ class perVariant():
                               'fmax enforced=%s'%str(vec.flag)
                               ]
             ax.annotate('\n'.join(annotationText), xy=(0.05, .95), xycoords='axes fraction',
-                        horizontalalignment='left', verticalalignment='top', fontsize=9)
+                        horizontalalignment='left', verticalalignment='top', fontsize=8)
 
     def plotOffrateCurve(self, variant, annotate=False, numtiles=None, tiles=None):
         """Plot an off rate curve of a particular variant."""

@@ -314,8 +314,12 @@ def findVariantTable(table, parameter='dG', min_fraction_fit=0.25, filterFunctio
                   '%s_lb'%parameter, parameter, '%s_ub'%parameter,
                   'fmin_lb', 'fmin', 'fmin_ub', 'rsq', 'numIter', 'flag']
     
-    table.dropna(subset=['variant_number'], axis=0, inplace=True)
-    grouped = table.groupby('variant_number')
+    # (20170423-Ben)
+    # table.dropna(subset=['variant_number'], axis=0, inplace=True)
+    # grouped = table.groupby('variant_number')
+    table.dropna(subset=['variant_ID'], axis=0, inplace=True)
+    grouped = table.groupby('variant_ID')
+    # Want variant_ID instead of variant_number
     variant_table = pd.DataFrame(index=grouped.first().index,
                                  columns=test_stats_init+other_cols)
     
@@ -323,7 +327,10 @@ def findVariantTable(table, parameter='dG', min_fraction_fit=0.25, filterFunctio
     variant_table.loc[:, 'numTests'] = grouped.count().loc[:, parameter]
     
     fitFilteredTable = filterFunction(table)
-    fitFilterGrouped = fitFilteredTable.groupby('variant_number')
+    # (20170423-Ben)
+    # fitFilterGrouped = fitFilteredTable.groupby('variant_number')
+    fitFilterGrouped = fitFilteredTable.groupby('variant_ID')
+    # Want variant_ID instead of variant_number
     index = variant_table.loc[:, 'numTests'] > 0
     
     variant_table.loc[index, 'fitFraction'] = (fitFilterGrouped.count().loc[index, parameter]/

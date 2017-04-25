@@ -348,9 +348,13 @@ def getFmaxesToFitSimulated(all_clusters, good_variants, bounds=[0, np.inf], n_s
     """
         
     # find those clusters associated with good variants and use those it fmaxes
-    good_clusters = pd.Series(np.in1d(all_clusters.variant_number,
-                                      good_variants),
-                              index=all_clusters.index)
+    # (20170423-Ben)
+    # good_clusters = pd.Series(np.in1d(all_clusters.variant_number,
+    #                                   good_variants),
+    #                           index=all_clusters.index)
+    good_clusters = pd.Series(np.in1d(all_clusters.variant_ID, good_variants),
+        index=all_clusters.index)
+    # Want variant_ID instead of variant_number
     fmax_clusters = all_clusters.loc[good_clusters, 'fmax']
     
     # first assign each cluster to a variant. different assignments for each n

@@ -9,6 +9,10 @@ import pandas as pd
 import sys
 import os
 import argparse
+# Force matplotlib to use a non-interactive backend
+import matplotlib
+matplotlib.use('Agg')
+# This will prevent it from trying to show plots during code execution
 import seaborn as sns
 import matplotlib.pyplot as plt
 from fittinglibs import fileio, processresults
@@ -25,7 +29,9 @@ parser.add_argument('-cs', '--cpseries', metavar="CPseries.pkl",
                    help='CPseries file containining the time series information')
 parser.add_argument('-c', '--concentrations', metavar=".txt",
                    help='file containining the concentrations')
-parser.add_argument('-v', '--variant_numbers', nargs='+', metavar="N", 
+# parser.add_argument('-v', '--variant_numbers', nargs='+', metavar="N", 
+#                    help='variant(s) or clusterId(s) to plot')
+parser.add_argument('-v', '--variant_IDs', nargs='+', metavar="N", 
                    help='variant(s) or clusterId(s) to plot')
 
 
@@ -58,17 +64,22 @@ if __name__ == '__main__':
     if annotatedClusterFile is not None:
         annotatedClusters = fileio.loadFile(annotatedClusterFile)
     else:
-        annotatedClusters = pd.DataFrame(bindingSeries.index.tolist(), index=bindingSeries.index, columns=['variant_number'])
+        # annotatedClusters = pd.DataFrame(bindingSeries.index.tolist(), index=bindingSeries.index, columns=['variant_number'])
+        annotatedClusters = pd.DataFrame(bindingSeries.index.tolist(), index=bindingSeries.index, columns=['variant_ID'])
 
     # initialize class of results
     affinityData = processresults.perVariant(variant_table, annotatedClusters, bindingSeries, x=concentrations)
     
+    # (20170423-Ben) If no variant_IDs supplied, plot them all
+    vIDs_to_plot = []
+    if args.variant_IDs:
+      vIDs_to_plot = args.variant_IDs
+    else:
+      vIDs_to_plot = variant_table.index.tolist()
+
     # plot
-    for variant in args.variant_numbers:
-        try:
-            variant = int(variant)
-        except ValueError:
-            pass
+    # for variant in args.variant_numbers:
+      for variant in vIDs_to_plot:  
         
         # plot
         affinityData.plotBindingCurve(variant, annotate=args.annotate)
@@ -76,3 +87,4 @@ if __name__ == '__main__':
         # save
         out_file = os.path.join(args.out_dir, 'binding_curve.%s.pdf'%str(variant))
         plt.savefig(out_file)
+        plt.close()

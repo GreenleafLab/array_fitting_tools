@@ -124,26 +124,33 @@ def perVariant(concentrations, subSeries, fitParameters, fmaxDistObject, initial
 
 def getMedianFirstBindingPoint(table):
     """ Return the median fluoresence in first binding point of each variant. """
-    return table.groupby('variant_number').median().iloc[:, 0]
+    # return table.groupby('variant_number').median().iloc[:, 0]
+    return table.groupby('variant_ID').median().iloc[:, 0]
 
 def loadGroupDict(bindingCurveFilename, annotatedClusterFile):
     """ Return the fluorescence values, split by variant. """
     
     # load binding series information with variant numbers
     print "Loading binding fluorescence..."
+    # fluorescenceMat = (pd.concat([pd.read_pickle(annotatedClusterFile),
+    #                               pd.read_pickle(bindingCurveFilename).astype(float)], axis=1).
+    #     sort('variant_number'))
     fluorescenceMat = (pd.concat([pd.read_pickle(annotatedClusterFile),
                                   pd.read_pickle(bindingCurveFilename).astype(float)], axis=1).
-        sort('variant_number'))
+        sort('variant_ID'))
 
     # fit all labeled variants
-    fluorescenceMat.dropna(axis=0, subset=['variant_number'], inplace=True)
+    # fluorescenceMat.dropna(axis=0, subset=['variant_number'], inplace=True)
+    fluorescenceMat.dropna(axis=0, subset=['variant_ID'], inplace=True)
 
     # fit only clusters that are not all NaN
     fluorescenceMat.dropna(axis=0, subset=fluorescenceMat.columns[1:], how='all',inplace=True)
     
     print "\tSplitting..."
     fluorescenceMatSplit = {}
-    for name, group in fluorescenceMat.groupby('variant_number'):
+    # for name, group in fluorescenceMat.groupby('variant_number'):
+    #     fluorescenceMatSplit[name] = group.iloc[:, 1:]
+    for name, group in fluorescenceMat.groupby('variant_ID'):
         fluorescenceMatSplit[name] = group.iloc[:, 1:]
     return fluorescenceMat, fluorescenceMatSplit
 

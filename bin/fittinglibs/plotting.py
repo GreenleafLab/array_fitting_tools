@@ -15,6 +15,10 @@ import itertools
 import seaborn as sns
 import scipy.spatial.distance as ssd
 import scipy.stats as st
+# Force matplotlib to use a non-interactive backend
+import matplotlib
+matplotlib.use('Agg')
+# This will prevent it from trying to show plots during code execution
 import matplotlib.pyplot as plt
 import matplotlib.cm as cmx
 import matplotlib as mpl
@@ -203,7 +207,8 @@ def plotFitCurve(x, subSeries, results, param_names=None, ax=None, log_axis=True
         plt.xscale('log')
     else:
         plt.ticklabel_format(style='sci', axis='x', scilimits=(0,0))
-    plt.ylabel('normalized fluorescence')
+    # plt.ylabel('normalized fluorescence')
+    plt.ylabel('fluorescence (a.u.)')
     fix_axes(ax)
     plt.tight_layout()
     return
@@ -489,13 +494,13 @@ def plotErrorBars(kds, numTests, errors, ylim=None, yticks=None, ylabel=None, xd
                     xy=(0.95, 0.95),
                     xycoords='axes fraction',
                     horizontalalignment='right', verticalalignment='top',
-                    fontsize=12)
+                    fontsize=10)
     plt.subplots_adjust(left=0.15, right=0.95, top=0.95, bottom=0.15)
     plt.annotate(ylabel, rotation=90,
                  xy=(0.05, 0.5),
                  xycoords='figure fraction',
                  horizontalalignment='left', verticalalignment='center',
-                 fontsize=12)
+                 fontsize=10)
     return
 
 
@@ -545,13 +550,13 @@ def plotNumberInBins(variant_table, xdelta=None):
                     xy=(0.95, 0.95),
                     xycoords='axes fraction',
                     horizontalalignment='right', verticalalignment='top',
-                    fontsize=12)
+                    fontsize=10)
     plt.subplots_adjust(left=0.15, right=0.95, top=0.95, bottom=0.15)
     plt.annotate(ylabel, rotation=90,
                  xy=(0.05, 0.5),
                  xycoords='figure fraction',
                  horizontalalignment='left', verticalalignment='center',
-                 fontsize=12)
+                 fontsize=10)
     return
 
 def plotNumberTotal(variant_table, binedges=None, variant_table2=None):

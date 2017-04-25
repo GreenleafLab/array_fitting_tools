@@ -24,7 +24,12 @@ class fittingParameters():
         
         # save the units of concentration given in the binding series
         self.concentration_units = 1E-9 # i.e. nM
-        self.RT = 0.582
+        
+        # This should not be a hard-coded constant...
+        # self.RT = 0.582
+
+        # At 37C:
+        self.RT = 0.616
         
         # When constraining the upper and lower bounds of dG, say you only think
         # can fit binding curves if at most it is 99% bound in the first

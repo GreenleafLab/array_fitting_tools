@@ -93,7 +93,7 @@ def bindingSeriesByCluster(concentrations, bindingSeries, numCores, subset=False
         initial_fluorescence = bindingSeries.loc[index_sub].iloc[:, 0]
         print "Fitting fmin initial..."
         fitParameters.loc['initial', 'fmin'] = distribution.fitGammaDistribution(
-            initial_fluorescence, plot=True, set_offset=0).loc['mean']
+            initial_fluorescence, plot=False, set_offset=0).loc['mean']
 
     # sort by fluorescence in null_column to try to get groups of equal
     # distributions of binders/nonbinders
