@@ -112,10 +112,17 @@ if __name__=="__main__":
     variant_table = processing.findVariantTable(initial_points).astype(float)
     good_fits = variant_table.pvalue < pvalue_cutoff
     tight_binders = variant_table.loc[good_fits&(variant_table.dG_init<affinity_cutoff)]
+
+    # save variant table
+    variant_table.to_pickle(outFile + '.init.CPvariant.pkl')   
+
+    # find fmax distribution
     print ('%d out of %d variants pass cutoff'
            %(len(tight_binders), len(variant_table)))
     if len(tight_binders) < 10:
+        
         print 'Error: need more variants passing cutoffs to fit'
+        print "Only saved init file... "
         print sys.exit()
 
     # find good variants
@@ -133,11 +140,17 @@ if __name__=="__main__":
         print 'Using fmaxes drawn randomly from clusters'
     else:
         print 'Using median fmaxes of variants'
-    
+
+ 
+
     # find fmax dist object
     fmaxDist = distribution.findParams(tight_binders,
                                 use_simulated=use_simulated,
                                 table=initial_points)
+    if fmaxDist is None:
+        print "could not make fmax dist file. Only saved init file... "
+        sys.exit()
+
     plt.savefig(os.path.join(figDirectory, 'counts_vs_n_tight_binders.pdf'))
     plt.close()
     plt.savefig(os.path.join(figDirectory, 'offset_fmax_vs_n.pdf'))
@@ -149,8 +162,7 @@ if __name__=="__main__":
     # save
     pickle.dump(fmaxDist, open( outFile+'.fmaxdist.p', "wb" ))
         
-    # save variant table
-    variant_table.to_pickle(outFile + '.init.CPvariant.pkl')
+
     
     # generate example distributions
     bounds = [0, distribution.findUpperboundFromFmaxDistObject(fmaxDist)]

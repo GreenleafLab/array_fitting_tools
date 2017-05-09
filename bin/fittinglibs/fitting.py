@@ -341,7 +341,7 @@ def bootstrapCurves(x, subSeries, fitParameters, fmaxDist, func,
         
     # find number of samples to bootstrap
     numTests = len(subSeries)
-    if numTests <10 and np.power(numTests, numTests) <= n_samples:
+    if numTests <10 and np.power(numTests, numTests) <= n_samples and not enforce_fmax:
         # then do all possible permutations
         if verbose:
             print ('Doing all possible %d product of indices'

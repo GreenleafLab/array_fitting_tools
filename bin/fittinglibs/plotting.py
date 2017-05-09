@@ -332,7 +332,7 @@ def plotFmaxOffsetVersusN(fmaxDist, stds_object, maxn, ax=None):
 
 def plotNumberVersusN(n_tests, maxn):
     plt.figure(figsize=(4, 3))
-    sns.distplot(n_tests, bins=np.arange(maxn), kde=False, color='grey',
+    sns.distplot(n_tests, bins=np.arange(maxn+1), kde=False, color='grey',
                  hist_kws={'histtype':'stepfilled'})
     plt.xlabel('number of measurements')
     plt.ylabel('count')

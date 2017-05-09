@@ -10,6 +10,7 @@ import warnings
 import itertools
 import scipy.stats as st
 import fittinglibs.plotting as plotting
+import ipdb
 
 class fmaxDistAny():
     __module__ = 'fittinglibs.%s'%os.path.splitext(os.path.basename(__file__))[0]
@@ -179,7 +180,7 @@ def returnGammaParams(mean, std):
     k = (mean/std)**2
     theta = (std)**2/mean
     return k, theta
-
+        
 def fitSigmaDist(x, y, weights=None, set_c=None, at_n=None):
     """Fit the relationship between the stde of a distribution and the number of measurements."""
     # fit how sigmas scale with number of measurements
@@ -211,17 +212,28 @@ def findMinStd(fmaxes, n_tests, mean_fmax, fraction_of_data=0.5):
                       weights=n_test_counts.loc[min_n:].values)
     return min_std, at_n
 
-def findStdParams(fmaxes, n_tests, mean_fmax, min_std, at_n, min_num_to_fit=4):
+def findStdParams(fmaxes, n_tests, mean_fmax, min_std, at_n, min_num_to_fit=4, single_std=False):
     """ Find the relationship between number of tests and std. """
+    if np.around(at_n) == 1 or single_std:
+        # don't fit. return min_std if not None, else fit all points.
+        stds_actual = pd.concat({1:fitGammaDistribution(fmaxes, set_mean=mean_fmax)}).unstack()
+        if min_std is None:
+            min_std = stds_actual.loc[1, 'std']
+        params = Parameters()
+        eps = min_std/1E6 # a small value
+        params.add('sigma', value=eps)
+        params.add('c', value=min_std)
+        params.add('median', value=mean_fmax)
+        return params, stds_actual
+
     n_test_counts = n_tests.value_counts().sort_index()
     all_ns = n_test_counts.loc[n_test_counts>=min_num_to_fit].index.tolist()
     
     stds_actual = {}
     for n in all_ns:
         stds_actual[n] = fitGammaDistribution(fmaxes.loc[n_tests==n],
-                                              set_mean=mean_fmax,
-                                              )
-    stds_actual = pd.concat(stds_actual, axis=1).transpose()
+                                              set_mean=mean_fmax,)
+    stds_actual = pd.concat(stds_actual).unstack()
     stds_actual.dropna(inplace=True)
 
     x = stds_actual.index.tolist()
@@ -234,7 +246,7 @@ def findStdParams(fmaxes, n_tests, mean_fmax, min_std, at_n, min_num_to_fit=4):
     params.add('median', value=mean_fmax)
     return params, stds_actual
     
-def findParams(tight_binders, use_simulated=None, table=None):
+def findParams(tight_binders, use_simulated=None, table=None, single_std=False):
     """ Initialize, find the fmax distribution object and plot. """
     if use_simulated is None:
         use_simulated = False
@@ -244,20 +256,23 @@ def findParams(tight_binders, use_simulated=None, table=None):
     
     mean_fmax, bounds, loose_bounds = getFmaxMeanAndBounds(tight_binders)
     fmaxes_data, n_tests_data = getFmaxesToFit(tight_binders, bounds=bounds)
+    if len(fmaxes_data) < 3:
+        print "error: not enough fmaxes to fit distribution"
+        return
     
     if use_simulated:
         # find min std of distribution anyways
         min_std, at_n = findMinStd(fmaxes_data, n_tests_data, mean_fmax)
+        # if at_n is None then we can skip fitting.
         fmaxes, n_tests = getFmaxesToFitSimulated(table, tight_binders.index, bounds=bounds)
     else:
         min_std = None; at_n = None
         fmaxes, n_tests = fmaxes_data, n_tests_data
 
     # fit relationship of std with number of measurements
-    params, stds_actual = findStdParams(fmaxes, n_tests, mean_fmax, min_std, at_n)
-    
+    params, stds_actual = findStdParams(fmaxes, n_tests, mean_fmax, min_std, at_n, single_std=single_std)
     fmaxDist = fmaxDistAny(params=params)
-    
+
     # plot
     maxn = getFractionOfData(n_tests_data.value_counts().sort_index(), 0.995)
     ax = plotting.plotFmaxStdeVersusN(fmaxDist, stds_actual, maxn)
@@ -321,7 +336,7 @@ def getFmaxMeanAndBounds(tight_binders, cutoff=1E-12):
     """ Return median fmaxes of variants. """
     # find defined mean shared by all variants by fitting all
     fmaxes = tight_binders.fmax_init
-    fmaxAllFit = fitGammaDistribution(fmaxes, set_offset=0, initial_mean=fmaxes.max())
+    fmaxAllFit = fitGammaDistribution(fmaxes, set_offset=0, initial_mean=fmaxes.median())
     
     # use fit to also define upper and lower bound of expected values
     mean_fmax = fmaxAllFit.loc['mean']
@@ -376,7 +391,7 @@ def getFmaxesToFitSimulated(all_clusters, good_variants, bounds=[0, np.inf], n_s
     for n in n_subset:
         # make at most 1000 or max_num_variants independent subsamples of n samples each 
         num_variants = min(1000, np.floor(len(fmax_clusters)/float(n)))
-        n_samples = n*num_variants
+        n_samples = int(n*num_variants)
         clusters = np.random.choice(fmax_clusters.index, n_samples, replace=False)
         fmax_df.loc[clusters, n] = np.tile(np.arange(num_variants), n)
     

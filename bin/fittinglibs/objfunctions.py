@@ -2,13 +2,19 @@ import numpy as np
 import pandas as pd
 from fittinglibs import fitting
 from fittinglibs.fitting import fittingParameters
-  
+from math import factorial
 
-def rates_off(params, times, data=None, weights=None, index=None, bleach_fraction=1, image_ns=None):
+def rates_off(params, times, data=None, weights=None, index=None, bleach_fraction=1, image_ns=None, return_param_names=False):
     """ Return fit value, residuals, or weighted residuals of off rate objective function. """
+    if return_param_names:
+        return ['fmax', 'koff', 'fmin']
+    
+    # process inputs
     if index is None:
+        # use all values
         index = np.ones(len(times)).astype(bool)
     if image_ns is None:
+        # assume every image is the sequential image order
         image_ns = np.arange(len(times))
         
     parvals = params.valuesdict()
@@ -32,8 +38,10 @@ def rates_off(params, times, data=None, weights=None, index=None, bleach_fractio
         return ((fracbound - data)*weights)[index]  
     
     
-def rates_on(params, times, data=None, weights=None, index=None,  bleach_fraction=1, image_ns=None):
+def rates_on(params, times, data=None, weights=None, index=None,  bleach_fraction=1, image_ns=None, return_param_names=False):
     """ Return fit value, residuals, or weighted residuals of on rate objective function. """
+    if return_param_names:
+        return ['fmax', 'kobs', 'fmin']    
     if index is None:
         index = np.ones(len(times)).astype(bool)
     if image_ns is None:
@@ -41,9 +49,9 @@ def rates_on(params, times, data=None, weights=None, index=None,  bleach_fractio
         
     parvals = params.valuesdict()
     fmax = parvals['fmax']
-    koff = parvals['kobs']
+    kobs = parvals['kobs']
     fmin = parvals['fmin']
-    fracbound = fmin + (fmax*(1 - np.exp(-koff*times)*np.power(bleach_fraction,image_ns)));
+    fracbound = fmin + (fmax*(1 - np.exp(-kobs*times)*np.power(bleach_fraction,image_ns)));
 
     # return fit value of data is not given
     if data is None:
@@ -57,10 +65,13 @@ def rates_on(params, times, data=None, weights=None, index=None,  bleach_fractio
     else:
         return ((fracbound - data)*weights)[index]  
         
-def binding_curve(params, concentrations, data=None, weights=None, index=None):
+def binding_curve(params, concentrations, data=None, weights=None, index=None, return_param_names=False):
     """  Return fit value, residuals, or weighted residuals of a binding curve.
     
     Hill coefficient 1. """
+    if return_param_names:
+        return ['fmax', 'dG', 'fmin']
+    
     if index is None:
         index = np.ones(len(concentrations)).astype(bool)
         
@@ -87,10 +98,13 @@ def binding_curve(params, concentrations, data=None, weights=None, index=None):
     else:
         return ((fracbound - data)*weights)[index]
     
-def binding_curve_linear(params, concentrations, data=None, weights=None, index=None):
+def binding_curve_linear(params, concentrations, data=None, weights=None, index=None, return_param_names=False):
     """  Return fit value, residuals, or weighted residuals of a binding curve.
     
     Hill coefficient 1. """
+    if return_param_names:
+        return ['fmax', 'dG', 'fmin', 'slope']
+    
     if index is None:
         index = np.ones(len(concentrations)).astype(bool)
         
@@ -118,8 +132,10 @@ def binding_curve_linear(params, concentrations, data=None, weights=None, index=
     else:
         return ((fracbound - data)*weights)[index]
     
-def powerlaw(params, x, y=None, weights=None, index=None):
+def powerlaw(params, x, y=None, weights=None, index=None, return_param_names=False):
     """"""
+    if return_param_names:
+        return ['c', 'exponent', 'amplitude']
     if index is None: index = np.ones(len(x)).astype(bool)
     parvals = params.valuesdict()
     c = parvals['c']
@@ -134,14 +150,33 @@ def powerlaw(params, x, y=None, weights=None, index=None):
     else:
         return ((y - y_pred)*weights)[index]
     
-def exponential(params, x, y=None, weights=None):
+def exponential(params, x, y=None, weights=None, return_param_names=False):
     """"""
+    if return_param_names:
+        return ['c', 'exponent', 'amplitude']
     parvals = params.valuesdict()
     c = parvals['c']
     k = parvals['exponent']
     A = parvals['amplitude']
 
     y_pred = A*np.exp(k*x) + c
+    if y is None:
+        return y_pred
+    elif weights is None:
+        return (y - y_pred)
+    else:
+        return (y - y_pred)*weights
+
+def poisson(params, x, y=None, weights=None, return_param_names=False):
+    """"""
+    if return_param_names:
+        return ['lambda_param']
+    
+    parvals = params.valuesdict()
+    lambda_param = parvals['lambda_param']
+
+
+    y_pred = (np.power(lambda_param, x)*np.exp(-lambda_param)/np.array([factorial(i) for i in x])).astype(float)
     if y is None:
         return y_pred
     elif weights is None:
@@ -166,10 +201,12 @@ def powerexp(params, x, y=None, weights=None, index=None):
         return ((y - y_pred)*weights)[index]
     
     
-def binding_curve_nonlinear(params, concentrations, data=None, weights=None, index=None):
+def binding_curve_nonlinear(params, concentrations, data=None, weights=None, index=None, return_param_names=False):
     """  Return fit value, residuals, or weighted residuals of a binding curve with nonlinear, nonspecific term.
     
     Hill coefficient 1. """
+    if return_param_names:
+        return ['fmax', 'dG', 'fmin', 'dGns']
     if index is None:
         index = np.ones(len(concentrations)).astype(bool)
         
