@@ -27,7 +27,7 @@ from joblib import Parallel, delayed
 import lmfit
 import itertools
 import ipdb
-from fittinglibs import fitting, plotting, fileio, distribution, objfunctions
+from fittinglibs import fitting, plotting, fileio, distribution, variables, initfits, processing
 
 
 ### MAIN ###
@@ -68,38 +68,32 @@ group.add_argument('--no_weights',action="store_true", default=False,
 group = parser.add_argument_group('arguments about fitting function')
 group.add_argument('--func', default = 'binding_curve',
                    help='fitting function. default is "binding_curve", referring to module names in fittinglibs.objfunctions.')
-group.add_argument('--params', nargs='+',
-                   help='list of param names in fitting function.')
-group.add_argument('--params_init', nargs='+', type=float,
-                   help='initial values for params in params init. Has presets for most param types.')
-group.add_argument('--params_ub', nargs='+', type=float,
-                   help='upper bounds for params in params init. Has presets for most param types.')
-group.add_argument('--params_lb', nargs='+', type=float,
-                   help='lower bounds for params in params init. Has presets for most param types.')
-group.add_argument('--params_vary', nargs='+', type=int,
-                   help='Whether to vary params in params init. Has presets for most param types.')
-
+group.add_argument('--params_name', nargs='+', help='name of param(s) to edit.')
+group.add_argument('--params_init', nargs='+', type=float, help='new initial val(s) of param(s) to edit.')
+group.add_argument('--params_vary', nargs='+', type=int, help='whether to vary val(s) of param(s) to edit.')
+group.add_argument('--params_lb', nargs='+', type=float, help='new lowerbound val(s) of param(s) to edit.')
+group.add_argument('--params_ub', nargs='+', type=float, help='new upperbound val(s) of param(s) to edit.')
 ##### functions #####
-def loadGroupDict(bindingCurveFilename, annotatedClusterFile):
+def makeGroupDict(bindingSeries, annotatedClusters):
     """ Return the fluorescence values, split by variant. """
     
     # load binding series information with variant numbers
-    print "Loading binding fluorescence..."
-    fluorescenceMat = (pd.concat([pd.read_pickle(annotatedClusterFile),
-                                  pd.read_pickle(bindingCurveFilename).astype(float)], axis=1).
-        sort('variant_number'))
-
+    cols = bindingSeries.columns.tolist()
+    fluorescenceMat = pd.concat([annotatedClusters, bindingSeries.astype(float)], axis=1)
+    return fluorescenceMat.dropna(subset=['variant_number']).dropna(subset=cols, thresh=4).set_index('variant_number', append=True).swaplevel(0, 1).sort_index()
+"""
     # fit all labeled variants
-    fluorescenceMat.dropna(axis=0, subset=['variant_number'], inplace=True)
+    fluorescenceMat.dropna(subset=['variant_number'], inplace=True)
 
     # fit only clusters that are not all NaN
-    fluorescenceMat.dropna(axis=0, subset=fluorescenceMat.columns[1:], how='all',inplace=True)
+    fluorescenceMat.dropna(subset=bindingSeries.columns.tolist(), how='all',inplace=True)
     
     print "\tSplitting..."
-    fluorescenceMatSplit = {}
+    bindingSeriesDict = {}
     for name, group in fluorescenceMat.groupby('variant_number'):
-        fluorescenceMatSplit[name] = group.iloc[:, 1:]
-    return fluorescenceMat, fluorescenceMatSplit
+        bindingSeriesDict[name] = group.loc[:, bindingSeries.columns]
+    return bindingSeriesDict
+"""
 
 def findInitialPoints(variant_table, variants):
     """Return initial points from variant table."""
@@ -154,6 +148,7 @@ def parseResults(variant_table, results):
 
 
 
+
 ##### SCRIPT #####
 if __name__ == '__main__':
     # load files
@@ -170,60 +165,80 @@ if __name__ == '__main__':
     enforce_fmax = args.enforce_fmax
     concentrations = np.loadtxt(args.concentrations)
     weighted_fit = not args.no_weights
-    
+    parameters = variables.fittingParameters()
+
     # find out file
     if outFile is None:
         outFile = fileio.stripExtension(bindingCurveFilename)
 
     # load data
+    print "Loading binding fluorescence..."
     fmaxDistObject = fileio.loadFile(fmaxDistFile)
-    variant_table = fileio.loadFile(variantFile)
-    fluorescenceMat, fluorescenceMatSplit = loadGroupDict(bindingCurveFilename, annotatedClusterFile)
+    initialPoints = fileio.loadFile(variantFile)
+    bindingSeries = fileio.loadFile(bindingCurveFilename)
+    annotatedClusters = fileio.loadFile(annotatedClusterFile)
 
-    # find table of initial points
-    parameters = fitting.fittingParameters(concentrations)
-    initialPoints = findInitialPoints(variant_table, fluorescenceMatSplit.keys())
-    fmin_fixed = distribution.returnFminFromFluorescence(initialPoints, fluorescenceMat, parameters.mindG)
-        
     # subset
     if args.variants is None:
-        variants = variant_table.index.tolist()
+        variants = initialPoints.index.tolist()
     else:
-        variants = np.loadtxt(args.variants)
+        variants = list(np.loadtxt(args.variants))
     if args.subset:
         variants = variants[-100:]
         outFile = outFile + '_subset'
     
-    # parse input
-    func = getattr(objfunctions, args.func)
-    fitParameters = objfunctions.processFuncInputs(args.func, concentrations, args.params, args.params_init, args.params_lb, args.params_ub, args.params_vary)
-    fitParameters.loc['vary'] = True
-    fitParameters.loc['vary', 'fmin'] = False
-    fitParameters.loc['initial', 'fmin'] = fmin_fixed
-    fitParameters.loc['initial', 'fmax'] = fmaxDistObject.getDist(1).stats(moments='m')
-    fitParameters.to_csv(outFile + '.fitParameters', sep='\t', index=True)
+    # process bindign series into per-variant dict
+    bindingSeriesDict = makeGroupDict(bindingSeries, annotatedClusters)
+    medianBindingSeries = bindingSeriesDict.groupby(level=0).median()
+    
+    # find initial points
+    #initialPoints = findInitialPoints(variantTable, bindingSeriesDict.keys())
+    
+    # find fmin based on initial fits and some thresholds on dG
+    maxFracBound = 0.01 # at most 1% bound in first concentration
+    mindG = parameters.find_dG_from_frac_bound(maxFracBound, np.min(concentrations))
+    idxMin = pd.Series(concentrations, index=bindingSeries.columns).idxmin()
+    # the fixed fmin is the median fluorescence at the lowest concentration for those dGs that are less than 1% bound at the lowest concentration
+    fminFixed = medianBindingSeries.loc[initialPoints.dG > mindG, idxMin].median()
+    fitParams = initfits.FitParams(args.func, concentrations)
+    fitParams.update_init_params(fmin={'initial':fminFixed, 'vary':False},
+                                 fmax={'initial':fmaxDistObject.getDist(1).mean()})
+    
+    # process input args
+    args = initfits.process_new_params(args)
+    for param_name, param_init, param_lb, param_ub, param_vary in zip(args.params_name, args.params_init, args.params_lb, args.params_ub, args.params_vary):
+        fitParams.update_init_params(**{param_name:{'initial':param_init, 'lowerbound':param_lb, 'upperbound':param_ub, 'vary':bool(param_vary)}})
+
+        
+    # initiate fits
+
+    # actually split by cores
+    print '\tSplitting data into %d pieces...'%numCores
+    variantsSplit = [list(vec) for vec in np.array_split(variants, numCores)]
+    variantParamsSplit = [initfits.MoreFitParams(fitParams, initialPoints.loc[variantSet], bindingSeriesDict.loc[variantSet], fmaxDistObject)
+                          for variantSet in variantsSplit]
+    printBools = [True] + [False]*(numCores-1)
 
     print '\tMultiprocessing bootstrapping...'
     # parallelize fitting
     results = (Parallel(n_jobs=numCores, verbose=10)
-                (delayed(fitting.perVariant)(concentrations,
-                                        fluorescenceMatSplit[variant],
-                                        fitParameters,
-                                        fmaxDistObject,
-                                        func,
-                                        initial_points=initialPoints.loc[variant],
+                (delayed(fitting.fitSetVariants)(variantParams,
                                         n_samples=n_samples,
                                         enforce_fmax=enforce_fmax,
-                                        weighted_fit=weighted_fit)
-                 for variant in variants if variant in fluorescenceMatSplit.keys()))      
+                                        weighted_fit=weighted_fit,
+                                        print_bool=printbool)
+                 for variantParams, printbool  in zip(variantParamsSplit, printBools)))      
      
-    results = pd.concat(results, axis=1).transpose()
-    results.index = [variant for variant in variants if variant in fluorescenceMatSplit.keys()]
+    results = pd.concat(results).sort_index()
+
         
     # fit
-    variant_final = parseResults(variant_table, results)
+    #variantFinal = parseResults(variantTable, results)
 
     # save
-    variant_final.to_csv(outFile + '.CPvariant', sep='\t', index=True)
+    results.to_csv(outFile + '.CPvariant', sep='\t', index=True)
+
+    variantParams = initfits.MoreFitParams(fitParams, initialPoints.loc[variants], bindingSeriesDict.loc[variants], fmaxDistObject)
     
-    
+    variantParams.results_all = results
+    fileio.saveFile(outFile + '.variantParams.p', variantParams)

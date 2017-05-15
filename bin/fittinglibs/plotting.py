@@ -221,12 +221,12 @@ def plotFmaxVsKd(variant_table, cutoff, subset=None, kde_plot=False,
     
     parameters = fitting.fittingParameters()
     
-    kds = parameters.find_Kd_from_dG(variant_table.dG_init)
+    kds = parameters.find_Kd_from_dG(variant_table.dG)
     if plot_fmin:
-        fmax = variant_table.fmin_init
+        fmax = variant_table.fmin
         ylabel_text = 'min'
     else:
-        fmax = variant_table.fmax_init
+        fmax = variant_table.fmax
         ylabel_text = 'max'
         
     # find extent in x
@@ -404,7 +404,7 @@ def plotGammaFunction(vec, func, results=None, params=None, bounds=None):
 def plotAnyN(tight_binders, fmaxDistObject, n, bounds):
     """Plot a particular std given the number of measurements."""
     x = np.linspace(*bounds, num=100)
-    plotDist(tight_binders.loc[tight_binders.numTests==n].fmax_init, bounds)
+    plotDist(tight_binders.loc[tight_binders.numTests==n].fmax, bounds)
     plt.plot(x, fmaxDistObject.getDist(n).pdf(x), 'r')
     plt.tight_layout()
     
@@ -579,7 +579,7 @@ def plotNumberTotal(variant_table, binedges=None, variant_table2=None):
     ylim = ax.get_ylim()
     plt.plot([5]*2, ylim, 'k--', linewidth=1, alpha=0.5)
 
-def plotFractionFit(variant_table, binedges=np.arange(-12, -6, 0.5), param='dG_init', pvalue_threshold=0.05):
+def plotFractionFit(variant_table, binedges=np.arange(-12, -6, 0.5), param='dG', pvalue_threshold=0.05):
     # plot
     binwidth=0.01
     bins=np.arange(0,1+binwidth, binwidth)

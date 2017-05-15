@@ -10,71 +10,13 @@ import warnings
 import itertools
 import scipy.stats as st
 import ipdb
+import copy
+import datetime
+from fittinglibs.variables import fittingParameters
 
 sns.set_style("white", {'xtick.major.size': 4,  'ytick.major.size': 4,
                         'xtick.minor.size': 2,  'ytick.minor.size': 2,
                         'lines.linewidth': 1})
-
-class fittingParameters():
-    """
-    stores some parameters and functions
-    """
-    def __init__(self, concentrations=None, params=None, fitParameters=None,
-                 default_errors=None):
-
-        
-        # save the units of concentration given in the binding series
-        self.concentration_units = 1E-9 # i.e. nM
-        self.RT = 0.582
-        
-        # When constraining the upper and lower bounds of dG, say you only think
-        # can fit binding curves if at most it is 99% bound in the first
-        # point of the binding series. This defines 'frac_bound_lowerbound'.
-        # 'frac_bound_upperbound' is the minimum binding at the last point of the
-        # binding series that you think you can still fit.
-        self.frac_bound_upperbound = 0.01
-        self.frac_bound_lowerbound = 0.99
-        self.frac_bound_initial = 0.5
-        
-        # assume that fluorsecnce in last binding point of tightest binders
-        # is on average at least 25% bound. May want to lower if doing
-        # different point for binding point. 
-        self.saturation_level   = 0.25
-        
-        # also add other things
-        self.cutoff_kd = 5000
-        self.cutoff_dG = self.find_dG_from_Kd(self.cutoff_kd)
-
-        # if concentrations are defined, do some more things
-        if concentrations is not None:
-            self.concentrations = concentrations
-            self.maxdG = self.find_dG_from_Kd(
-                self.find_Kd_from_frac_bound_concentration(.95,
-                                                           concentrations[-1]))
-            self.mindG = self.find_dG_from_Kd(
-                self.find_Kd_from_frac_bound_concentration(0.5,
-                                                            concentrations[-1]))
-            
-            # get dG upper and lowerbounds
-            self.dGparam = pd.Series(index=['lowerbound', 'initial', 'upperbound'])
-            self.dGparam.loc['lowerbound'] = self.find_dG_from_Kd(
-                self.find_Kd_from_frac_bound_concentration(self.frac_bound_lowerbound,
-                                                           concentrations[0]))
-            self.dGparam.loc['upperbound'] = self.find_dG_from_Kd(
-                self.find_Kd_from_frac_bound_concentration(self.frac_bound_upperbound,
-                                                           concentrations[-1]))
-            self.dGparam.loc['initial'] = self.find_dG_from_Kd(
-                self.find_Kd_from_frac_bound_concentration(self.frac_bound_initial,
-                                                           concentrations[-1]))
-
-    def find_dG_from_Kd(self, Kd):
-        return self.RT*np.log(Kd*self.concentration_units)
-
-    def find_Kd_from_dG(self, dG):
-        return np.exp(dG/self.RT)/self.concentration_units
-    
-    def find_Kd_from_frac_bound_concentration(self, frac_bound, concentration):
-        return concentration/float(frac_bound) - concentration
 
 def getFitParam(param, concentrations=None, init_val=None, vary=None, ub=None, lb=None):
     """For a given fit parameter, return reasonable lowerbound, initial guess, and upperbound.
@@ -186,15 +128,18 @@ def convertFitParametersToParams(fitParameters):
                    vary= vary)
     return params
 
-def fitSingleCurve(x, fluorescence, fitParameters, func,
-                          errors=None, do_not_fit=None, kwargs=None):
-    """ Fit an objective function to data, weighted by errors. """
-    if do_not_fit is None:
-        do_not_fit = False # i.e. if you don't want to actually fit but still want to return a value
+def getWeightsFromError(errors):
+    """Given errors=[eminus, eplus], find weights based on inverse."""
+    eminus, eplus = errors
+    weights = 1/(eminus+eplus)
+    if np.isnan(weights).any():
+        weights = None
+    return weights
 
-    if kwargs is None:
-        kwargs = {}
-    
+def fitSingleCurve(x, y, fitParameters, func,
+                          weights=None, do_not_fit=False, kwargs={}, min_kws={'maxfev':100}):
+    """ Fit an objective function to data, weighted by errors. """
+
     # fit parameters
     params = convertFitParametersToParams(fitParameters)
     param_names = fitParameters.columns.tolist()
@@ -209,30 +154,19 @@ def fitSingleCurve(x, fluorescence, fitParameters, func,
         final_params.loc['exit_flag'] = -1
         return final_params
     
-    # weighted fit if errors are given
-    if errors is not None:
-        eminus, eplus = errors
-        weights = 1/(eminus+eplus)
-        if np.isnan(weights).any():
-            weights = None
-    else:
-        eminus, eplus = [[np.nan]*len(x)]*2
-        weights = None
-    
     # make sure fluorescence doesn't have NaN terms
-    index = np.array(np.isfinite(fluorescence))
+    index = np.array(np.isfinite(y))
     kwargs = kwargs.copy()
-    kwargs.update({'data':fluorescence, 'weights':weights, 'index':index}) 
+    kwargs.update({'data':y, 'weights':weights, 'index':index}) 
 
     # do the fit
     results = minimize(func, params,
                        args=(x,),
-                       kws=kwargs,
-                       xtol=1E-6, ftol=1E-6, maxfev=10000)
+                       kws=kwargs, **min_kws)
 
     
     # find rqs
-    ss_total = np.sum((fluorescence - fluorescence.mean())**2)
+    ss_total = np.sum((y - y.mean())**2)
     ss_error = np.sum((results.residual)**2)
     rsq = 1-ss_error/ss_total
     rmse = np.sqrt(ss_error)
@@ -251,29 +185,31 @@ def findErrorBarsBindingCurve(subSeries, min_error=0):
     """ Return bootstrapped confidence intervals on columns of an input data matrix.
     
     Assuming rows represent replicate measurments, i.e. clusters. """
-    eminus=[]
-    eplus = [] 
-    for i in subSeries:
-        vec = subSeries.loc[:, i].dropna()
-        success = True
-        if len(vec) > 1:
-            try:
-                bounds = bootstrap.ci(vec, np.median, n_samples=1000)
-            except IndexError:
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        eminus=[]
+        eplus = [] 
+        for i in subSeries:
+            vec = subSeries.loc[:, i].dropna()
+            success = True
+            if len(vec) > 1:
+                try:
+                    bounds = bootstrap.ci(vec, np.median, n_samples=1000)
+                except IndexError:
+                    success = False
+            else:
                 success = False
-        else:
-            success = False
-            
-        if success:
-            eminus.append(vec.median() - bounds[0])
-            eplus.append(bounds[1] - vec.median())
-        else:
-            eminus.append(np.nan)
-            eplus.append(np.nan)
-            
-    
-    eminus = pd.Series([max(min_error, e) for e in eminus], index=subSeries.columns)
-    eplus = pd.Series([max(min_error, e) for e in eplus], index=subSeries.columns)
+                
+            if success:
+                eminus.append(vec.median() - bounds[0])
+                eplus.append(bounds[1] - vec.median())
+            else:
+                eminus.append(np.nan)
+                eplus.append(np.nan)
+                
+        
+        eminus = pd.Series([max(min_error, e) for e in eminus], index=subSeries.columns)
+        eplus = pd.Series([max(min_error, e) for e in eplus], index=subSeries.columns)
     return eminus, eplus
 
 def enforceFmaxDistribution(median_fluorescence, fmaxDist, verbose=None, cutoff=None):
@@ -286,7 +222,7 @@ def enforceFmaxDistribution(median_fluorescence, fmaxDist, verbose=None, cutoff=
         verbose = False
     
     if cutoff is None:
-        cutoff = 0.025 # only 2.5% of distribution falls beneath this value
+        cutoff = 0.01 # only 2.5% of distribution falls beneath this value
     
     lowerbound = fmaxDist.ppf(cutoff)
     
@@ -307,6 +243,25 @@ def enforceFmaxDistribution(median_fluorescence, fmaxDist, verbose=None, cutoff=
                 %(median_fluorescence[-1], lowerbound,
                   median_fluorescence[-1]*100/lowerbound))
     return redoFitFmax
+
+def getClusterIndices(subSeries, n_samples=100, enforce_fmax=False, verbose=False):
+    """Based on indices, find a list of sets of lcusters to do bootstrapping on."""
+    # find number of samples to bootstrap
+    numTests = len(subSeries)
+    if numTests <10 and np.power(numTests, numTests) <= n_samples and not enforce_fmax:
+        # then do all possible permutations
+        if verbose:
+            print ('Doing all possible %d product of indices'
+                   %np.power(numTests, numTests))
+        indices = [list(i) for i in itertools.product(*[subSeries.index]*numTests)]
+    else:
+        # do at most 'n_samples' number of iterations
+        if verbose:
+            print ('making %4.0f randomly selected (with replacement) '
+                   'bootstrapped median binding curves')%n_samples
+        indices = np.random.choice(subSeries.index,
+                                   size=(n_samples, len(subSeries)), replace=True)
+    return indices
 
 
 def bootstrapCurves(x, subSeries, fitParameters, fmaxDist, func,
@@ -340,20 +295,7 @@ def bootstrapCurves(x, subSeries, fitParameters, fmaxDist, func,
             pass
         
     # find number of samples to bootstrap
-    numTests = len(subSeries)
-    if numTests <10 and np.power(numTests, numTests) <= n_samples and not enforce_fmax:
-        # then do all possible permutations
-        if verbose:
-            print ('Doing all possible %d product of indices'
-                   %np.power(numTests, numTests))
-        indices = [list(i) for i in itertools.product(*[subSeries.index]*numTests)]
-    else:
-        # do at most 'n_samples' number of iterations
-        if verbose:
-            print ('making %4.0f randomly selected (with replacement) '
-                   'bootstrapped median binding curves')%n_samples
-        indices = np.random.choice(subSeries.index,
-                                   size=(n_samples, len(subSeries)), replace=True)
+    indices = getClusterIndices(subSeries, n_samples, enforce_fmax)
 
     # Enforce fmax if initially told to and cutoff was not met
     fitParameters = fitParameters.copy()
@@ -393,102 +335,87 @@ def bootstrapCurves(x, subSeries, fitParameters, fmaxDist, func,
                                     do_not_fit=do_not_fit, kwargs=func_kwargs)
     # concatenate all resulting iterations
     singles = pd.concat(singles, axis=1).transpose()
-    
-    # save results
-    param_names = fitParameters.columns.tolist()
-    data = np.hstack([np.percentile(singles.loc[:, param], [50, 2.5, 97.5])
-                       for param in param_names])
-    index = np.hstack([['%s%s'%(param_name, s) for s in ['', '_lb', '_ub']]
-                       for param_name in param_names])
-    results = pd.Series(index=index, data=data)
-    
-    # get rsq
-    params = Parameters()
-    for param in param_names:
-        params.add(param, value=results.loc[param])
-        
-    ss_total = np.sum((median_fluorescence - median_fluorescence.mean())**2)
-    ss_error = np.sum((median_fluorescence - func(params, x))**2)
-    results.loc['rsq']  = 1-ss_error/ss_total
-
-    # save some parameters
-    results.loc['numClusters'] = numTests
+    results = findProcessedSingles(singles, param_names)
+    results.loc['rsq'] = findRsq(concentrations, median_fluorescence, convertFitParametersToParams(fitParameters), func)
     results.loc['numIter'] = (singles.exit_flag > 0).sum()
     results.loc['flag'] = enforce_fmax
-    
     return results, singles
 
-def fitSetClusters(concentrations, subBindingSeries, fitParameters, print_bool=None,
-                   change_params=None, func=None, kwargs=None):
-    """ Fit a set of binding curves. """
-    if print_bool is None: print_bool = True
+def findRsq(x, y, params, func):
+    """find rsq of a fit."""
+    ss_total = np.sum((y - y.mean())**2)
+    ss_error = np.sum((y - func(params, x))**2)
+    return 1-ss_error/ss_total
 
-    #print print_bool
-    singles = []
-    for i, idx in enumerate(subBindingSeries.index):
+
+def findProcessedSingles(singles, param_names):
+    """Given the output of the singles, find the upper and lower bounds."""
+    # save results
+    data = pd.concat({param:singles.loc[:, param].quantile([0.5, 0.025, 0.975]) for param in param_names}, axis=1)
+    data.index = ['', '_lb', '_ub']
+    results = data.stack().swaplevel(0,1).sort_index()
+    results.index = [''.join(s) for s in results.index.tolist()]
+    return results
+
+
+def fitSetClusters(fitParams, ySeries, print_bool=True):
+    """ Fit a set of curves. """
+    singles = {}
+    times = {}
+    for i, idx in enumerate(ySeries.index.tolist()):
+        # track progress
         if print_bool:
-            num_steps = max(min(100, (int(len(subBindingSeries)/100.))), 1)
+            num_steps = max(min(100, (int(len(ySeries)/100.))), 1)
             if (i+1)%num_steps == 0:
                 print ('working on %d out of %d iterations (%d%%)'
-                       %(i+1, len(subBindingSeries.index), 100*(i+1)/
-                         float(len(subBindingSeries.index))))
+                       %(i+1, len(ySeries), 100*(i+1)/
+                         float(len(ySeries))))
                 sys.stdout.flush()
-        fluorescence = subBindingSeries.loc[idx]
-        singles.append(perCluster(concentrations, fluorescence, fitParameters,
-                                  change_params=change_params, func=func, kwargs=kwargs))
+        # fit single cluster
+        y = ySeries.loc[idx]
+        
+        # find init time
+        t0 = datetime.datetime.now()
+        
+        # fit
+        singles[idx] = perCluster(fitParams, y)
+        
+        # find time diff
+        t1 = datetime.datetime.now()
+        times[idx] = (t1 - t0).total_seconds()
+    return pd.concat(singles).unstack()
 
-    return pd.concat(singles)
-
-def perCluster(concentrations, fluorescence, fitParameters, plot=None, change_params=None, func=None,
-               fittype=None, kwargs=None, verbose=False):
+def perCluster(fitParams, y, plot=False):
     """ Fit a single binding curve. """
-    if plot is None:
-        plot = False
-    if change_params is None:
-        change_params = True
-    try:
-        if change_params:
-            a, b = np.percentile(fluorescence.dropna(), [0, 100])
-            fitParameters = fitParameters.copy()
-            fitParameters.loc['initial', 'fmax'] = b
-        #index = np.isfinite(fluorescence)
-        fluorescence = fluorescence[:len(concentrations)]
-        single = fitSingleCurve(concentrations,
-                                                       fluorescence,
-                                                       fitParameters, func, kwargs=kwargs)
-    except IndexError as e:
-        if verbose: print e
-        print 'Error with %s'%fluorescence.name
-        single = fitSingleCurve(concentrations,
-                                                       fluorescence,
-                                                       fitParameters, func,
-                                                       do_not_fit=True)
+    fitParams.fit_curve(y)
     if plot:
-        print "plotting.plotFitCurve(concentrations, fluorescence, single, param_names=fitParameters.columns.tolist(), func=func, fittype=fittype, kwargs=kwargs)"             
-    return pd.DataFrame(columns=[fluorescence.name],
-                        data=single).transpose()
+        fitParams.plot_fit()
+    return fitParams.results
 
-def perVariant(concentrations, subSeries, fitParameters, fmaxDistObject, func, initial_points=None,
-               n_samples=100, enforce_fmax=None, weighted_fit=True, min_error=0, func_kwargs={}):
+def perVariant(variantParams, variant, n_samples=100, enforce_fmax=None, weighted_fit=True, min_error=0, func_kwargs={}):
     """ Fit a variant to objective function by bootstrapping median fluorescence. """
 
-    # change initial guess on fit parameters if given previous fit
-    fitParametersPer = fitParameters.copy()
-    if initial_points is not None:
-        params = fitParameters.columns.tolist()
-        old_params = initial_points.index.tolist()
-        change_params = pd.concat([fitParameters.loc['vary'].astype(bool), pd.Series(np.in1d(params, old_params), index=params)], axis=1).all(axis=1)
-        params_to_change = change_params.loc[change_params].index.tolist()
-        fitParametersPer.loc['initial', params_to_change] = (initial_points.loc[params_to_change])
-    
-    # find actual distribution of fmax given number of measurements
-    fmaxDist = fmaxDistObject.getDist(len(subSeries))
-    
-    # fit variant
-    results, singles = bootstrapCurves(concentrations, subSeries, fitParametersPer, fmaxDist, func,
-                    weighted_fit=weighted_fit, n_samples=n_samples, min_error=min_error,
-                    enforce_fmax=enforce_fmax, func_kwargs=func_kwargs)
+    t0 = datetime.datetime.now()
+    variantParams.fit_set_binding_curves(variant, n_samples=n_samples, weighted_fit=weighted_fit,
+                                         enforce_fmax=enforce_fmax)
+    t1 = datetime.datetime.now()
+    time_diff = (t1 - t0).total_seconds()
+    return variantParams.results
+
+def fitSetVariants(variantParams, variants=None,  n_samples=100, enforce_fmax=None, weighted_fit=True, min_error=0, func_kwargs={}, print_bool=True, return_time=False):
+    """Fit a set of variants to objective function by bootstrapping median fluorescence."""
+    t0 = datetime.datetime.now()
+    results = variantParams.fit_binding_curves_all(variants, n_samples=n_samples,
+                                                   weighted_fit=weighted_fit,
+                                                   enforce_fmax=enforce_fmax,
+                                                    print_bool=print_bool,
+                                         return_results=True)
+    t1 = datetime.datetime.now()
+    time_diff = (t1 - t0).total_seconds()
+    if return_time:
+        return results, time_diff
     return results
+
 
 def plotFitDistributions(results, singles, fitParameters):
     """ Plot a distribtion of fit parameters. """

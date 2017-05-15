@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 from fittinglibs import fitting
-from fittinglibs.fitting import fittingParameters
+from fittinglibs.variables import fittingParameters
 from math import factorial
 
 def rates_off(params, times, data=None, weights=None, index=None, bleach_fraction=1, image_ns=None, return_param_names=False):
@@ -218,11 +218,11 @@ def binding_curve_nonlinear(params, concentrations, data=None, weights=None, ind
     fmin = parvals['fmin']
     dG_ns = parvals['dGns']
 
-    Kd = np.exp(dG/parameters.RT)/parameters.concentration_units
-    Kd_ns = np.exp(dG_ns/parameters.RT)/parameters.concentration_units
-    fracbound = (fmin +
-                 fmax*(concentrations/(concentrations + Kd) +
-                       concentrations**2/(concentrations + Kd)/Kd_ns))
+    kd = np.exp(dG/parameters.RT)/parameters.concentration_units
+    kd_ns = np.exp(dG_ns/parameters.RT)/parameters.concentration_units
+    fracbound = (fmin + fmax*(
+        (kd_ns + 2*concentrations)/
+        (kd_ns*kd/concentrations + kd + kd_ns + concentrations)))
     
     # return fit value of data is not given
     if data is None:

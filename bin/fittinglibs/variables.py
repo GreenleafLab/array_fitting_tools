@@ -31,27 +31,6 @@ class fittingParameters():
         self.cutoff_kd = 5000
         self.cutoff_dG = self.find_dG_from_Kd(self.cutoff_kd)
 
-        # if concentrations are defined, do some more things
-        if concentrations is not None:
-            self.concentrations = concentrations
-            self.maxdG = self.find_dG_from_Kd(
-                self.find_Kd_from_frac_bound_concentration(.95,
-                                                           concentrations[-1]))
-            self.mindG = self.find_dG_from_Kd(
-                self.find_Kd_from_frac_bound_concentration(0.5,
-                                                            concentrations[-1]))
-            
-            # get dG upper and lowerbounds
-            self.dGparam = pd.Series(index=['lowerbound', 'initial', 'upperbound'])
-            self.dGparam.loc['lowerbound'] = self.find_dG_from_Kd(
-                self.find_Kd_from_frac_bound_concentration(self.frac_bound_lowerbound,
-                                                           concentrations[0]))
-            self.dGparam.loc['upperbound'] = self.find_dG_from_Kd(
-                self.find_Kd_from_frac_bound_concentration(self.frac_bound_upperbound,
-                                                           concentrations[-1]))
-            self.dGparam.loc['initial'] = self.find_dG_from_Kd(
-                self.find_Kd_from_frac_bound_concentration(self.frac_bound_initial,
-                                                           concentrations[-1]))
 
     def find_dG_from_Kd(self, Kd):
         return self.RT*np.log(Kd*self.concentration_units)
@@ -61,3 +40,6 @@ class fittingParameters():
     
     def find_Kd_from_frac_bound_concentration(self, frac_bound, concentration):
         return concentration/float(frac_bound) - concentration
+
+    def find_dG_from_frac_bound(self, frac_bound, concentration):
+        return self.find_dG_from_Kd(self.find_Kd_from_frac_bound_concentration(frac_bound, concentration))

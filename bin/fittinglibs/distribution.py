@@ -214,7 +214,7 @@ def findMinStd(fmaxes, n_tests, mean_fmax, fraction_of_data=0.5):
 
 def findStdParams(fmaxes, n_tests, mean_fmax, min_std, at_n, min_num_to_fit=4, single_std=False):
     """ Find the relationship between number of tests and std. """
-    if np.around(at_n) == 1 or single_std:
+    if single_std:
         # don't fit. return min_std if not None, else fit all points.
         stds_actual = pd.concat({1:fitGammaDistribution(fmaxes, set_mean=mean_fmax)}).unstack()
         if min_std is None:
@@ -265,6 +265,7 @@ def findParams(tight_binders, use_simulated=None, table=None, single_std=False):
         min_std, at_n = findMinStd(fmaxes_data, n_tests_data, mean_fmax)
         # if at_n is None then we can skip fitting.
         fmaxes, n_tests = getFmaxesToFitSimulated(table, tight_binders.index, bounds=bounds)
+        if np.around(at_n)==1: single_std = True
     else:
         min_std = None; at_n = None
         fmaxes, n_tests = fmaxes_data, n_tests_data
@@ -315,10 +316,10 @@ def returnFminFromFits(variant_table, cutoff):
     """ Return the estimated fixed fmin based on affinity and fits. """
     return variant_table.loc[variant_table.dG_init> cutoff].fmin_init.median()
 
-def findInitialPoints(variant_table):
+def findInitialPoints(variant_table, param_names=['fmax', 'dG', 'fmin']):
     """ Return initial points with different column names. """
-    initialPoints = variant_table.loc[:, ['fmax_init', 'dG_init', 'fmin_init', 'numTests']]
-    initialPoints.columns = ['fmax', 'dG', 'fmin', 'numTests']  
+    initialPoints = variant_table.loc[:, ['%s_init'%param_name for param_name in param_names] + ['numTests']]
+    initialPoints.columns = param_names + ['numTests']  
     return initialPoints
 
 def returnFminFromFluorescence(initialPoints, fluorescenceMat, cutoff):
@@ -335,7 +336,7 @@ def getMedianFirstBindingPoint(table):
 def getFmaxMeanAndBounds(tight_binders, cutoff=1E-12):
     """ Return median fmaxes of variants. """
     # find defined mean shared by all variants by fitting all
-    fmaxes = tight_binders.fmax_init
+    fmaxes = tight_binders.fmax
     fmaxAllFit = fitGammaDistribution(fmaxes, set_offset=0, initial_mean=fmaxes.median())
     
     # use fit to also define upper and lower bound of expected values
@@ -352,7 +353,7 @@ def getFmaxMeanAndBounds(tight_binders, cutoff=1E-12):
 
 def getFmaxesToFit(tight_binders, bounds=[0, np.inf]):
     """ Return fmax initial fits that fall within bounds. """
-    fmaxes = tight_binders.fmax_init
+    fmaxes = tight_binders.fmax
     
     # find those within bounds
     index = (fmaxes>=bounds[0])&(fmaxes<=bounds[1])

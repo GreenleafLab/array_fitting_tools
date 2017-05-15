@@ -62,6 +62,8 @@ def saveFile(filename, data):
         data.to_pickle(filename)
     elif ext == '.CPvariant':
         data.to_csv(filename, sep='\t')
+    elif ext == '.p':
+        pickle.dump(data, open( filename,  "wb" ))
     else:
         print 'Extension %s not recognized. No file loaded.'%ext
         

@@ -26,7 +26,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import pickle
 
-from fittinglibs import (fitting, plotting, fileio, processing, distribution)
+from fittinglibs import (fitting, plotting, fileio, processing, distribution, initfits, filterfunctions)
 
 
 
@@ -49,14 +49,14 @@ group.add_argument('-p', '--pvalue_cutoff', type=float, default=0.01,
 group.add_argument('--use_simulated', type=int,
                    help='set to 0 or 1 if you want to use simulated distribution (1) or'
                    'not (0). Otherwise program will decide.')
-
+group.add_argument('--filterfun', default='default_filter', help='name of function in "ftilerfunctions" used to decide whether single cluster fit is good.')
 
 
 
 def useSimulatedOrActual(variant_table, cutoff):
     # if at least 20 data points have at least 10 counts in that bin, use actual
     # data. This statistics seem reasonable for fitting
-    index = variant_table.dG_init < cutoff
+    index = variant_table.dG < cutoff
     counts, binedges = np.histogram(variant_table.loc[index].numTests,
                                     np.arange(1, variant_table.numTests.max()))
     if (counts > 10).sum() >= 20:
@@ -97,8 +97,8 @@ if __name__=="__main__":
         # adjust cutoff to reflect this fraction bound at last concentration
         affinity_cutoff = parameters.find_dG_from_Kd(kd_cutoff)
     else:
-        parameters = fitting.fittingParameters(concentrations)
-        affinity_cutoff = parameters.maxdG
+        min_frac_bound = 0.95
+        affinity_cutoff = parameters.find_dG_from_frac_bound(min_frac_bound, concentrations.max())
     pvalue_cutoff = args.pvalue_cutoff
     print 'Using variants with kd less than %4.2f nM'%parameters.find_Kd_from_dG(affinity_cutoff)
     print 'Using variants with pvalue less than %.1e'%pvalue_cutoff
@@ -109,12 +109,20 @@ if __name__=="__main__":
                                 pd.read_pickle(fittedBindingFilename).astype(float)], axis=1)
 
     # find variant_table
-    variant_table = processing.findVariantTable(initial_points).astype(float)
+    filter_function = getattr(filterfunctions, args.filterfun)
+    grouped = initial_points.dropna(subset=['variant_number']).groupby('variant_number')
+    grouped_sub = filter_function(initial_points).dropna(subset=['variant_number']).groupby('variant_number')
+    variant_table = grouped.median()
+    variant_table.loc[:, 'numTests'] = grouped.size()
+    variant_table.loc[:, 'fitFraction'] = grouped_sub.size()/grouped.size()
+    variant_table.loc[:, 'pvalue'] = processing.findPvalueFitFraction(variant_table.fitFraction, variant_table.numTests)
+
+    # do things on the good binders
     good_fits = variant_table.pvalue < pvalue_cutoff
-    tight_binders = variant_table.loc[good_fits&(variant_table.dG_init<affinity_cutoff)]
+    tight_binders = variant_table.loc[good_fits&(variant_table.dG<affinity_cutoff)]
 
     # save variant table
-    variant_table.to_pickle(outFile + '.init.CPvariant.pkl')   
+    variant_table.to_pickle(outFile + '_init.CPvariant.pkl')   
 
     # find fmax distribution
     print ('%d out of %d variants pass cutoff'
