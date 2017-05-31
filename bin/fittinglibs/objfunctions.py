@@ -220,10 +220,8 @@ def binding_curve_nonlinear(params, concentrations, data=None, weights=None, ind
 
     kd = np.exp(dG/parameters.RT)/parameters.concentration_units
     kd_ns = np.exp(dG_ns/parameters.RT)/parameters.concentration_units
-    fracbound = (fmin + fmax*(
-        (kd_ns + 2*concentrations)/
-        (kd_ns*kd/concentrations + kd + kd_ns + concentrations)))
-    
+    fracbound = fmin + fmax*(concentrations/(kd + concentrations))*(1 + concentrations/(kd_ns + concentrations))
+
     # return fit value of data is not given
     if data is None:
         return fracbound[index]

@@ -34,6 +34,22 @@ def fix_axes(ax):
     ax.spines['right'].set_visible(False)
     return ax
 
+def annotate_axes(s, ax=None, **kwargs):
+    """annotate the current figure with string 's' """
+    if ax is None:
+        ax = plt.gca()
+    if 'xy' not in kwargs.keys():
+        kwargs['xy'] = (0.05, 0.95)
+    if 'xycoords' not in kwargs.keys():
+        kwargs['xycoords'] = 'axes fraction'
+    if 'horizontalalignment' not in kwargs.keys():
+        kwargs['horizontalalignment'] = 'left'
+    if 'verticalalignment' not in kwargs.keys():
+        kwargs['verticalalignment'] = 'top'
+    if 'fontsize' not in kwargs.keys():
+        kwargs['fontsize'] = 10
+    ax.annotate(s, **kwargs)    
+
 def get_c(x, y, distance_threshold=None):
     """ Given two arrays x and y, return the number of points within a certain distance of each point."""
     if distance_threshold is None:

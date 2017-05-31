@@ -52,7 +52,11 @@ group.add_argument('--subset_num', default=5000,
 group = parser.add_argument_group('arguments about fitting function')
 group.add_argument('--func', default = 'binding_curve',
                    help='fitting function. default is "binding_curve", referring to module names in fittinglibs.objfunctions.')
-
+group.add_argument('--params_name', nargs='+', help='name of param(s) to edit.')
+group.add_argument('--params_init', nargs='+', type=float, help='new initial val(s) of param(s) to edit.')
+group.add_argument('--params_vary', nargs='+', type=int, help='whether to vary val(s) of param(s) to edit.')
+group.add_argument('--params_lb', nargs='+', type=float, help='new lowerbound val(s) of param(s) to edit.')
+group.add_argument('--params_ub', nargs='+', type=float, help='new upperbound val(s) of param(s) to edit.')
 #group.add_argument('--ft_only',action="store_true", default=False,
 #                    help='if flagged, do not fit, but save the fit parameters')
 
@@ -118,6 +122,12 @@ if __name__=="__main__":
     # parse input
     fitParams = initfits.FitParams(args.func, concentrations, before_fit_ops=[('fmax', 'initial', np.max)])
     fitParams.update_init_params(fmin={'initial':bindingSeries.loc[:, idx_min_concentration].median()})
+
+    # process input args
+    args = initfits.process_new_params(args)
+    for param_name, param_init, param_lb, param_ub, param_vary in zip(args.params_name, args.params_init, args.params_lb, args.params_ub, args.params_vary):
+        if param_name:
+            fitParams.update_init_params(**{param_name:{'initial':param_init, 'lowerbound':param_lb, 'upperbound':param_ub, 'vary':bool(param_vary)}})
 
     # sort by fluorescence in null_column to try to get groups of equal
     # distributions of binders/nonbinders

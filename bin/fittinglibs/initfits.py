@@ -137,19 +137,33 @@ class FitParams():
         
 class MoreFitParams():
     """Add more attributes to enable fitting of curves with specific distribution for fmax in particular."""
-    def __init__(self, fitParams, initial_points, binding_series_dict, fmax_dist_obj):
+    def __init__(self, fitParams, initial_points=None, binding_series_dict=None, binding_series=None, annotated_clusters=None, fmax_dist_obj=None, results=None):
 
         self.fitParams = fitParams 
         self.initial_points = initial_points
         self.binding_series_dict = binding_series_dict
+        self.binding_series = binding_series
+        self.annotated_clusters = annotated_clusters
         self.fmax_dist_obj = fmax_dist_obj
-        self.variants = list(set(binding_series_dict.groupby(level=0).first().index.tolist()).union(initial_points.index.tolist()))     
+        self.results_all = results
+        if initial_points is not None and binding_series_dict is not None:
+            self.variants = list(set(binding_series_dict.groupby(level=0).first().index.tolist()).union(initial_points.index.tolist()))     
         # make sure there are values for initial points for all variants
+
+    def get_ys(self, idx):
+        """Find the set of y values associated with a variant."""
+        if self.binding_series_dict is None:
+            if self.binding_series is None or self.annotated_clusters is None:
+                raise IndexError('Need to define either binding_series_dict or binding series and annotated clusters')
+            index = self.annotated_clusters.loc[self.annotated_clusters.variant_number==idx].index
+            return self.binding_series.loc[index]
+        else:
+            return self.binding_series_dict.loc[idx]
 
     def fit_set_binding_curves(self, idx, enforce_fmax=None, weighted_fit=True, n_samples=100, return_results=False):
         """Fit a set of y values to a curve."""
         x = self.fitParams.x
-        ys = self.binding_series_dict.loc[idx]
+        ys = self.get_ys(idx)
         y = ys.median()
         num = len(ys)
         fmax_dist = self.fmax_dist_obj.getDist(num)
@@ -214,6 +228,7 @@ class MoreFitParams():
         results.loc['rmse']     = get_rmse(y, ypred)
         results.loc['rmse_init'] = get_rmse(y, ypred_init)
         results.loc['num_iter'] = (singles.exit_flag > 0).sum()
+        results.loc['num_tests'] = len(ys)
         results.loc['fmax_enforced'] = enforce_fmax
         order = [s for s in results.index.tolist() if s.find('_init')>-1] + [s for s in results.index.tolist() if s.find('_init')==-1]
         results = results.loc[order]
@@ -253,13 +268,16 @@ class MoreFitParams():
         else:
             self.results_all = results
     
-    def plot_specific_bineding_curve(self, variant, **kwargs):
+    def plot_specific_binding_curve(self, variant, annotate=True, **kwargs):
         """Plot the fit of a particalr binding curve assuming reuslts_all is set."""
         results_all = getattr(self, 'results_all')
-        self.plot_set_binding_curves(self.binding_series_dict.loc[variant], results_all.loc[variant], **kwargs)
+        ys = self.get_ys(variant)
+        self.plot_binding_curves(ys, results_all.loc[variant], **kwargs)
+        if annotate:
+            self.annotate_curve(results=results_all.loc[variant])
     
     
-    def plot_set_binding_curves(self, ys=None, results=None, **kwargs):
+    def plot_binding_curves(self, ys=None, results=None, **kwargs):
         """Plot the resulting fits."""
 
         if ys is None:
@@ -293,9 +311,10 @@ class MoreFitParams():
         if self.fitParams.func_name=='binding_curve' or self.fitParams.func_name=='binding_curve_nonlinear':
             param_names_ub = [param + '_lb' if param=='dG' else param + '_ub' if param=='fmax' else param for param in param_names]
             param_names_lb = [param + '_ub' if param=='dG' else param + '_lb' if param=='fmax' else param for param in param_names]
-            params_ub = _get_params_from_results(results, param_names_ub, param_names)
-            params_lb = _get_params_from_results(results, param_names_lb, param_names)
-            plotting.plt.fill_between(more_x, func(params_lb, more_x), func(params_ub, more_x), alpha=0.5, color='0.5')
+            if all([s in results.index.tolist() for s in param_names_ub + param_names_lb]):
+                params_ub = _get_params_from_results(results, param_names_ub, param_names)
+                params_lb = _get_params_from_results(results, param_names_lb, param_names)
+                plotting.plt.fill_between(more_x, func(params_lb, more_x), func(params_ub, more_x), alpha=0.5, color='0.5')
     
     def plot_init_binding_curves(self, results=None, **kwargs):
         """Given the initial parameters, plot the resulting fit."""
@@ -310,6 +329,23 @@ class MoreFitParams():
         params = _get_params_from_results(results, ['%s_init'%s for s in param_names], param_names)        
         more_x = np.logspace(np.log10(x.min()/10), np.log10(x.max()*2), 100)
         plotting.plt.plot(more_x, func(params, more_x), **kwargs)
+        
+    def annotate_curve(self, results=None, other_params=['rsq', 'num_tests'], other_param_formats={'rsq':'%4.3f', 'num_tests':'%d'}, **kwargs):
+        """annotate the current plot with information about the fit."""
+        if results is None:
+            results = self.results
+        param_names = self.fitParams.param_names
+        annotate_list = []
+        for param_name in param_names:
+            s = '%s = %4.2f'%(param_name, results.loc[param_name])
+            if param_name + '_lb' in results.index.tolist() and param_name + '_ub' in results.index.tolist():
+                s = s + ' (%4.2f, %4.2f)'%(results.loc[param_name + '_lb'], results.loc[param_name + '_ub'])
+            annotate_list.append(s)
+        for idx in other_params:
+            if idx in results.index.tolist():
+                annotate_list.append(('%s = ' + other_param_formats[idx])%(idx, results.loc[idx]))
+                
+        plotting.annotate_axes('\n'.join(annotate_list))
      
         
 

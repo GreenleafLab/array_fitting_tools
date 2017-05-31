@@ -207,7 +207,8 @@ if __name__ == '__main__':
     # process input args
     args = initfits.process_new_params(args)
     for param_name, param_init, param_lb, param_ub, param_vary in zip(args.params_name, args.params_init, args.params_lb, args.params_ub, args.params_vary):
-        fitParams.update_init_params(**{param_name:{'initial':param_init, 'lowerbound':param_lb, 'upperbound':param_ub, 'vary':bool(param_vary)}})
+        if param_name:
+            fitParams.update_init_params(**{param_name:{'initial':param_init, 'lowerbound':param_lb, 'upperbound':param_ub, 'vary':bool(param_vary)}})
 
         
     # initiate fits
@@ -238,7 +239,7 @@ if __name__ == '__main__':
     # save
     results.to_csv(outFile + '.CPvariant', sep='\t', index=True)
 
-    variantParams = initfits.MoreFitParams(fitParams, initialPoints.loc[variants], bindingSeriesDict.loc[variants], fmaxDistObject)
+    variantParams = initfits.MoreFitParams(fitParams, initialPoints, bindingSeriesDict, fmaxDistObject)
     
     variantParams.results_all = results
     fileio.saveFile(outFile + '.variantParams.p', variantParams)
