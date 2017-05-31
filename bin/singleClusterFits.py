@@ -121,7 +121,7 @@ if __name__=="__main__":
     idx_max_concentration = pd.Series(concentrations, index=bindingSeries.columns).idxmax()
     
     # parse input
-    fitParams = initfits.FitParams(args.func, concentrations)
+    fitParams = initfits.FitParams(args.func, concentrations, before_fit_ops=[('fmax', 'initial', np.max)])
     fitParams.update_init_params(fmin={'initial':bindingSeries.loc[:, idx_min_concentration].median()})
 
     # process input args
@@ -129,9 +129,6 @@ if __name__=="__main__":
     for param_name, param_init, param_lb, param_ub, param_vary in zip(args.params_name, args.params_init, args.params_lb, args.params_ub, args.params_vary):
         if param_name:
             fitParams.update_init_params(**{param_name:{'initial':param_init, 'lowerbound':param_lb, 'upperbound':param_ub, 'vary':bool(param_vary)}})
-    if fitParams.fit_parameters['fmax']['vary']:
-        # reset fmax init for every fit based on the maxmimum of the fluorescence values
-        fitParams.before_fit_ops=[('fmax', 'initial', np.max)]
         
     # sort by fluorescence in null_column to try to get groups of equal
     # distributions of binders/nonbinders

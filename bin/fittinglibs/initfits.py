@@ -61,7 +61,8 @@ class FitParams():
         # change fit parameters according to list of operations 
         if self.before_fit_ops:
             for (param_name, key, operation) in self.before_fit_ops:
-                fit_parameters = _update_init_params(fit_parameters, **{param_name:{key:operation(y)}})
+                if fit_parameters[param_name]['vary']:
+                    fit_parameters = _update_init_params(fit_parameters, **{param_name:{key:operation(y)}})
         
         # weight fit if weights are given
         results = fitting.fitSingleCurve(self.x, y, _convert_to_expected_fit_parameters(fit_parameters), self.func, weights=weights, kwargs=self.fit_kws, min_kws=min_kws)
