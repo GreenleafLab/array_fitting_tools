@@ -78,14 +78,17 @@ class FitParams():
             results = getattr(self, 'results')
         return _get_params_from_results(results, self.param_names)
     
-    def plot_fit(self, y=None, results=None,**kwargs):
+    def plot_fit(self, y=None, results=None, plot_fit=True, **kwargs):
         """Assuming fit_curve has already bee run, plot results."""
         x = self.x
         if y is None:
             y = getattr(self, 'y')
         if results is None:
-            results = getattr(self, 'results')
-        params = _get_params_from_results(results, self.param_names)
+            try:
+                results = getattr(self, 'results')
+            except AttributeError:
+                plot_fit = False
+        
         
         # generate x values for fit function
         x = np.array(x)
@@ -93,8 +96,10 @@ class FitParams():
     
         # plot the data
         line, = plotting.plt.plot(x, y, 'o', **kwargs)
-        if 'color' in kwargs.keys(): kwargs.pop('color')
-        plotting.plt.plot(more_x, self.func(params, more_x), color=line.get_color(), **kwargs)
+        if plot_fit:
+            if 'color' in kwargs.keys(): kwargs.pop('color')
+            params = _get_params_from_results(results, self.param_names)
+            plotting.plt.plot(more_x, self.func(params, more_x), color=line.get_color(), **kwargs)
 
 
     def plot_initfit(self, y=None, fit_parameters=None, **kwargs):
