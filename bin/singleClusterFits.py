@@ -114,7 +114,7 @@ if __name__=="__main__":
     if outFile is None:
         outFile = fileio.stripExtension(bindingSeriesFilename)
     if args.subset:
-        outFile = '%s.subset'%outFile
+        outFile = '%s_subset'%outFile
     print "Loading binding series..."
     bindingSeries = fileio.loadFile(bindingSeriesFilename)  
     idx_min_concentration = pd.Series(concentrations, index=bindingSeries.columns).idxmin()

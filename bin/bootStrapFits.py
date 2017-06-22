@@ -216,11 +216,14 @@ if __name__ == '__main__':
     # actually split by cores
     print '\tSplitting data into %d pieces...'%numCores
     variantsSplit = [list(vec) for vec in np.array_split(variants, numCores)]
-    variantParamsSplit = [initfits.MoreFitParams(fitParams, initialPoints.loc[variantSet], bindingSeriesDict.loc[variantSet], fmaxDistObject)
+    variantParamsSplit = [initfits.MoreFitParams(fitParams, initial_points=initialPoints.loc[variantSet],
+                                                 binding_series_dict=bindingSeriesDict.loc[variantSet],
+                                                 fmax_dist_obj=fmaxDistObject)
                           for variantSet in variantsSplit]
     printBools = [True] + [False]*(numCores-1)
 
     print '\tMultiprocessing bootstrapping...'
+
     # parallelize fitting
     results = (Parallel(n_jobs=numCores, verbose=10)
                 (delayed(fitting.fitSetVariants)(variantParams,

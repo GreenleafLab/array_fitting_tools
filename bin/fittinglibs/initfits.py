@@ -152,6 +152,7 @@ class MoreFitParams():
         self.annotated_clusters = annotated_clusters
         self.fmax_dist_obj = fmax_dist_obj
         self.results_all = results
+        #self.variants = 
         if initial_points is not None and binding_series_dict is not None:
             self.variants = list(set(binding_series_dict.groupby(level=0).first().index.tolist()).union(initial_points.index.tolist()))     
         # make sure there are values for initial points for all variants
@@ -267,6 +268,7 @@ class MoreFitParams():
                                                        weighted_fit=weighted_fit,
                                                        n_samples=n_samples,
                                                        return_results=True)[0]
+
         results = pd.concat(results).unstack()
         if return_results:
             return results

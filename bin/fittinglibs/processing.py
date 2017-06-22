@@ -295,6 +295,9 @@ def filterFitParameters2(table):
     index = (table.rsq > 0.5)&(table.dG_stde.astype(float) < 1)&(table.dGns_stde.astype(float) < 2)&(table.fmax_stde.astype(float)<table.fmax.astype(float))&(pd.Series(np.in1d(table.exit_flag, [1,2,3,4]), index=table.index))
     return table.loc[index]
 
+def filterVariant(table):
+    return table.loc[(table.pvalue < 0.01)&(table.dG < -10.7)].copy()
+
 def findVariantTable(table, test_stats, min_fraction_fit=0.25, filterFunction=filterFitParameters):
     """ Find per-variant information from single cluster fits. """
     
