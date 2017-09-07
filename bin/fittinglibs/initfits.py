@@ -165,12 +165,16 @@ class MoreFitParams():
             index = self.annotated_clusters.loc[self.annotated_clusters.variant_number==idx].index
             return self.binding_series.loc[index]
         else:
-            return self.binding_series_dict.loc[idx]
+            try:
+                return self.binding_series_dict.loc[idx]
+            except KeyError:
+                return pd.DataFrame(columns=self.binding_series_dict.columns)
+                
 
-    def fit_set_binding_curves(self, idx, enforce_fmax=None, weighted_fit=True, n_samples=100, return_results=False):
+    def fit_set_binding_curves(self, idx, enforce_fmax=None, weighted_fit=True, n_samples=100, return_results=False, use_initial=False):
         """Fit a set of y values to a curve."""
         x = self.fitParams.x
-        ys = self.get_ys(idx)
+        ys = self.get_ys(idx)        
         y = ys.median()
         num = len(ys)
         fmax_dist = self.fmax_dist_obj.getDist(num)
@@ -179,12 +183,13 @@ class MoreFitParams():
         initial_points = self.initial_points.loc[idx]
         
         # update parameters based on initial points
-        init_kws = {}
-        for param_name, param_dict in fit_parameters.items():
-            new_init = initial_points.loc[param_name]
-            if param_dict['vary'] and not pd.isnull(new_init):
-                init_kws[param_name] = {'initial':new_init}              
-        fit_parameters = _update_init_params(fit_parameters, **init_kws)
+        if use_initial:
+            init_kws = {}
+            for param_name, param_dict in fit_parameters.items():
+                new_init = initial_points.loc[param_name]
+                if param_dict['vary'] and not pd.isnull(new_init):
+                    init_kws[param_name] = {'initial':new_init}              
+            fit_parameters = _update_init_params(fit_parameters, **init_kws)
         
         # decide whether to enforce fmax or not
         lb, ub = fmax_dist.interval(0.99)
@@ -197,8 +202,7 @@ class MoreFitParams():
 
         # find error on ys and use this to weight if weighted fit option is given.
         if weighted_fit:
-            eminus, eplus = fitting.findErrorBarsBindingCurve(ys)
-            weights = fitting.getWeightsFromError([eminus, eplus])
+            weights = fitting.getWeightsFromBindingSeries(ys) # note here is a cutoff
         else:
             weights = None
 
@@ -207,6 +211,13 @@ class MoreFitParams():
         
         # for each set of clusters, fit
         singles = []
+        # if ys is empty, don't fit
+        if len(ys) == 0 :
+            if return_results:
+                return None, singles, ys, indices
+            else:
+                return
+            
         for i, index in enumerate(indices):
             if enforce_fmax:
                 fit_parameters_fmax = _update_init_params(fit_parameters, fmax={'initial':fmaxes[i], 'vary':False})
@@ -263,11 +274,14 @@ class MoreFitParams():
                     sys.stdout.flush() 
             
             # fit individual curves
-            results[idx] = self.fit_set_binding_curves(idx,
+            vec = self.fit_set_binding_curves(idx,
                                                        enforce_fmax=enforce_fmax,
                                                        weighted_fit=weighted_fit,
                                                        n_samples=n_samples,
                                                        return_results=True)[0]
+            if vec is not None:
+                # don't include None
+                results[idx] = vec
 
         results = pd.concat(results).unstack()
         if return_results:

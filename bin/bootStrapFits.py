@@ -242,7 +242,7 @@ if __name__ == '__main__':
     # save
     results.to_csv(outFile + '.CPvariant', sep='\t', index=True)
 
-    variantParams = initfits.MoreFitParams(fitParams, initialPoints, bindingSeriesDict, fmaxDistObject)
+    variantParams = initfits.MoreFitParams(fitParams, initial_points=initialPoints, binding_series_dict=bindingSeriesDict, fmax_dist_obj=fmaxDistObject)
     
     variantParams.results_all = results
     fileio.saveFile(outFile + '.variantParams.p', variantParams)

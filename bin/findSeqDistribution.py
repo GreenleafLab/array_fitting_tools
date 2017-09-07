@@ -32,7 +32,7 @@ parser.add_argument('-lc', '--library_characterization', required=True,
                    help='file that lists unique variant sequences')
 parser.add_argument('-out', '--out_file', 
                    help='output filename')
-parser.add_argument('-cs', '--cpseq', required=True,
+parser.add_argument('-cs', '--cpseq', 
                    help='reduced CPseq file containing sequence information.')
 parser.add_argument('-bar', '--unique_barcodes',
                    help='barcode map file. if given, the variant sequences are '

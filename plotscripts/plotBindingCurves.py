@@ -58,7 +58,21 @@ group.add_argument('--initial_results',
 group.add_argument('--fmaxdist', 
                    help='fmax distribution. this is totally optional.')
 
-
+def make_plot(variantParams, idx, annotate=False, plotinit=False):
+    """Make the binding series plot."""
+    plt.figure(figsize=(3,3)); plt.xscale('log')
+    variantParams.plot_specific_binding_curve(idx, annotate=annotate)
+    plt.xlabel('concentration')
+    plt.ylabel('fluoresence')
+    plt.subplots_adjust(left=0.25, bottom=0.2, right=0.95, top=0.95)
+    plotting.fix_axes(plt.gca())
+    
+    if plotinit:
+        try:
+            variantParams.plot_init_binding_curves(variantParams.results_all.loc[idx])
+        except KeyError:
+            pass
+     
 
 if __name__ == '__main__':
     args = parser.parse_args()
@@ -98,17 +112,6 @@ if __name__ == '__main__':
         except ValueError:
             pass
         
-        plt.figure(figsize=(3,3)); plt.xscale('log')
-        variantParams.plot_specific_binding_curve(idx, annotate=args.annotate)
-        plt.xlabel('concentration')
-        plt.ylabel('fluoresence')
-        plt.subplots_adjust(left=0.25, bottom=0.2, right=0.95, top=0.95)
-        plotting.fix_axes(plt.gca())
-        
-        if args.plotinit:
-            try:
-                variantParams.plot_init_binding_curves(variantParams.results_all.loc[idx])
-            except KeyError:
-                pass
         out_file = os.path.join(args.out_dir, 'binding_curve.%s.pdf'%str(idx))
-        plt.savefig(out_file)    
+        make_plot(variantParams, idx, annotate=args.annotate, plotinit=args.plotinit)
+        plt.savefig(out_file)   

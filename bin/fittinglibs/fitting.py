@@ -136,6 +136,16 @@ def getWeightsFromError(errors):
         weights = None
     return weights
 
+def getWeightsFromBindingSeries(ys, num_cutoff=5):
+    """Given binding series, find errors and then find weights."""
+    if len(ys) >= num_cutoff:
+        eminus, eplus = findErrorBarsBindingCurve(ys)
+        weights = getWeightsFromError([eminus, eplus])
+    else:
+        weights = None
+    return weights
+        
+
 def fitSingleCurve(x, y, fitParameters, func,
                           weights=None, do_not_fit=False, kwargs={}, min_kws={'maxfev':100}):
     """ Fit an objective function to data, weighted by errors. """
@@ -468,3 +478,24 @@ def errorProgagationKdFromdG(dG, sigma_dG):
     sigma_kd = parameters.find_Kd_from_dG(dG)/parameters.RT*sigma_dG
     return sigma_kd
 
+def returnResultsFromParams(params, results, y):
+    """Given a set of params (i.e. from lmfit) return parsed."""
+        # find rqs
+    ss_total = np.nansum((y - y.mean())**2)
+    ss_error = np.nansum((results.residual)**2)
+    rsq = 1-ss_error/ss_total
+    rmse = np.sqrt(ss_error)
+    
+    param_names = params.keys()
+    index = (param_names + ['%s_stde'%param for param in param_names] +
+             ['rsq', 'exit_flag', 'rmse'])
+    final_params = pd.Series(index=index)
+
+    # save params in structure
+    for param in param_names:
+        final_params.loc[param] = params[param].value
+        final_params.loc['%s_stde'%param] = params[param].stderr
+    final_params.loc['rsq'] = rsq
+    final_params.loc['exit_flag'] = results.ier
+    final_params.loc['rmse'] = rmse
+    return final_params
