@@ -3,6 +3,11 @@
 
 Fits all single clusters.
 
+20170814: 
+Modifications- imports a slightly different fitting module that 
+determines if a cluster has any signal before trying to fit. 
+'blank' clusters will return affinity values at the measurement threshold.
+
 Input:
 CPsignal file
 concentrations file
@@ -24,8 +29,8 @@ import itertools
 import scipy.stats as st
 from joblib import Parallel, delayed
 import lmfit
-from fittinglibs import (plotting, fitting, fileio, seqfun, distribution)
-from fittinglibs.fitting import fittingParameters
+from fittinglibs import (plotting, fittingNonBinders, fileio, seqfun, distribution)
+from fittinglibs.fittingNonBinders import fittingParameters
 
 ### MAIN ###
 
@@ -73,7 +78,7 @@ def splitAndFit(bindingSeries, concentrations, fitParameters, numCores,
 
     print 'Fitting binding curves:'
     fits = (Parallel(n_jobs=numCores, verbose=10)
-            (delayed(fitting.fitSetClusters)(concentrations, subBindingSeries,
+            (delayed(fittingNonBinders.fitSetClusters)(concentrations, subBindingSeries,
                                      fitParameters, print_bool=print_bool, change_params=change_params, kwargs=kwargs)
              for subBindingSeries, print_bool in itertools.izip(bindingSeriesSplit, printBools)))
 
@@ -85,7 +90,7 @@ def bindingSeriesByCluster(concentrations, bindingSeries, numCores, subset=False
     """ Initialize fitting. """
     # find initial parameters
     if fitParameters is None:
-        fitParameters = fitting.getInitialFitParameters(concentrations)
+        fitParameters = fittingNonBinders.getInitialFitParameters(concentrations)
         
         # change fmin initial
         all_indices = bindingSeries.dropna(subset=[bindingSeries.columns[0]]).index.tolist()
@@ -108,7 +113,7 @@ def bindingSeriesByCluster(concentrations, bindingSeries, numCores, subset=False
     
     
     fitResults = pd.DataFrame(index=bindingSeries.index,
-                              columns=fitting.fitSingleCurve(concentrations,
+                              columns=fittingNonBinders.fitSingleCurve(concentrations,
                                                             None, fitParameters, func,
                                                             do_not_fit=True).index)
     fitResults.loc[index_all] = splitAndFit(bindingSeries, concentrations,

@@ -235,7 +235,7 @@ def reduceCPseriesFiles(outputFiles, reducedOutputFile, indices=None, tileOutput
     allTiles = [fileio.loadFile(filename) for filename in outputFiles.values()]
     a = pd.concat(allTiles)
     a = a.groupby(level=0).first()
-    
+
     if indices is None:    
         a.to_pickle(reducedOutputFile)
     else:
