@@ -28,8 +28,13 @@ class fittingParameters():
         # This should not be a hard-coded constant...
         # self.RT = 0.582
 
+        # R value = 0.0019858775 kcal/ mol*K
+
         # At 37C:
         self.RT = 0.616
+
+        # At 55C:
+        #self.RT = 0.651
         
         # When constraining the upper and lower bounds of dG, say you only think
         # can fit binding curves if at most it is 99% bound in the first
