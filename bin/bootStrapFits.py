@@ -135,9 +135,14 @@ def loadGroupDict(bindingCurveFilename, annotatedClusterFile):
     # fluorescenceMat = (pd.concat([pd.read_pickle(annotatedClusterFile),
     #                               pd.read_pickle(bindingCurveFilename).astype(float)], axis=1).
     #     sort('variant_number'))
+    #fluorescenceMat = (pd.concat([pd.read_pickle(annotatedClusterFile),
+    #                              pd.read_pickle(bindingCurveFilename).astype(float)], axis=1).
+    #    sort('variant_ID'))
+    # 20180301: df.sort() is depreciated. Use sort_values()
     fluorescenceMat = (pd.concat([pd.read_pickle(annotatedClusterFile),
-                                  pd.read_pickle(bindingCurveFilename).astype(float)], axis=1).
-        sort('variant_ID'))
+                                  pd.read_pickle(bindingCurveFilename).astype(float)], 
+                                  axis=1).sort_values('variant_ID'))
+
 
     # fit all labeled variants
     # fluorescenceMat.dropna(axis=0, subset=['variant_number'], inplace=True)

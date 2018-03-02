@@ -99,7 +99,9 @@ def bindingSeriesByCluster(concentrations, bindingSeries, numCores, subset=False
     # distributions of binders/nonbinders
     if not index_all:
         fluorescence = bindingSeries.iloc[:, -1].copy()
-        fluorescence.sort()
+        # 20180228: .sort() has been depreciated completely now. sort_values() should be equivalent.
+        #fluorescence.sort()
+        fluorescence.sort_values(inplace=True)
         index_all = bindingSeries.loc[fluorescence.index].dropna(axis=0, thresh=4).index
     
         if subset:
