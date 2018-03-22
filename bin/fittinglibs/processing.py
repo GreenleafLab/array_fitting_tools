@@ -25,6 +25,8 @@ def add_common_args(parser):
                        help='CPseries file of transcribed signal')
     parser.add_argument('-c', '--concentrations', metavar="concentrations.txt",
                         help='text file giving the associated concentrations')
+    parser.add_argument('-x', '--xvalues', metavar="filename.txt",
+                        help='text file giving the column differences in CPseries (i.e. time or concentration)')
     parser.add_argument('-n','--numCores', type=int, default=20, metavar="N",
                         help='maximum number of cores to use. default=20')
     parser.add_argument('-out', '--out_file', 
