@@ -12,7 +12,8 @@ import scipy.stats as st
 import ipdb
 import copy
 import datetime
-from fittinglibs.variables import fittingParameters
+from fittinglibs import variables
+from variables import fittingParameters
 
 sns.set_style("white", {'xtick.major.size': 4,  'ytick.major.size': 4,
                         'xtick.minor.size': 2,  'ytick.minor.size': 2,

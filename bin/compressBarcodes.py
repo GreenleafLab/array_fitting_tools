@@ -23,7 +23,7 @@ import datetime
 import pandas as pd
 import scipy.stats as st
 import matplotlib.pyplot as plt
-import seaborn as sns
+#import seaborn as sns
 ''' Functions '''
 
 # Writes a single line with a newline to the specified file
@@ -305,8 +305,8 @@ if __name__ == "__main__":
     
     # plot histogram
     plt.figure(figsize=(4,3))
-    plt.hist(barcodes.loc[barcodes.barcode_good, 'clusters_per_barcode'].values, bins=np.arange(60), alpha=0.5, color=sns.xkcd_rgb['deep blue'], label='good bc')
-    plt.hist(barcodes.loc[~barcodes.barcode_good, 'clusters_per_barcode'].values, bins=np.arange(60), alpha=0.5, color=sns.xkcd_rgb['light grey'], label='bad bc')
+    plt.hist(barcodes.loc[barcodes.barcode_good, 'clusters_per_barcode'].values, bins=np.arange(60), alpha=0.5, color='b', label='good bc')
+    plt.hist(barcodes.loc[~barcodes.barcode_good, 'clusters_per_barcode'].values, bins=np.arange(60), alpha=0.5, color='0.5', label='bad bc')
     plt.xlabel('number of times measured')
     plt.ylabel('number of barcodes')
     plt.legend()
@@ -314,8 +314,8 @@ if __name__ == "__main__":
     plt.savefig(os.path.splitext(finalFilename)[0]+'.clusters_per_barcode.pdf')
     # plot histogram
     plt.figure(figsize=(4,3))
-    plt.hist(barcodes.loc[barcodes.barcode_good, 'fraction_consensus'].values, bins=np.linspace(0, 1), alpha=0.5, color=sns.xkcd_rgb['deep blue'], label='good bc')
-    plt.hist(barcodes.loc[~barcodes.barcode_good, 'fraction_consensus'].values, bins=np.linspace(0, 1), alpha=0.5, color=sns.xkcd_rgb['light grey'], label='bad bc')
+    plt.hist(barcodes.loc[barcodes.barcode_good, 'fraction_consensus'].values, bins=np.linspace(0, 1), alpha=0.5, color='b', label='good bc')
+    plt.hist(barcodes.loc[~barcodes.barcode_good, 'fraction_consensus'].values, bins=np.linspace(0, 1), alpha=0.5, color='0.5', label='bad bc')
     plt.xlabel('fraction consensus')
     plt.ylabel('number of barcodes')
     plt.legend()

@@ -5,7 +5,6 @@ import matplotlib.cm as cmx
 import scipy.misc
 import scipy.stats as st
 import pandas as pd
-from sklearn.decomposition import PCA as sklearnPCA
 
 def reverseComplement(seq, rna=None):
     """
@@ -161,11 +160,23 @@ def doPCA(submat, fillna=False):
     """Perform PCA on a matrix."""
     if fillna:
         submat = fillNAMat(submat)
-    sklearn_pca = sklearnPCA(n_components=None, whiten=False)
-    sklearn_transf = sklearn_pca.fit_transform(submat)
-    pca_projections = np.dot(np.linalg.inv(np.dot(sklearn_transf.T, sklearn_transf)),
-                                 np.dot(sklearn_transf.T, submat))
+    from fittinglibs import dummylib
+    return dummylib.doPCA(submat)
+
+def transform_data(data, loadings, scale_params=None):
+    """Transform data in coordinates given by 'loadings'.
     
+    If 'scale_params' is given, subtract off mean and divide by std dev of data first."""
+    if scale_params is not None:
+        failed = True
+        if len(scale_params)==2:
+            if len(scale_params[0])==data.shape[1] and len(scale_params[1]==data.shape[1]):
+                data = ((data - scale_params[0])/scale_params[1]).copy()
+                failed = False
+        if failed:
+            print 'check dimensions of scale_params'
     
-    return (sklearn_pca, pd.DataFrame(sklearn_transf, index=submat.index, columns=['pc_%d'%i for i in np.arange(sklearn_transf.shape[1])]),
-            pd.DataFrame(pca_projections, columns=submat.columns, index=['pc_%d'%i for i in np.arange(sklearn_transf.shape[1])]))
+    transformed = pd.DataFrame(np.dot(loadings, data.transpose())).transpose()
+    transformed.index = data.index
+    transformed.columns = ['pc_%d'%i for i in np.arange(transformed.shape[1])]
+    return transformed

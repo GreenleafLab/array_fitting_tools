@@ -5,7 +5,6 @@ import pandas as pd
 import pickle
 import itertools
 import datetime
-from fittinglibs import distribution
 
 def returnFigDirectory():
     return 'figs_%s'%str(datetime.date.today())
@@ -52,7 +51,7 @@ def loadFile(filename):
     else:
         print 'Extension %s not recognized. No file loaded.'%ext
         
-def saveFile(filename, data):
+def saveFile(filename, data, **kwargs):
     """Save data to a file according to extension."""
     if filename is None:
         print "Error: No filename given!"
@@ -60,12 +59,15 @@ def saveFile(filename, data):
     ext = os.path.splitext(filename)[-1]
     if ext == '.pkl':
         data.to_pickle(filename)
-    elif ext == '.CPvariant':
+    elif ext == '.CPvariant' or ext == '.dat':
         data.to_csv(filename, sep='\t')
     elif ext == '.p':
         pickle.dump(data, open( filename,  "wb" ))
+    elif ext == '.csv':
+        data.to_csv(filename, **kwargs)
+
     else:
-        print 'Extension %s not recognized. No file loaded.'%ext
+        print 'Extension %s not recognized. No file saved.'%ext
         
     
 def _loadCPseq(filename):

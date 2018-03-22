@@ -16,11 +16,11 @@ import pandas as pd
 import sys
 import os
 import argparse
-import ipdb
-import seaborn as sns
+#import ipdb
+#import seaborn as sns
 import matplotlib.pyplot as plt
 from fittinglibs import fileio, processing, seqfun
-sns.set_style("white", {'xtick.major.size': 4,  'ytick.major.size': 4})
+#sns.set_style("white", {'xtick.major.size': 4,  'ytick.major.size': 4})
 
 ### MAIN ###
 
