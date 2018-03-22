@@ -39,7 +39,7 @@ def loadFile(filename):
     elif ext == '.CPfluor':
         return _loadCPFluorFile(filename, compression=compression)
 
-    elif ext == '.CPvariant' or ext == 'CPseries' or ext == 'CPfitted' or ext == '.fitParameters':
+    elif ext == '.CPvariant' or ext == '.CPseries' or ext == '.CPfitted' or ext == '.fitParameters':
         return _loadIndexedTable(filename)
    
     elif ext == '.txt':
