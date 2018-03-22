@@ -151,17 +151,28 @@ def fitSingleCurve(x, y, fitParameters, func,
     param_names = fitParameters.columns.tolist()
     
     # initiate output structure  
-    index = (param_names + ['%s_stde'%param for param in param_names] +
-             ['rsq', 'exit_flag', 'rmse'])
-    final_params = pd.Series(index=index)
+    final_params = pd.Series(index=(param_names +
+                                    ['%s_stde'%param for param in param_names] +
+                                    ['rsq', 'exit_flag', 'rmse']))
+    
+    # make sure fluorescence doesn't have NaN terms
+    index = np.array(np.isfinite(y))
+    
+    # find the number of free parameters
+    num_free_parameters = len(param_names)
+    if 'vary' in fitParameters:
+        num_free_parameters = fitParameters['vary'].sum()
+    
+    # don't fit if there are not enough finite entries    
+    if index.sum() <= num_free_parameters:
+        do_not_fit = True
 
     # return here if you don't want to actually fit
     if do_not_fit:
         final_params.loc['exit_flag'] = -1
         return final_params
     
-    # make sure fluorescence doesn't have NaN terms
-    index = np.array(np.isfinite(y))
+    # add the arguments to the kwargs dict
     kwargs = kwargs.copy()
     kwargs.update({'data':y, 'weights':weights, 'index':index}) 
 
@@ -172,10 +183,7 @@ def fitSingleCurve(x, y, fitParameters, func,
 
     
     # find rqs
-    ss_total = np.sum((y - y.mean())**2)
-    ss_error = np.sum((results.residual)**2)
-    rsq = 1-ss_error/ss_total
-    rmse = np.sqrt(ss_error)
+    rsq, rmse = get_rsq_rmse(y, results.residual)
     
     # save params in structure
     for param in param_names:
@@ -186,6 +194,15 @@ def fitSingleCurve(x, y, fitParameters, func,
     final_params.loc['rmse'] = rmse
     
     return final_params
+
+def get_rsq_rmse(y, residuals):
+    """Return the rsq and the rmse given the y values and the residuals """
+    ss_total = np.sum((y - y.mean())**2)
+    ss_error = np.sum(residuals**2)
+    rsq = 1-ss_error/ss_total
+    rmse = np.sqrt(ss_error)
+    
+    return rsq, rmse
 
 def findErrorBarsBindingCurve(subSeries, min_error=0):
     """ Return bootstrapped confidence intervals on columns of an input data matrix.
