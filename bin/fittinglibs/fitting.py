@@ -9,15 +9,10 @@ from statsmodels.distributions.empirical_distribution import ECDF
 import warnings
 import itertools
 import scipy.stats as st
-import ipdb
 import copy
 import datetime
 from fittinglibs import variables
 from variables import fittingParameters
-
-sns.set_style("white", {'xtick.major.size': 4,  'ytick.major.size': 4,
-                        'xtick.minor.size': 2,  'ytick.minor.size': 2,
-                        'lines.linewidth': 1})
 
 def getFitParam(param, concentrations=None, init_val=None, vary=None, ub=None, lb=None):
     """For a given fit parameter, return reasonable lowerbound, initial guess, and upperbound.

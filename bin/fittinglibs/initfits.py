@@ -5,9 +5,8 @@ import sys
 import warnings
 import itertools
 import scipy.stats as st
-import ipdb
 import copy
-from sklearn import metrics
+#from sklearn import metrics
 from fittinglibs import objfunctions, variables, fitting, plotting
 
 class FitParams():
@@ -429,7 +428,7 @@ def process_new_params(args ):
 def get_r2_score(y, ypred):
     """Find the rsq, leaving out NaNs."""
     index = pd.concat([y, ypred], axis=1).dropna().index.tolist()
-    return metrics.r2_score(y.loc[index], ypred.loc[index])
+    return st.pearsonr(y.loc[index], ypred.loc[index])[0]**2
 
 def get_rmse(y, ypred):
     """Find the rmse."""

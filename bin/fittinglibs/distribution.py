@@ -10,7 +10,6 @@ import warnings
 import itertools
 import scipy.stats as st
 import fittinglibs.plotting as plotting
-import ipdb
 
 class fmaxDistAny():
     __module__ = 'fittinglibs.%s'%os.path.splitext(os.path.basename(__file__))[0]
