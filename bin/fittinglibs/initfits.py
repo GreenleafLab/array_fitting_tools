@@ -17,8 +17,8 @@ class FitParams():
         self.param_names = self.func(None, None, return_param_names=True)
         self.x = x
         self.y = y
-        self.fit_kws = fit_kws
-        self.init_kws = init_kws
+        self.fit_kws = fit_kws  # kwargs pairs taat will be passed to fittings.fitSingleCurve
+        self.init_kws = init_kws # dict of {param_name:{'initial':val}} etc
 
         # these operations will be performed before fitting
         self.before_fit_ops = before_fit_ops # formatted like [('fmax', 'initial', lambda y: y.max)]
@@ -28,6 +28,7 @@ class FitParams():
             fit_parameters = {}
             for param_name in self.param_names:
                 fit_parameters[param_name] = getattr(self, 'get_init_%s'%param_name)()
+                # TODO add functions for koff etc.
             self.fit_parameters = fit_parameters
             self.update_init_params(**init_kws)
         
@@ -79,7 +80,7 @@ class FitParams():
         return _get_params_from_results(results, self.param_names)
     
     def plot_fit(self, y=None, results=None, plot_fit=True, **kwargs):
-        """Assuming fit_curve has already bee run, plot results."""
+        """Assuming fit_curve has already been run, plot results."""
         x = self.x
         if y is None:
             y = getattr(self, 'y')
@@ -130,7 +131,7 @@ class FitParams():
 
     def get_init_fmin(self):
         """Find initial fmin values."""
-        return {'lowerbound':0, 'initial':0, 'upperbound':np.inf, 'vary':True}
+        return {'lowerbound':0, 'initial':1E-4, 'upperbound':np.inf, 'vary':True}
 
     def get_init_dGns(self):
         """Find initial nonspecific dG val values."""
