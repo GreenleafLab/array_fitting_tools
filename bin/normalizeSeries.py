@@ -12,23 +12,20 @@ import argparse
 import sys
 import itertools
 import scipy.stats as st
+import logging
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
-from fittinglibs import (plotting, fileio)
-### MAIN ###
+from fittinglibs import (plotting, fileio, processing)
 
-################ Parse input parameters ################
+##### PARSE ARGUMENTS #####
+parser = argparse.ArgumentParser(description='normalize fluorescence series in green channel '
+                                 '(associated with binding signal) by the signal in the red channel '
+                                 '(associated with total transcribed RNA)')
+processing.add_common_args(parser.add_argument_group('common arguments'))
 
-#set up command line argument parser
-parser = argparse.ArgumentParser(description='fit single clusters to binding curve')
-
-group = parser.add_argument_group('required arguments for fitting single clusters')
-group.add_argument('-b', '--binding_series', metavar="CPseries.pkl",
-                    help='reduced CPseries file of binding signal.')
-group.add_argument('-a', '--all_cluster', metavar='CPseries.pkl',
-                   help='reduced CPseries file of any RNA signal.')
-
-group = parser.add_argument_group('optional arguments')
+group = parser.add_argument_group('optional arguments for normalize series')
 group.add_argument('--no_bounds', action="store_true",
                    help='By default, all cluster signal is bounded to prevent '
                    'dividing by zero in cases where signal is low. Flag to prevent this.')
@@ -38,7 +35,7 @@ group.add_argument('--bounds', nargs=2, metavar='N N',
 group.add_argument('-out', '--out_file', 
                    help='output filename. includes extension not pkl')
 
-
+##### FUNCITONS #####
 def boundFluorescence(signal, plot=False, bounds=None):
     # take i.e. all cluster signal and bound it     
     signal = signal.copy()
@@ -48,11 +45,11 @@ def boundFluorescence(signal, plot=False, bounds=None):
         if bounds is None:
             lowerbound = np.percentile(signal.dropna(), 1)
             upperbound = signal.median() + 5*signal.std()
-            print 'Found bounds: %4.3f, %4.3f'%(lowerbound, upperbound)
+            logging.info('Found bounds: %4.3f, %4.3f'%(lowerbound, upperbound))
         else:
             lowerbound = bounds[0]
             upperbound = bounds[1]
-            print 'Using given bounds: %4.3f, %4.3f'%(lowerbound, upperbound)
+            logging.info('Using given bounds: %4.3f, %4.3f'%(lowerbound, upperbound))
         
         if plot:
             plotting.plotBoundFluorescence(signal, [lowerbound, upperbound])
@@ -64,34 +61,38 @@ def boundFluorescence(signal, plot=False, bounds=None):
         signal.loc[:] = 1
     return signal
 
+##### MAIN #####
+if __name__=="__main__":
 
-if __name__=="__main__":    
+
     args = parser.parse_args()
+    processing.update_logger(logging, args.log)
     
+    ##### DEFINE OUTPUT FILE AND DIRECTORY #####
     # find out file and fig directory
     if args.out_file is None:
-        args.out_file = fileio.stripExtension(args.binding_series) + '_normalized.CPseries'
+        args.out_file = fileio.stripExtension(args.binding_series) + '_normalized.CPseries.gz'
     
     figDirectory = os.path.join(os.path.dirname(args.out_file), fileio.returnFigDirectory())
     if not os.path.exists(figDirectory):
         os.mkdir(figDirectory)
     
     # use only first columns of allCluster signal file
-    print "Loading all RNA signal..."
+    logging.info("Loading all RNA signal")
     allClusterSignal = fileio.loadFile(args.all_cluster).iloc[:, 0]
     
     # laod whole binding Series
-    print "Loading series..."
+    logging.info("Loading series...")
     bindingSeries = fileio.loadFile(args.binding_series)
 
     # make normalized binding series
-    print "Normalizing..."
+    logging.info("Normalizing...")
     if not args.no_bounds:
         allClusterSignal = boundFluorescence(allClusterSignal, plot=True, bounds=args.bounds)   
     bindingSeriesNorm = np.divide(bindingSeries, np.vstack(allClusterSignal))
     
     # save
-    print "Saving..."
-    bindingSeriesNorm.to_pickle(args.out_file + '.pkl')
+    logging.info( "Saving...")
+    bindingSeriesNorm.to_csv(args.out_file, sep='\t', compression='gzip')
     plt.savefig(os.path.join(figDirectory, 'bound_all_cluster_signal.pdf'))
     

@@ -24,7 +24,18 @@ def add_common_args(parser):
     parser.add_argument('-a', '--all_cluster', metavar='CPseries',
                        help='CPseries file of transcribed signal')
     parser.add_argument('-c', '--concentrations', metavar="concentrations.txt",
-                        help='text file giving the associated concentrations')    
+                        help='text file giving the associated concentrations')
+    parser.add_argument('-n','--numCores', type=int, default=20, metavar="N",
+                        help='maximum number of cores to use. default=20')
+    parser.add_argument('-out', '--out_file', 
+                       help='output filename. default is basename of input filename')
+    parser.add_argument('--log', 
+                        help='log level (i.e. INFO, WARNING, etc)')
+    
+def update_logger(logging, loglevel):
+    """Have a common format and loggin level for each script."""
+    logging.basicConfig(level=getattr(logging, loglevel.upper()), format='%(asctime)s\t %(levelname)s:%(message)s')
+
 
 def filenameMatchesAListOfExtensions(filename, extensionList=None):
     """Return filenames that have a spcified set of extensions."""
