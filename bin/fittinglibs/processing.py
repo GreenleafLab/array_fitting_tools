@@ -17,17 +17,14 @@ import argparse
 import copy
 import fittinglibs.fileio as fileio
 
-class DictAction(argparse.Action):
-    def __call__(self, parser, namespace, values, option_string=None):
-        try:
-            k, v = values.split("=", 1)
-        except ValueError:
-            raise argparse.ArgumentError(self, "Format must be key=value")
-
-        # Implementation is from argparse._AppendAction
-        items = copy.copy(argparse._ensure_value(namespace, self.dest, {}))  # Default mutables, use copy!
-        items[k] = v
-        setattr(namespace, self.dest, items)
+def add_common_args(parser):
+    """Add the most common arguments to the parser"""
+    parser.add_argument('-b', '--binding_series', metavar="CPseries",
+                    help='CPseries file of binding series.')
+    parser.add_argument('-a', '--all_cluster', metavar='CPseries',
+                       help='CPseries file of transcribed signal')
+    parser.add_argument('-c', '--concentrations', metavar="concentrations.txt",
+                        help='text file giving the associated concentrations')    
 
 def filenameMatchesAListOfExtensions(filename, extensionList=None):
     """Return filenames that have a spcified set of extensions."""
