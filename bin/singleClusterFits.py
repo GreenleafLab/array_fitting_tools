@@ -58,7 +58,7 @@ def splitAndFit(fitParams, bindingSeries, numCores, index=None):
     """ Given a table of binding curves, parallelize fit. """
     if index is None:
         index = bindingSeries.index    
-    print 'Fitting binding curves:'
+    logging.info('Fitting binding curves:')
     fits = (Parallel(n_jobs=numCores, verbose=10)
             (delayed(fitting.perCluster)(fitParams, bindingSeries.loc[idx])
              for idx in index))
@@ -71,13 +71,13 @@ def checkFitResults(fitResults):
     # did any of the stde work?
     param_names = ['fmax', 'dG', 'fmin']
     numClusters = fitResults.dropna(subset=param_names).shape[0]
-    print ('%4.2f%% clusters have rsq>50%%'
+    logging.info('%4.2f%% clusters have rsq>50%%'
            %(100*(fitResults.rsq > 0.5).sum()/float(numClusters)))
-    print ('%4.2f%% clusters have stde in dG < 1'
+    logging.info('%4.2f%% clusters have stde in dG < 1'
            %(100*(fitResults.dG_stde < 1).sum()/float(numClusters)))
-    print ('%4.2f%% clusters have stde in fmax < fmax'
+    logging.info('%4.2f%% clusters have stde in fmax < fmax'
            %(100*(fitResults.fmax_stde < fitResults.fmax).sum()/float(numClusters)))
-    print ('%4.2f%% clusters have stde != 0 for at least one fit parameters'
+    logging.info('%4.2f%% clusters have stde != 0 for at least one fit parameters'
            %(100 -100*(fitResults.loc[:, ['%s_stde'%param for param in param_names]]==0).all(axis=1).sum()/float(numClusters)))
 
 
