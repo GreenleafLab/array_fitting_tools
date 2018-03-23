@@ -28,8 +28,7 @@ group.add_argument('--no_bounds', action="store_true",
 group.add_argument('--bounds', nargs=2, metavar='N N',
                    help='use these lower and upper bounds if provided. ',
                    type=float)
-group.add_argument('-out', '--out_file', 
-                   help='output filename. includes extension not pkl')
+
 
 ##### FUNCITONS #####
 def boundFluorescence(signal, plot=False, bounds=None):
