@@ -18,8 +18,7 @@ import os
 import argparse
 #import ipdb
 #import seaborn as sns
-import matplotlib.pyplot as plt
-from fittinglibs import fileio, processing, seqfun
+from fittinglibs import fileio, seqfun
 #sns.set_style("white", {'xtick.major.size': 4,  'ytick.major.size': 4})
 
 ### MAIN ###
@@ -67,15 +66,17 @@ def findSequenceRepresentation(consensus_sequences, compare_to, exact_match=Fals
     num_bc_per_variant: list of the same length as compare_to giving the
         number of sequenceing results that match a designed library variant.
     is_designed: list of the same length as consensus_sequences giving which
-        designed variant it alighnes to.
+        designed variant it aligns to.
     """
     # initialize
     num_bc_per_variant = pd.Series(index=compare_to.index, dtype=int) # number consensus sequences per designed sequence
-    is_designed = np.ones(len(consensus_sequences))*np.nan # -1 if no designed sequence is found that matches. else index
-    
+    is_designed = pd.Series(index=consensus_sequences.index)
+    if not isinstance(consensus_sequences, pd.Series):
+        consensus_sequences = pd.Series(consensus_sequences)
+    consensus_seqlist = consensus_sequences.astype(str).values
+    consensus_seqindex = consensus_sequences.index.tolist()
     # cycle through designed sequences. Find if they are in the actual sequences
-    for i, idx in enumerate(compare_to.index):
-        sequence = compare_to.loc[idx]
+    for i, (idx, sequence) in enumerate(compare_to.iteritems()):
         if i%1000==0:
             print "checking %dth sequence"%i
         
@@ -86,17 +87,17 @@ def findSequenceRepresentation(consensus_sequences, compare_to, exact_match=Fals
         count = -1
         
         # first location in the sorted list that the sequence might match
-        first_index = np.searchsorted(consensus_sequences, sequence)
+        first_index = np.searchsorted(consensus_seqlist, sequence)
         
         # starting from the first index given by searching the sorted list,
         # cycle until the seuqnece is no longer found
         while in_fastq:
             count += 1
-            if first_index+count < len(consensus_sequences):
+            if first_index+count < len(consensus_seqlist):
                 if exact_match:
-                    in_fastq = consensus_sequences[first_index+count] == sequence
+                    in_fastq = consensus_seqlist[first_index+count] == sequence
                 else:
-                    in_fastq = consensus_sequences[first_index+count].find(sequence)==0
+                    in_fastq = consensus_seqlist[first_index+count].find(sequence)==0
             else:
                 in_fastq = False
             # if the designed sequence is in the most probable location of the
@@ -105,140 +106,9 @@ def findSequenceRepresentation(consensus_sequences, compare_to, exact_match=Fals
             if in_fastq:
                 is_designed[first_index+count] = idx
         num_bc_per_variant.loc[idx] = count
-    return num_bc_per_variant, is_designed
+    
+    return num_bc_per_variant, pd.Series(is_designed, consensus_seqindex)
 
-def findSeqMap(libCharacterizationFile, cpSignalFile, uniqueBarcodesFile=None,
-         reverseComplement=True, seqCol=None, barcodeCol=None, mapToBarcode=None):
-    """ Processes inputs to send to findSequenceRepresentation.
-    
-    Inputs:
-    libCharacterizationFile: file containing a column 'sequence' that contains the
-        designed library variants.
-    cpSignalFile: file containing sequencing output that you wish to map to
-        designed sequences.
-    uniqueBarcordesFile: (optional) the barcode map file.
-    reverseComplement: (default True) whether to reverse complement the designed
-        library variants
-    seqCol: if barcode map file is not given, need to define which column of CPsignal
-        file contains sequencing output you wish to map.
-    barcodeCol: if barcode map file IS given, need to define which column of CPsignal
-        file contains the barcode
-    mapToBarcode: (default True if barcode map file is given) whether to use the
-        barcode map or to map directly to seqCol in CPsignal file.
-        
-    Outputs:
-    
-    """
-
-    if mapToBarcode is None:
-        if uniqueBarcodesFile is not None:
-            mapToBarcode = True
-        else:
-            mapToBarcode = False
-    if not mapToBarcode and seqCol is None:
-        print 'Error: need to define seqCol if using cpSignal file'
-        return
-    
-    if mapToBarcode and barcodeCol is None:
-        print 'Error: need to define barcodeCol if using unique barcodes file'
-        return        
-    
-    print "loading consensus sequences..."
-    if uniqueBarcodesFile is not None:
-        consensus = processing.loadCompressedBarcodeFile(uniqueBarcodesFile)
-        
-        # if using the unique barcode map, the unique identifier is the barcode
-        identifyingColumn = 'barcode'
-    elif cpSignalFile is not None:
-        consensus = fileio.loadFile(cpSignalFile)
-        consensus.loc[:, 'sequence'] = consensus.loc[:, seqCol]
-        # if using the cpsignal, the unique identifier is the cluster Id
-        identifyingColumn = 'clusterID'
-    
-    # sort by sequence to do sorted search later on
-    consensus.sort('sequence', inplace=True)
-
-    print "loading designed sequences..."
-    designed_library = fileio.loadFile(libCharacterizationFile)
-    
-    # make library sequences unique
-    designed_sequences, unique_indices = np.unique(designed_library['sequence'], return_index=True)
-    designed_library_unique = designed_library.iloc[unique_indices].copy()
-    print "reduced library size from %d to %d after unique filter"%(len(designed_library), len(designed_library_unique))
-    
-    ## add field in designed_library_unique which gives an int to that sequence
-    #designed_library_unique.insert(0, 'variant_number', unique_indices.astype(int))
-    
-    # figure out read length
-    read_length = len(consensus.sequence.iloc[0])
-    
-    # reformat designed sequences to be reverse complement (as in read 2)
-    if reverseComplement:
-        designed_library_unique.loc[:, 'rc_sequence_trunc'] = (
-            [seqfun.reverseComplement(sequence)[:read_length]
-             for sequence in designed_library_unique.sequence])
-        compare_to = designed_library_unique.rc_sequence_trunc
-    else:
-        designed_library_unique.loc[:, 'sequence_trunc'] = (
-            [sequence[:read_length]
-             for sequence in designed_library_unique.sequence])
-        compare_to = designed_library_unique.sequence_trunc
-    
-    # find number of times each sequence that has at least one representation is in the
-    # original block of seqeunces
-    num_bc_per_variant, is_designed = findSequenceRepresentation(
-        consensus.sequence.values, compare_to)
-
-    # is_designed gives the variant number for those clusters that successfully mapped
-    barcodeMap = pd.concat([pd.DataFrame(is_designed, consensus.index,
-                                         columns=['variant_number']),
-                            consensus], axis=1)
-    barcodeMap.sort('variant_number',  inplace=True)
-    if not barcodeMap.index.name == identifyingColumn:
-        barcodeMap.index = barcodeMap.loc[:, identifyingColumn]
-        barcodeMap.drop(identifyingColumn, axis=1, inplace=True)
-    
-    # return not the barcode map but the seqMap. If mapped di
-    print 'Mapping to cluster IDs...'
-    cols = ['variant_number']
-    if mapToBarcode:
-        identifyingColumn = 'clusterID'
-        table = fileio.loadFile(cpSignalFile)
-        
-        # make sure table has unique indices
-        n_clusters = len(table)
-        n_unique_clusters = len(np.unique(table.index.tolist()))
-        if n_unique_clusters != n_clusters:
-            print ('CPseq file given has redudant indices. '
-                   'Reducing from %d clusters to %d clusters.')%(n_clusters, n_unique_clusters)
-            table = table.groupby(level=0).first()
-        
-        # now map variants to cluster based on barcodes
-        seqMap = pd.DataFrame(index=table.index, columns=cols)
-        index = table.loc[:, barcodeCol].dropna()
-        seqMap.loc[index.index, cols] = barcodeMap.loc[index, cols].values
-
-        seqMap.sort('variant_number', inplace=True)
-    else:
-        seqMap = barcodeMap.loc[:, cols]
-
-    
-    if mapToBarcode:
-        logText = ['Used Barcode File: %s'%uniqueBarcodesFile,
-            '\t%d unique barcodes total'%len(barcodeMap),
-            '\t%d (%4.1f%%) mapped to library variant'%(len(barcodeMap.dropna(subset=['variant_number'])),
-                                                       len(barcodeMap.dropna(subset=['variant_number']))/
-                                                       float(len(barcodeMap))*100)]
-    else: logText = []
-    logText = (logText + 
-            ['Mapped to clusters in %s'%cpSignalFile,
-            '\t%d clusters total'%len(seqMap),
-            '\t%d (%4.1f%%) mapped to library variant'%(len(seqMap.dropna(subset=['variant_number'])),
-                                                       len(seqMap.dropna(subset=['variant_number']))/
-                                                       float(len(seqMap))*100)])
-    print '\n'.join(logText)
-
-    return seqMap
 
 def plotNumberClustersPerVariant(seqMap):
     """ Plot a histogram of number of clusters per variant. """
@@ -253,26 +123,46 @@ def plotNumberClustersPerVariant(seqMap):
 if __name__ == '__main__':
     # load files
     args = parser.parse_args()
+
+
+    if args.out_file is None:
+        args.out_file = fileio.stripExtension(args.cpseq) + '.CPannot.gz'
+        
+    # load consensus seqs of UMI
+    consensus_seqs = fileio.loadFile(args.unique_barcodes).set_index('barcode').sequence.sort_values()
+    read_length = consensus_seqs.str.len().value_counts().index.tolist()[0] # mode of all
     
-    libCharacterizationFile = args.library_characterization
-    cpSignalFile = args.cpseq
-    uniqueBarcodesFile = args.unique_barcodes
-    reverseComplement = not args.noReverseComplement
-    seqCol = args.seqCol
-    barcodeCol = args.barcodeCol
-    outFile = args.out_file
-
-    if outFile is None:
-        outFile = os.path.splitext(
-            cpSignalFile[:cpSignalFile.find('.pkl')])[0]
+    # load designed sequences, make  sequences unique
+    lib_char = fileio.loadFile(args.library_characterization)
+    designed_sequences, unique_indices = np.unique(lib_char.sequence, return_index=True)
     
-    seqMap = findSeqMap(libCharacterizationFile, cpSignalFile,
-                  uniqueBarcodesFile=uniqueBarcodesFile,
-                      reverseComplement=reverseComplement,
-                      seqCol=seqCol,
-                      barcodeCol=barcodeCol)
+    # assign unique sequences
+    lib_char.index.name = 'variant_number'
+    lib_char_unique = lib_char.reset_index().groupby('sequence').first().reset_index().set_index('variant_number')
+    print "reduced library size from %d to %d after unique filter"%(len(lib_char), len(lib_char_unique))
+    
+    # make sure the length is less than the read length
+    lib_char_trimmed = lib_char_unique.loc[lib_char_unique.sequence.str.len() <= read_length].copy()
+    print "reduced library size from %d to %d after trimming for read length"%(len(lib_char_unique), len(lib_char_trimmed))
+
+    # take the reverse complement of the designed sequences, as we are comparing to read2
+    lib_char_trimmed.loc[:, 'rc_sequence_trunc'] = (
+        [seqfun.reverseComplement(sequence)[:read_length]
+         for sequence in lib_char_trimmed.sequence])
+    
+    # assign each row in consensus seqs to a variant in lib_char_trimmed
+    num_bc_per_variant, umi_designed_variant = findSequenceRepresentation(
+        consensus_seqs, lib_char_trimmed.rc_sequence_trunc)
+    
+    # assign each row in cpseq file to a variant
+    sequence_data = fileio.loadFile(args.cpseq)
+    annotated_clusters = pd.DataFrame(pd.Series({idx:np.nan if pd.isnull(umi)
+                                                 else umi_designed_variant.loc[umi]
+                                                 for idx, umi in sequence_data.index1_seq.iteritems()}).
+                                      rename('variant_number'))
+    annotated_clusters.to_csv(args.out_file, sep='\t', compression='gzip')
+    
 
 
-    seqMap.to_pickle(outFile + '.CPannot.pkl')
 
  
