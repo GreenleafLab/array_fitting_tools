@@ -83,7 +83,7 @@ def getScorePvalue(nwScore, m, n, k=0.0097, l=0.5735, nwScoreScale=0.2773):
 
 
 ### MAIN ###
-def main(rawArgs, **keywordParams):
+if __name__=='__main__':
 
     #set up command line argument parser
     parser = argparse.ArgumentParser(description="Consolidates individual fastq files from a paired-end run (optionally with index reads, as well) into one file (.CPseq format)")
@@ -93,7 +93,7 @@ def main(rawArgs, **keywordParams):
     parser.add_argument('-o','--output', help='output filename (.CPseq.gz)')
 
     #parse command line arguments
-    args = parser.parse_args(rawArgs[1:])
+    args = parser.parse_args()
 
     if not len(sys.argv) > 1:
         parser.print_help()
@@ -103,12 +103,12 @@ def main(rawArgs, **keywordParams):
     if args.output is not None:
         outputFilename = args.output
     else:
-        outputFilename = fileio.stripExtension(args.read1) + '_ALL.CPseq.gz' #default name according to flowcell ID
+        outputFilename = fileio.stripExtension(args.read1).replace('_R1', '') + '.CPseq.gz' 
     print 'Merged sequences will be saved to : ' + outputFilename
 
 
     #read in sequence files and consolidate records
-    outputFileHandle = getFilehandle(tempFilename(outputFilename, "wb"))
+    outputFileHandle = getFilehandle(tempFilename(outputFilename), "wb")
 
     read1Handle = getFilehandle(args.read1)
     read2Handle = getFilehandle(args.read2)
@@ -165,6 +165,4 @@ def main(rawArgs, **keywordParams):
     read1Handle.close()
     read2Handle.close()
 
-if __name__=='__main__':
-    sys.exit(main(sys.argv, from_command_line=True))
 
