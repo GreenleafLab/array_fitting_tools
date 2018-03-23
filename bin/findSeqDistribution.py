@@ -31,9 +31,9 @@ parser.add_argument('-lc', '--library_characterization', required=True,
                    help='file that lists unique variant sequences')
 parser.add_argument('-out', '--out_file', 
                    help='output filename')
-parser.add_argument('-cs', '--cpseq', 
+parser.add_argument('-cs', '--cpseq', required=True,
                    help='reduced CPseq file containing sequence information.')
-parser.add_argument('-bar', '--unique_barcodes',
+parser.add_argument('-bar', '--unique_barcodes', required=True,
                    help='barcode map file. if given, the variant sequences are '
                    'mapped to the barcode rather than directly on to the sequence data')
 
@@ -42,12 +42,7 @@ group = parser.add_argument_group('additional option arguments to map variants')
 group.add_argument('--barcodeCol', default='index1_seq',
                    help='if using barcode map, this indicates the column of CPsignal'
                    'file giving the barcode. Default is "index1_seq"')
-group.add_argument('--seqCol', default='read2_seq',
-                   help='when looking for variants, look within this sequence. '
-                   'Default is "read2_seq"')
-group.add_argument('--noReverseComplement', default=False, action="store_true",
-                   help='when looking for variants, default is to look for the'
-                   'reverse complement. Flag if you want to look for forward sequence')
+
 
 
 def findSequenceRepresentation(consensus_sequences, compare_to, exact_match=False):
@@ -158,7 +153,7 @@ if __name__ == '__main__':
     sequence_data = fileio.loadFile(args.cpseq)
     annotated_clusters = pd.DataFrame(pd.Series({idx:np.nan if pd.isnull(umi)
                                                  else umi_designed_variant.loc[umi]
-                                                 for idx, umi in sequence_data.index1_seq.iteritems()}).
+                                                 for idx, umi in sequence_data.loc[:, args.barcodeCol].iteritems()}).
                                       rename('variant_number'))
     annotated_clusters.to_csv(args.out_file, sep='\t', compression='gzip')
     
