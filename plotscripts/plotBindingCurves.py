@@ -10,6 +10,8 @@ import sys
 import os
 import argparse
 import seaborn as sns
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from fittinglibs import fileio, initfits, plotting
 

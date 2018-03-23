@@ -15,6 +15,8 @@ import itertools
 import seaborn as sns
 import scipy.spatial.distance as ssd
 import scipy.stats as st
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.cm as cmx
 import matplotlib as mpl

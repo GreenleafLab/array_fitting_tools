@@ -80,7 +80,11 @@ def getScorePvalue(nwScore, m, n, k=0.0097, l=0.5735, nwScoreScale=0.2773):
     score = nwScore*nwScoreScale
     return (1 - np.exp(-np.exp(-l*(score-u))))
 
-
+def getNumLinesInFile(filename):
+    n_lines = 0
+    with gzip.open(filename, 'rb') as f:
+        for line in f: n_lines += 1
+    return n_lines
 
 ### MAIN ###
 if __name__=='__main__':
@@ -108,12 +112,8 @@ if __name__=='__main__':
 
 
     #read in sequence files and consolidate records
-    outputFileHandle = getFilehandle(tempFilename(outputFilename), "wb")
-
     read1Handle = getFilehandle(args.read1)
     read2Handle = getFilehandle(args.read2)
-    read1Iter = SeqIO.parse(read1Handle, filetype)
-    read2Iter = SeqIO.parse(read2Handle, filetype)
 
     print '    Colating read1 file "' + args.read1 + '" with:'
     print '        read2 file "' + args.read2 + '"'
@@ -124,42 +124,48 @@ if __name__=='__main__':
 
     # iterate through all files in lockstep
     # any files that were not found are just given the read1 filename as a "dummy" file which is then just iterated through redundantly but not read from more than once
+    n_lines = getNumLinesInFile(args.read1)
+    
+    with gzip.open(tempFilename(outputFilename), 'ab') as outputFileHandle:
+        for i, (currRead1Record,currRead2Record) in enumerate(itertools.izip(SeqIO.parse(read1Handle, filetype),SeqIO.parse(read2Handle, filetype))):
 
-    for currRead1Record,currRead2Record in itertools.izip(SeqIO.parse(read1Handle, filetype),SeqIO.parse(read2Handle, filetype)):
+            # print status
+            if i%100 == 0:
+                sys.stdout.write('\r%d out of %d lines'%(i, n_lines))
+                sys.stdout.flush()
 
-        if currRead1Record.id == currRead2Record.id:
-            cl = ClusterData() #create a new cluster
-            currID = currRead1Record.id
-            cl.read1 = currRead1Record.seq
-            cl.qRead1 = currRead1Record.letter_annotations['phred_quality']
-            cl.read2 = currRead2Record.seq
-            cl.qRead2 = currRead2Record.letter_annotations['phred_quality']
-            
-            # do an nw alignment of the RNAP init sequence to the read1 sequence
-            # if they align, then this sequence will be transcribed
-            seq = str(currRead1Record.seq)
-            seq1, seq2 = nw.global_align(seq, rnap_init_seq, gap_open=-gap_penalty, gap_extend=-gap_extension, matrix=scoring_matrix)
-            score = nw.score_alignment(seq1, seq2, gap_open=-gap_penalty,  gap_extend=-gap_extension, matrix=scoring_matrix)
-            pvalue = getScorePvalue(score, len(seq), len(rnap_init_seq))
-            
-            # add tag to filter column
-            if pvalue < pvalue_cutoff:
-                cl.filterID = 'anyRNA'
-
-            # add UMI to a new column assuming the UMI is the sequencee preceding the RNAP stall site
-            if pvalue < pvalue_cutoff:
-                start_rnap = 0
-                while seq2[start_rnap]=='-':
-                    start_rnap +=1
-                cl.index1 = seq1[:start_rnap].replace('-', '')
-                cl.qIndex1 = currRead1Record.letter_annotations['phred_quality'][:len(cl.index1)]
-            
+            if currRead1Record.id == currRead2Record.id:
+                cl = ClusterData() #create a new cluster
+                currID = currRead1Record.id
+                cl.read1 = currRead1Record.seq
+                cl.qRead1 = currRead1Record.letter_annotations['phred_quality']
+                cl.read2 = currRead2Record.seq
+                cl.qRead2 = currRead2Record.letter_annotations['phred_quality']
                 
-            
-
-            #write to file
-            outputFileHandle.write('{0}\t{1}\t{2}\t{3}\t{4}\t{5}\t{6}\t{7}\t{8}\t{9}\n'.format(currID, cl.filterID, cl.read1, phredStr(cl.qRead1), cl.read2, phredStr(cl.qRead2), cl.index1,phredStr(cl.qIndex1), cl.index2,phredStr(cl.qIndex2)))
-
+                # do an nw alignment of the RNAP init sequence to the read1 sequence
+                # if they align, then this sequence will be transcribed
+                seq = str(currRead1Record.seq)
+                seq1, seq2 = nw.global_align(seq, rnap_init_seq, gap_open=-gap_penalty, gap_extend=-gap_extension, matrix=scoring_matrix)
+                score = nw.score_alignment(seq1, seq2, gap_open=-gap_penalty,  gap_extend=-gap_extension, matrix=scoring_matrix)
+                pvalue = getScorePvalue(score, len(seq), len(rnap_init_seq))
+                
+                # add tag to filter column
+                if pvalue < pvalue_cutoff:
+                    cl.filterID = 'anyRNA'
+    
+                # add UMI to a new column assuming the UMI is the sequencee preceding the RNAP stall site
+                if pvalue < pvalue_cutoff:
+                    start_rnap = 0
+                    while seq2[start_rnap]=='-':
+                        start_rnap +=1
+                    cl.index1 = seq1[:start_rnap].replace('-', '')
+                    cl.qIndex1 = currRead1Record.letter_annotations['phred_quality'][:len(cl.index1)]
+    
+                #write to file
+                outputFileHandle.write('{0}\t{1}\t{2}\t{3}\t{4}\t{5}\t{6}\t{7}\t{8}\t{9}\n'.format(currID, cl.filterID, cl.read1, phredStr(cl.qRead1), cl.read2, phredStr(cl.qRead2), cl.index1,phredStr(cl.qIndex1), cl.index2,phredStr(cl.qIndex2)))
+            else:
+                sys.stderr('ERROR Cluster names not aligned!')
+                sys.exit()
     #rename ouput file to final filename indicating it is complete
     os.rename(tempFilename(outputFilename), outputFilename)
     read1Handle.close()

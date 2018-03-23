@@ -33,7 +33,7 @@ from fittinglibs import (plotting, fitting, fileio, seqfun, distribution, objfun
 
 #set up command line argument parser
 parser = argparse.ArgumentParser(description='fit single clusters to binding curve')
-processing.add_common_args(parser.add_argument_group('common arguments'))
+processing.add_common_args(parser.add_argument_group('common arguments'), required_x=True)
 
 group = parser.add_argument_group('optional arguments for single cluster fitting')
 group.add_argument('--subset',action="store_true", default=False,

@@ -150,11 +150,14 @@ if __name__ == '__main__':
         consensus_seqs, lib_char_trimmed.rc_sequence_trunc)
     
     # assign each row in cpseq file to a variant
+    print "mapping variant ids to cluster id through UMI..."
     sequence_data = fileio.loadFile(args.cpseq)
-    annotated_clusters = pd.DataFrame(pd.Series({idx:np.nan if pd.isnull(umi)
-                                                 else umi_designed_variant.loc[umi]
-                                                 for idx, umi in sequence_data.loc[:, args.barcodeCol].iteritems()}).
-                                      rename('variant_number'))
+    print "\tfinding subset of clusters with UMI..."
+    cluster_to_umi = sequence_data.loc[np.in1d(sequence_data.loc[:, args.barcodeCol].tolist(), umi_designed_variant.index.tolist()),  args.barcodeCol].copy()
+    print "\tmapping clusters to variant..."
+    cluster_to_variant = pd.Series(umi_designed_variant.loc[cluster_to_umi].values, index=cluster_to_umi.index)
+    print "\tSaving..."
+    annotated_clusters = pd.DataFrame(cluster_to_variant.loc[sequence_data.index].rename('variant_number'))
     annotated_clusters.to_csv(args.out_file, sep='\t', compression='gzip')
     
 
