@@ -44,7 +44,7 @@ def add_common_args(parser, required_b=True, required_r=False, required_a=False,
     parser.add_argument('-out', '--out_file', 
                        help='output filename. default is basename of input filename')
     
-    parser.add_argument('--log', 
+    parser.add_argument('--log', default='info',
                         help='log level (i.e. INFO, WARNING, etc)')
     
 def update_logger(logging, loglevel):
