@@ -74,7 +74,7 @@ if __name__=="__main__":
     
     # use only first columns of allCluster signal file
     logging.info("Loading all RNA signal")
-    allClusterSignal = fileio.loadFile(args.all_cluster).iloc[:, 0]
+    allClusterSignal = fileio.loadFile(args.ref_fluor_series).iloc[:, 0]
     
     # laod whole binding Series
     logging.info("Loading series...")
