@@ -33,6 +33,38 @@ def getFilehandle(filename, mode=None):
         f = open(filename, mode)
     return f
 
+def batch_iterator(iterator, batch_size):
+    """Returns lists of length batch_size.
+
+    This can be used on any iterator, for example to batch up
+    SeqRecord objects from Bio.SeqIO.parse(...), or to batch
+    Alignment objects from Bio.AlignIO.parse(...), or simply
+    lines from a file handle.
+
+    This is a generator function, and it returns lists of the
+    entries from the supplied iterator.  Each list will have
+    batch_size entries, although the final list may be shorter.
+    """
+    entry = True  # Make sure we loop once
+    while entry:
+        batch = []
+        while len(batch) < batch_size:
+            try:
+                entry = iterator.next()
+            except StopIteration:
+                entry = None
+            if entry is None:
+                # End of file
+                break
+            batch.append(entry)
+        if batch:
+            yield batch
+
+def getNumLinesInFile(filename):
+    n_lines = 0
+    with gzip.open(filename, 'rb') as f:
+        for line in f: n_lines += 1
+    return n_lines
 
 ### MAIN ###
 if __name__=='__main__':
@@ -40,40 +72,37 @@ if __name__=='__main__':
     #set up command line argument parser
     parser = argparse.ArgumentParser(description="Consolidates individual fastq files from a paired-end run (optionally with index reads, as well) into one file (.CPseq format)")
 
-    parser.add_argument('-r1','--read1', help='read 1 fastq filename', default='greennas/151204_chip/seqData/Undetermined_S0_L001_R1_001.fastq.gz')
-    parser.add_argument('-r2','--read2', help='read 2 fastq filename', default='greennas/151204_chip/seqData/Undetermined_S0_L001_R2_001.fastq.gz')
+    parser.add_argument('-r','--read', help='fastq filename', required=True)
     parser.add_argument('-c','--subset_clusters', help='filename of clusters to keep', default='example_subset/clusters.txt')
-    parser.add_argument('-o','--output', help='output basename (will have _R1.fastq.gz and _R2.fastq.gz appended)')
+    parser.add_argument('-o','--output', help='output basename (will have .fastq.gz appended)')
 
     #parse command line arguments
     args = parser.parse_args()
-
     clusters = np.loadtxt(args.subset_clusters, dtype=str)
-
+    
+    if args.output is None:
+        args.output = fileio.stripExtension(args.read)
+    
     #read in sequence files and consolidate records
-    read1Handle = getFilehandle(args.read1, 'rb') # input read1
-    read2Handle = getFilehandle(args.read2, 'rb') # input read2
-    outputRead1Handle = getFilehandle(args.output + '_R1.fastq.gz', 'wb')
-    outputRead2Handle = getFilehandle(args.output + '_R2.fastq.gz', 'wb')
-
     filetype= 'fastq'
+    chunksize = 10000
+    
+    n_lines = getNumLinesInFile(args.read)
+    with gzip.open(args.read, 'rb') as readHandle:
+        readIter = SeqIO.parse(readHandle, filetype)
+        for i, batch in enumerate(batch_iterator(readIter, chunksize)):
+            # print status
+            sys.stdout.write('\r%d out of %d chunks'%(i, np.ceil(float(n_lines)/chunksize)))
+            sys.stdout.flush()
+            # find subset
+            subset_records = [record for record in batch if record.id in list(clusters)]
+            # if any, save
+            if subset_records:
+                with gzip.open(args.output + '.fastq.gz', 'ab') as outputReadHandle:
+                    for record in subset_records:
+                        SeqIO.write(record, outputReadHandle, filetype)
 
 
-    # iterate through all files in lockstep
-    for currRead1Record,currRead2Record in itertools.izip(SeqIO.parse(read1Handle, filetype),SeqIO.parse(read2Handle, filetype)):
-
-        if currRead1Record.id == currRead2Record.id:
-            currID = currRead1Record.id
-
-            # check the id
-            if currID in clusters:
-                SeqIO.write(currRead1Record, outputRead1Handle, filetype)
-                SeqIO.write(currRead2Record, outputRead2Handle, filetype)
-            
-    read1Handle.close()
-    read2Handle.close()
-    outputRead1Handle.close()
-    outputRead2Handle.close()
 
 
 
