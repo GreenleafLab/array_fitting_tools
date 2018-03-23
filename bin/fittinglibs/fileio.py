@@ -33,13 +33,13 @@ def loadFile(filename):
     elif ext == '.CPseq':
         return _loadCPseq(filename, compression=compression)
     
-    elif ext == '.unique_barcodes' or ext == '.libChar':
+    elif ext == '.BCseq' or ext == '.libChar':
         return _loadUnindexedTable(filename, compression=compression)
     
     elif ext == '.CPfluor':
         return _loadCPFluorFile(filename, compression=compression)
 
-    elif ext == '.CPvariant' or ext == '.CPseries' or ext == '.CPfitted' or ext == '.fitParameters':
+    elif ext == '.CPvariant' or ext == '.CPseries' or ext == '.CPfitted' or ext == '.fitParameters' or ext == '.CPannot':
         return _loadIndexedTable(filename)
    
     elif ext == '.txt':

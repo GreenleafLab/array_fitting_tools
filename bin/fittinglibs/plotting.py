@@ -34,6 +34,10 @@ def fix_axes(ax):
     ax.spines['right'].set_visible(False)
     return ax
 
+def savefig(filename, **kwargs):
+    """save fig"""
+    plt.savefig(filename, **kwargs)
+
 def annotate_axes(s, ax=None, **kwargs):
     """annotate the current figure with string 's' """
     if ax is None:

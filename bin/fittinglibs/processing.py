@@ -17,20 +17,33 @@ import argparse
 import copy
 import fittinglibs.fileio as fileio
 
-def add_common_args(parser):
+def add_common_args(parser, required_b=True, required_r=False, required_a=False, required_f=False, required_v=False, required_x=False ):
     """Add the most common arguments to the parser"""
-    parser.add_argument('-b', '--binding_series', metavar="CPseries",
+    
+    parser.add_argument('-b', '--binding_series', metavar="CPseries", required=required_b,
                     help='CPseries file of binding series.')
-    parser.add_argument('-a', '--all_cluster', metavar='CPseries',
+    
+    parser.add_argument('-r', '--ref_fluor_series', metavar='CPseries', required=required_r,
                        help='CPseries file of transcribed signal')
-    parser.add_argument('-c', '--concentrations', metavar="concentrations.txt",
-                        help='text file giving the associated concentrations')
-    parser.add_argument('-x', '--xvalues', metavar="filename.txt",
+    
+    parser.add_argument('-a', '--annotated_clusters', metavar="CPannot", required=required_a,
+                   help='file with clusters annotated by variant number')
+    
+    parser.add_argument('-f', '--single_cluster_fits', metavar="CPfitted", required=required_f,
+                       help='file with single cluster fits')
+    
+    parser.add_argument('-v', '--variant_file', metavar="CPvariant", required=required_v,
+                       help='file with single cluster fits')
+    
+    parser.add_argument('-x', '--xvalues', metavar="filename.txt", required=required_x,
                         help='text file giving the column differences in CPseries (i.e. time or concentration)')
+    
     parser.add_argument('-n','--numCores', type=int, default=20, metavar="N",
                         help='maximum number of cores to use. default=20')
+    
     parser.add_argument('-out', '--out_file', 
                        help='output filename. default is basename of input filename')
+    
     parser.add_argument('--log', 
                         help='log level (i.e. INFO, WARNING, etc)')
     
