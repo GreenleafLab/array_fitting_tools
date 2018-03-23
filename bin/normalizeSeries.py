@@ -13,10 +13,6 @@ import sys
 import itertools
 import scipy.stats as st
 import logging
-import matplotlib
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
-
 from fittinglibs import (plotting, fileio, processing)
 
 ##### PARSE ARGUMENTS #####
@@ -94,5 +90,5 @@ if __name__=="__main__":
     # save
     logging.info( "Saving...")
     bindingSeriesNorm.to_csv(args.out_file, sep='\t', compression='gzip')
-    plt.savefig(os.path.join(figDirectory, 'bound_all_cluster_signal.pdf'))
+    plotting.savefig(os.path.join(figDirectory, 'bound_all_cluster_signal.pdf'))
     
