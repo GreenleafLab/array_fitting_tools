@@ -22,7 +22,6 @@ import argparse
 import datetime
 import seaborn as sns
 import scipy.stats as st
-import matplotlib.pyplot as plt
 from joblib import Parallel, delayed
 import lmfit
 import itertools
@@ -36,19 +35,10 @@ from fittinglibs import fitting, plotting, fileio, distribution, variables, init
 
 #set up command line argument parser
 parser = argparse.ArgumentParser(description='bootstrap fits')
-parser.add_argument('-v', '--variant_file', required=True, metavar=".CPvariant.pkl",
-                   help='file with single cluster fits')
-parser.add_argument('-a', '--annotated_clusters', required=True, metavar=".CPannot.pkl",
-                   help='file with clusters annotated by variant number')
-parser.add_argument('-b', '--binding_curves', required=True, metavar=".bindingSeries.pkl",
-                   help='file containining the binding curve information')
-parser.add_argument('-c', '--concentrations', required=True, metavar="concentrations.txt",
+processing.add_common_args(parser.add_argument_group('common arguments'),
+                           required_x=True, required_v=True, required_a=True)
+parser.add_argument('-m', '--fmax_dist_file', required=True, metavar="fmaxdist.p",
                     help='text file giving the associated concentrations')
-parser.add_argument('-f', '--fmax_dist_file', required=True, metavar="fmaxdist.p",
-                    help='text file giving the associated concentrations')
-parser.add_argument('-out', '--out_file', 
-                   help='output filename. default is basename of input filename')
-
 
 group = parser.add_argument_group('additional option arguments')
 group.add_argument('--n_samples', default=100, type=int, metavar="N",
@@ -56,8 +46,6 @@ group.add_argument('--n_samples', default=100, type=int, metavar="N",
 group.add_argument('--enforce_fmax', type=int,  
                    help='set to 0 or 1 if you want to always enforce fmax (1) or'
                    'never enforce it (0). Otherwise the program will decide. ')
-group.add_argument('-n', '--numCores', default=20, type=int, metavar="N",
-                   help='number of cores')
 group.add_argument('--subset',action="store_true", default=False,
                     help='if flagged, will only do a subset of the data for test purposes')
 group.add_argument('--variants',
@@ -156,20 +144,24 @@ if __name__ == '__main__':
     
     variantFile = args.variant_file
     annotatedClusterFile  = args.annotated_clusters
-    bindingCurveFilename  = args.binding_curves
+    bindingCurveFilename  = args.binding_series
     fmaxDistFile = args.fmax_dist_file
     n_samples = args.n_samples
     numCores = args.numCores
     outFile  = args.out_file
     
     enforce_fmax = args.enforce_fmax
-    concentrations = np.loadtxt(args.concentrations)
+    concentrations = np.loadtxt(args.xvalues)
     weighted_fit = not args.no_weights
     parameters = variables.fittingParameters()
 
     # find out file
     if outFile is None:
-        outFile = fileio.stripExtension(bindingCurveFilename)
+        basename = fileio.stripExtension(bindingCurveFilename)
+        if args.subset:
+            outFile = basename + '_subset.CPvariant.gz'
+        else:
+            outFile = basename + '.CPvariant.gz'
 
     # load data
     print "Loading binding fluorescence..."
@@ -181,12 +173,11 @@ if __name__ == '__main__':
     # subset
     if args.variants is None:
         variants = initialPoints.index.tolist()
+        if args.subset:
+            variants = variants[-100:]
     else:
         variants = list(np.loadtxt(args.variants))
-    if args.subset:
-        variants = variants[-100:]
-        outFile = outFile + '_subset'
-    
+
     # process bindign series into per-variant dict
     bindingSeriesDict = makeGroupDict(bindingSeries, annotatedClusters)
     medianBindingSeries = bindingSeriesDict.groupby(level=0).median()
@@ -240,9 +231,9 @@ if __name__ == '__main__':
     #variantFinal = parseResults(variantTable, results)
 
     # save
-    results.to_csv(outFile + '.CPvariant', sep='\t', index=True)
+    results.to_csv(outFile , sep='\t', index=True, compression='gzip')
 
     variantParams = initfits.MoreFitParams(fitParams, initial_points=initialPoints, binding_series_dict=bindingSeriesDict, fmax_dist_obj=fmaxDistObject)
     
     variantParams.results_all = results
-    fileio.saveFile(outFile + '.variantParams.p', variantParams)
+    fileio.saveFile(fileio.stripExtension(outFile) + '.variantParams.p', variantParams)
