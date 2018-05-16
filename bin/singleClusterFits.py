@@ -5,7 +5,7 @@ Fits all single clusters.
 
 Input:
 CPsignal file
-concentrations file
+xvalues file
 
 Output:
 normalized binding series file
@@ -24,8 +24,8 @@ import itertools
 import scipy.stats as st
 from joblib import Parallel, delayed
 import lmfit
-from fittinglibs import (plotting, fitting, fileio, seqfun, distribution)
-from fittinglibs.fitting import fittingParameters
+import logging
+from fittinglibs import (plotting, fitting, fileio, seqfun, distribution, objfunctions, initfits, processing)
 
 ### MAIN ###
 
@@ -33,132 +33,96 @@ from fittinglibs.fitting import fittingParameters
 
 #set up command line argument parser
 parser = argparse.ArgumentParser(description='fit single clusters to binding curve')
+processing.add_common_args(parser.add_argument_group('common arguments'), required_x=True)
 
-group = parser.add_argument_group('required arguments for fitting single clusters')
-group.add_argument('-b', '--binding_series', metavar="CPseries.pkl",
-                    help='reduced [normalized] CPseries file.')
-group.add_argument('-c', '--concentrations', required=True, metavar="concentrations.txt",
-                    help='text file giving the associated concentrations')
-
-group = parser.add_argument_group('optional arguments')
-group.add_argument('-out', '--out_file', 
-                   help='output filename. default is basename of input filename')
-group.add_argument('-ft', '--fit_parameters',
-                    help='fitParameters file. If file is given, use these '
-                    'upperbound/lowerbounds')
-group.add_argument('--slope', default=0, type=float,
-                    help='if provided, use this value for the slope of a linear fit.'
-                    'upperbound/lowerbounds')
-group.add_argument('-n','--numCores', type=int, default=20, metavar="N",
-                    help='maximum number of cores to use. default=20')
+group = parser.add_argument_group('optional arguments for single cluster fitting')
 group.add_argument('--subset',action="store_true", default=False,
                     help='if flagged, will only do a subset of the data for test purposes')
+group.add_argument('--subset_num', default=5000, type=int,
+                    help='do at most this many single clusters when the subset flag is true. default=5000')
+
+group = parser.add_argument_group('arguments about fitting function')
+group.add_argument('--func', default = 'binding_curve',
+                   help='fitting function. default is "binding_curve", referring to module names in fittinglibs.objfunctions.')
+group.add_argument('--params_name', nargs='+', help='name of param(s) to edit.')
+group.add_argument('--params_init', nargs='+', type=float, help='new initial val(s) of param(s) to edit.')
+group.add_argument('--params_vary', nargs='+', type=int, help='whether to vary val(s) of param(s) to edit.')
+group.add_argument('--params_lb', nargs='+', type=float, help='new lowerbound val(s) of param(s) to edit.')
+group.add_argument('--params_ub', nargs='+', type=float, help='new upperbound val(s) of param(s) to edit.')
+
 #group.add_argument('--ft_only',action="store_true", default=False,
 #                    help='if flagged, do not fit, but save the fit parameters')
 
 
-def splitAndFit(bindingSeries, concentrations, fitParameters, numCores,
-                index=None, change_params=None, func=None, kwargs=None):
-    """ Given a table of binding curves, split and parallelize fit. """
+def splitAndFit(fitParams, bindingSeries, numCores, index=None):
+    """ Given a table of binding curves, parallelize fit. """
     if index is None:
-        index = bindingSeries.index
-    
-    # split into parts
-    numCores = min(len(index), numCores)
-    print 'Splitting clusters into %d groups:'%numCores
-    # assume that list is sorted somehow
-    indicesSplit = [index[i::numCores] for i in range(numCores)]
-    bindingSeriesSplit = [bindingSeries.loc[indices] for indices in indicesSplit]
-    printBools = [True] + [False]*(numCores-1)
-
-    print 'Fitting binding curves:'
+        index = bindingSeries.index    
+    logging.info('Fitting binding curves:')
     fits = (Parallel(n_jobs=numCores, verbose=10)
-            (delayed(fitting.fitSetClusters)(concentrations, subBindingSeries,
-                                     fitParameters, print_bool=print_bool, change_params=change_params, kwargs=kwargs)
-             for subBindingSeries, print_bool in itertools.izip(bindingSeriesSplit, printBools)))
-
-    return pd.concat(fits)
-
+            (delayed(fitting.perCluster)(fitParams, bindingSeries.loc[idx])
+             for idx in index))
+    
+    return pd.concat({idx:val for idx, val in zip(index, fits)}).unstack()
 # define functions
-def bindingSeriesByCluster(concentrations, bindingSeries, numCores, subset=False,
-                           fitParameters=None, func=None, kwargs=None, index_all=None):
-    """ Initialize fitting. """
-    # find initial parameters
-    if fitParameters is None:
-        fitParameters = fitting.getInitialFitParameters(concentrations)
-        
-        # change fmin initial
-        all_indices = bindingSeries.dropna(subset=[bindingSeries.columns[0]]).index.tolist()
-        index_sub = np.random.choice(all_indices, size=min(1000, len(all_indices)), replace=False)
-        initial_fluorescence = bindingSeries.loc[index_sub].iloc[:, 0]
-        print "Fitting fmin initial..."
-        fitParameters.loc['initial', 'fmin'] = distribution.fitGammaDistribution(
-            initial_fluorescence, plot=True, set_offset=0).loc['mean']
 
-    # sort by fluorescence in null_column to try to get groups of equal
-    # distributions of binders/nonbinders
-    if not index_all:
-        fluorescence = bindingSeries.iloc[:, -1].copy()
-        fluorescence.sort()
-        index_all = bindingSeries.loc[fluorescence.index].dropna(axis=0, thresh=4).index
-    
-        if subset:
-            num = 5E3
-            index_all = index_all[np.linspace(0, len(index_all)-1, num).astype(int)]
-    
-    
-    fitResults = pd.DataFrame(index=bindingSeries.index,
-                              columns=fitting.fitSingleCurve(concentrations,
-                                                            None, fitParameters, func,
-                                                            do_not_fit=True).index)
-    fitResults.loc[index_all] = splitAndFit(bindingSeries, concentrations,
-                                        fitParameters, numCores, index=index_all,
-                                        change_params=True, kwargs=kwargs)
-
-
-    return fitResults, fitParameters
     
 def checkFitResults(fitResults):
     # did any of the stde work?
     param_names = ['fmax', 'dG', 'fmin']
     numClusters = fitResults.dropna(subset=param_names).shape[0]
-    print ('%4.2f%% clusters have rsq>50%%'
+    logging.info('%4.2f%% clusters have rsq>50%%'
            %(100*(fitResults.rsq > 0.5).sum()/float(numClusters)))
-    print ('%4.2f%% clusters have stde in dG < 1'
+    logging.info('%4.2f%% clusters have stde in dG < 1'
            %(100*(fitResults.dG_stde < 1).sum()/float(numClusters)))
-    print ('%4.2f%% clusters have stde in fmax < fmax'
+    logging.info('%4.2f%% clusters have stde in fmax < fmax'
            %(100*(fitResults.fmax_stde < fitResults.fmax).sum()/float(numClusters)))
-    print ('%4.2f%% clusters have stde != 0 for at least one fit parameters'
+    logging.info('%4.2f%% clusters have stde != 0 for at least one fit parameters'
            %(100 -100*(fitResults.loc[:, ['%s_stde'%param for param in param_names]]==0).all(axis=1).sum()/float(numClusters)))
-    
+
 
 if __name__=="__main__":    
     args = parser.parse_args()
-    
-    bindingSeriesFilename = args.binding_series
-    fitParametersFilename  = args.fit_parameters
-    outFile  = args.out_file
-    numCores = args.numCores
-    concentrations = np.loadtxt(args.concentrations)
-    
-    # load fit parameters if given
-    if fitParametersFilename is not None:
-        fitParameters = pd.read_table(fitParametersFilename, index_col=0)
-    else:
-        fitParameters = None
-    
+     
     # define out file
-    if outFile is None:
-        outFile = fileio.stripExtension(bindingSeriesFilename)
-    if args.subset:
-        outFile = '%s.subset'%outFile
-    print "Loading binding series..."
-    bindingSeries = fileio.loadFile(bindingSeriesFilename)  
-    fitResults, fitParameters = bindingSeriesByCluster(concentrations, bindingSeries, 
-                           numCores=numCores, subset=args.subset, 
-                           fitParameters=fitParameters, kwargs={'slope':args.slope})
+    if args.out_file is None:
+        basename = fileio.stripExtension(args.binding_series)
+        if args.subset:
+            args.out_file = basename + '_subset.CPfitted.gz'
+        else:
+            args.out_file = basename + '.CPfitted.gz'
+
+    # load files
+    logging.info("Loading binding series...")
+    xvalues = np.loadtxt(args.xvalues)
+    bindingSeries = fileio.loadFile(args.binding_series)  
+    min_xval_col = pd.Series(xvalues, index=bindingSeries.columns).idxmin()
     
-    fitResults.to_pickle(outFile+'.CPfitted.pkl')
-    fitParameters.to_csv(outFile+'.fitParameters', sep='\t')
+    # Initialize the fit parameters class.
+    # This includes defining the fitting function, defining the xvalues,
+    # and setting a function to change the fmax initial values per cluster.
+    # By default, the fmax of each fit should be the max fluorescence of that cluster (per cluster fmax)
+    fitParams = initfits.FitParams(args.func, xvalues, before_fit_ops=[('fmax', 'initial', np.max)])
+    
+    # process input args
+    args = initfits.process_new_params(args)
+    for param_name, param_init, param_lb, param_ub, param_vary in zip(args.params_name, args.params_init, args.params_lb, args.params_ub, args.params_vary):
+        # update the initial values, upper and lower bounds for each fit param, or add additional fit params
+        if param_name:
+            fitParams.update_init_params(**{param_name:{'initial':param_init, 'lowerbound':param_lb, 'upperbound':param_ub, 'vary':bool(param_vary)}})
+        
+    # only table with at least 4 entries (with three free params)
+    index_all = bindingSeries.dropna(axis=0, thresh=4).index.tolist()
+    if args.subset:
+        # take a subset of indices
+        if len(index_all) > args.subset_num:
+            index_all = index_all[:args.subset_num]
+
+    # fit
+    fitResults = splitAndFit(fitParams, bindingSeries, args.numCores, index=index_all)
+    # save
+    fitResults.to_csv(args.out_file, sep='\t', compression='gzip')
+
+    fileio.saveFile(fileio.stripExtension(args.out_file)+'.fitParameters.p', fitParams)
     
     checkFitResults(fitResults)

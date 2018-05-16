@@ -15,6 +15,8 @@ import itertools
 import seaborn as sns
 import scipy.spatial.distance as ssd
 import scipy.stats as st
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.cm as cmx
 import matplotlib as mpl
@@ -23,7 +25,7 @@ from joblib import Parallel, delayed
 sns.set_style("white", {'xtick.major.size': 4,  'ytick.major.size': 4,
                         'xtick.minor.size': 2,  'ytick.minor.size': 2,
                         'lines.linewidth': 1})
-
+from  fittinglibs import objfunctions
 import fittinglibs.fitting as fitting
 
 def fix_axes(ax):
@@ -33,6 +35,26 @@ def fix_axes(ax):
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
     return ax
+
+def savefig(filename, **kwargs):
+    """save fig"""
+    plt.savefig(filename, **kwargs)
+
+def annotate_axes(s, ax=None, **kwargs):
+    """annotate the current figure with string 's' """
+    if ax is None:
+        ax = plt.gca()
+    if 'xy' not in kwargs.keys():
+        kwargs['xy'] = (0.05, 0.95)
+    if 'xycoords' not in kwargs.keys():
+        kwargs['xycoords'] = 'axes fraction'
+    if 'horizontalalignment' not in kwargs.keys():
+        kwargs['horizontalalignment'] = 'left'
+    if 'verticalalignment' not in kwargs.keys():
+        kwargs['verticalalignment'] = 'top'
+    if 'fontsize' not in kwargs.keys():
+        kwargs['fontsize'] = 10
+    ax.annotate(s, **kwargs)    
 
 def get_c(x, y, distance_threshold=None):
     """ Given two arrays x and y, return the number of points within a certain distance of each point."""
@@ -62,20 +84,23 @@ def my_smoothed_scatterplot(x,y, distance_threshold=None, color=None,**kwargs):
 
 
 
-def plotDataErrorbars(x, subSeries, ax=None, capsize=2):
+def plotDataErrorbars(x, subSeries, ax=None, capsize=2, errors=None):
     """ Find errorbars on set of cluster fluorescence and plot. """
     
     # set errors to NaN unless successfully find them later on with bootstrapping
-    default_errors = np.ones(len(x))*np.nan
-
+    if errors is None:
+        use_default=False
+        default_errors = [np.ones(len(x))*np.nan]*2 
+    else:
+        use_default = True
+        default_errors = errors
+    
     # if subseries is a dataframe, find errors along columns. if verctor, no errors will be found.
     if len(subSeries.shape) == 1:
         fluorescence = subSeries
-        use_default = True
         numTests = np.array([1 for col in subSeries])
     else:
         fluorescence = subSeries.median()
-        use_default = False
         numTests = np.array([len(subSeries.loc[:, col].dropna()) for col in subSeries])
     
     # option to use only default errors provdided for quicker runtime
@@ -84,8 +109,8 @@ def plotDataErrorbars(x, subSeries, ax=None, capsize=2):
             warnings.simplefilter("ignore")
             eminus, eplus = fitting.findErrorBarsBindingCurve(subSeries)
     else:
-        eminus, eplus = [default_errors]*2
-
+        eminus, eplus = default_errors
+    
     # if ax is given, plot to that. else
     if ax is None:
         ax = plt.gca()
@@ -122,7 +147,7 @@ def plotFitBounds(x, params_lb, params_ub, func, ax=None, fit_kwargs=None):
     return ax
 
 def plotFitCurve(x, subSeries, results, param_names=None, ax=None, log_axis=True, capsize = 2,
-                 func=fitting.bindingCurveObjectiveFunction, fittype='binding', kwargs=None):
+                 func=objfunctions.binding_curve, fittype='binding', kwargs=None, errors=None):
     if kwargs is None:
         kwargs = {}
 
@@ -179,7 +204,7 @@ def plotFitCurve(x, subSeries, results, param_names=None, ax=None, log_axis=True
         more_x = np.linspace(x.min(), x.max(), 100)
 
     # plot the data
-    plotDataErrorbars(x, subSeries, ax, capsize=capsize)
+    plotDataErrorbars(x, subSeries, ax, capsize=capsize, errors=errors)
 
     # plot fit
     plotFit(more_x, params, func, ax=ax, fit_kwargs=kwargs)
@@ -218,12 +243,12 @@ def plotFmaxVsKd(variant_table, cutoff, subset=None, kde_plot=False,
     
     parameters = fitting.fittingParameters()
     
-    kds = parameters.find_Kd_from_dG(variant_table.dG_init)
+    kds = parameters.find_Kd_from_dG(variant_table.dG)
     if plot_fmin:
-        fmax = variant_table.fmin_init
+        fmax = variant_table.fmin
         ylabel_text = 'min'
     else:
-        fmax = variant_table.fmax_init
+        fmax = variant_table.fmax
         ylabel_text = 'max'
         
     # find extent in x
@@ -329,7 +354,7 @@ def plotFmaxOffsetVersusN(fmaxDist, stds_object, maxn, ax=None):
 
 def plotNumberVersusN(n_tests, maxn):
     plt.figure(figsize=(4, 3))
-    sns.distplot(n_tests, bins=np.arange(maxn), kde=False, color='grey',
+    sns.distplot(n_tests, bins=np.arange(maxn+1), kde=False, color='grey',
                  hist_kws={'histtype':'stepfilled'})
     plt.xlabel('number of measurements')
     plt.ylabel('count')
@@ -401,7 +426,7 @@ def plotGammaFunction(vec, func, results=None, params=None, bounds=None):
 def plotAnyN(tight_binders, fmaxDistObject, n, bounds):
     """Plot a particular std given the number of measurements."""
     x = np.linspace(*bounds, num=100)
-    plotDist(tight_binders.loc[tight_binders.numTests==n].fmax_init, bounds)
+    plotDist(tight_binders.loc[tight_binders.numTests==n].fmax, bounds)
     plt.plot(x, fmaxDistObject.getDist(n).pdf(x), 'r')
     plt.tight_layout()
     
@@ -576,7 +601,7 @@ def plotNumberTotal(variant_table, binedges=None, variant_table2=None):
     ylim = ax.get_ylim()
     plt.plot([5]*2, ylim, 'k--', linewidth=1, alpha=0.5)
 
-def plotFractionFit(variant_table, binedges=np.arange(-12, -6, 0.5), param='dG_init', pvalue_threshold=0.05):
+def plotFractionFit(variant_table, binedges=np.arange(-12, -6, 0.5), param='dG', pvalue_threshold=0.05):
     # plot
     binwidth=0.01
     bins=np.arange(0,1+binwidth, binwidth)

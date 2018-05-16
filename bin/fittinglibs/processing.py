@@ -13,7 +13,44 @@ import collections
 import pickle
 import seaborn as sns
 import itertools
+import argparse
+import copy
 import fittinglibs.fileio as fileio
+
+def add_common_args(parser, required_b=True, required_r=False, required_a=False, required_f=False, required_v=False, required_x=False ):
+    """Add the most common arguments to the parser"""
+    
+    parser.add_argument('-b', '--binding_series', metavar="CPseries", required=required_b,
+                    help='CPseries file of binding series.')
+    
+    parser.add_argument('-r', '--ref_fluor_series', metavar='CPseries', required=required_r,
+                       help='CPseries file of transcribed signal')
+    
+    parser.add_argument('-a', '--annotated_clusters', metavar="CPannot", required=required_a,
+                   help='file with clusters annotated by variant number')
+    
+    parser.add_argument('-f', '--single_cluster_fits', metavar="CPfitted", required=required_f,
+                       help='file with single cluster fits')
+    
+    parser.add_argument('-v', '--variant_file', metavar="CPvariant", required=required_v,
+                       help='file with single cluster fits')
+    
+    parser.add_argument('-x', '--xvalues', metavar="filename.txt", required=required_x,
+                        help='text file giving the column differences in CPseries (i.e. time or concentration)')
+    
+    parser.add_argument('-n','--numCores', type=int, default=20, metavar="N",
+                        help='maximum number of cores to use. default=20')
+    
+    parser.add_argument('-out', '--out_file', 
+                       help='output filename. default is basename of input filename')
+    
+    parser.add_argument('--log', default='info',
+                        help='log level (i.e. INFO, WARNING, etc)')
+    
+def update_logger(logging, loglevel):
+    """Have a common format and loggin level for each script."""
+    logging.basicConfig(level=getattr(logging, loglevel.upper()), format='%(asctime)s\t %(levelname)s:%(message)s')
+
 
 def filenameMatchesAListOfExtensions(filename, extensionList=None):
     """Return filenames that have a spcified set of extensions."""
@@ -303,16 +340,24 @@ def filterFitParameters(table):
     index = (table.rsq > 0.5)&(table.dG_stde.astype(float) < 1)&(table.fmax_stde.astype(float)<table.fmax.astype(float))
     return table.loc[index]
 
-def findVariantTable(table, parameter='dG', min_fraction_fit=0.25, filterFunction=filterFitParameters):
+def filterFitParameters2(table):
+    index = (table.rsq > 0.5)&(table.dG_stde.astype(float) < 1)&(table.dGns_stde.astype(float) < 2)&(table.fmax_stde.astype(float)<table.fmax.astype(float))&(pd.Series(np.in1d(table.exit_flag, [1,2,3,4]), index=table.index))
+    return table.loc[index]
+
+def filterVariant(table):
+    return table.loc[(table.pvalue < 0.01)&(table.dG < -10.7)].copy()
+
+def findVariantTable(table, test_stats, min_fraction_fit=0.25, filterFunction=filterFitParameters):
     """ Find per-variant information from single cluster fits. """
     
     # define columns as all the ones between variant number and fraction consensus
-    test_stats = ['fmax', parameter, 'fmin']
-    test_stats_init = ['%s_init'%param for param in ['fmax', parameter, 'fmin']]
-    other_cols = ['numTests', 'fitFraction', 'pvalue', 'numClusters',
-                  'fmax_lb','fmax', 'fmax_ub',
-                  '%s_lb'%parameter, parameter, '%s_ub'%parameter,
-                  'fmin_lb', 'fmin', 'fmin_ub', 'rsq', 'numIter', 'flag']
+    test_stats_init = ['%s_init'%param for param in test_stats]
+    test_stats_lb = ['%s_lb'%param for param in test_stats] 
+    test_stats_ub = ['%s_ub'%param for param in test_stats] 
+
+    other_cols = (['numTests', 'fitFraction', 'pvalue', 'numClusters'] +
+        list(itertools.chain(*[i for i in zip(test_stats_lb, test_stats, test_stats_ub)])) +
+        ['rsq', 'numIter', 'flag'])
     
     table.dropna(subset=['variant_number'], axis=0, inplace=True)
     grouped = table.groupby('variant_number')
@@ -320,13 +365,13 @@ def findVariantTable(table, parameter='dG', min_fraction_fit=0.25, filterFunctio
                                  columns=test_stats_init+other_cols)
     
     # filter for nan, barcode, and fit
-    variant_table.loc[:, 'numTests'] = grouped.count().loc[:, parameter]
+    variant_table.loc[:, 'numTests'] = grouped.size()
     
     fitFilteredTable = filterFunction(table)
     fitFilterGrouped = fitFilteredTable.groupby('variant_number')
     index = variant_table.loc[:, 'numTests'] > 0
     
-    variant_table.loc[index, 'fitFraction'] = (fitFilterGrouped.count().loc[index, parameter]/
+    variant_table.loc[index, 'fitFraction'] = (fitFilterGrouped.size().loc[index]/
                                            variant_table.loc[index, 'numTests'])
     variant_table.loc[index, 'fitFraction'].fillna(0)
     # then save parameters
@@ -343,6 +388,13 @@ def findVariantTable(table, parameter='dG', min_fraction_fit=0.25, filterFunctio
     
     return variant_table
     
-    
+def findPvalueFitFraction(fitFraction, numTests, min_fraction_fit=0.25):
+    """For specified fit fraction and num tests, find the pvalue."""
+    pvalues = []
+    for n in numTests.dropna().unique():
+        # do one tailed t test
+        x = (fitFraction*numTests).loc[numTests==n].dropna().astype(float)
+        pvalues.append(pd.Series(st.binom.sf(x-1, n, min_fraction_fit), index=x.index))
+    return pd.concat(pvalues)
 
   

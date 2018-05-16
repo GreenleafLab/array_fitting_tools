@@ -128,10 +128,10 @@ for directory, fluorDirs, outputFiles in itertools.izip([signalDirectory, redSig
 ################ Make concatenated, reduced signal file ########################
 reducedSignalDirectory = args.output_dir
 reducedCPsignalFile = processing.getReducedCPsignalFilename(signalNamesByTileDict, reducedSignalDirectory)
-reducedRedCPsignalFile = processing.getReducedCPsignalFilename(redSignalNamesByTileDict, reducedSignalDirectory, 'red')
+#reducedRedCPsignalFile = processing.getReducedCPsignalFilename(redSignalNamesByTileDict, reducedSignalDirectory, 'red')
 tileOutputFile = processing.getTileOutputFilename(signalNamesByTileDict, reducedSignalDirectory)
 # if file was given that has index of clusters to keep, use only these clusters
-if os.path.exists(reducedCPsignalFile) and os.path.exists(reducedRedCPsignalFile):
+if os.path.exists(reducedCPsignalFile): #and os.path.exists(reducedRedCPsignalFile):
     print 'All reduced signal files already generated.'
 else:    
     fileWithIndexToKeep = args.clusters_to_keep_file
@@ -155,8 +155,8 @@ else:
     
     print 'Concatenating CPseries files...'
     alreadySavedTiles = False
-    for outputFiles, reducedOutputFile in itertools.izip([signalNamesByTileDict, redSignalNamesByTileDict],
-                                                         [reducedCPsignalFile, reducedRedCPsignalFile]):
+    for outputFiles, reducedOutputFile in itertools.izip([signalNamesByTileDict,],
+                                                         [reducedCPsignalFile,]):
         print '\tSaving to: %s'%reducedOutputFile
         if not alreadySavedTiles:
             processing.reduceCPseriesFiles(outputFiles, reducedOutputFile, indices, tileOutputFile)

@@ -20,11 +20,12 @@ import numpy as np
 from collections import Counter
 import argparse
 import datetime
+import gzip
 import pandas as pd
 import scipy.stats as st
 import matplotlib.pyplot as plt
-import seaborn as sns
-''' Functions '''
+from fittinglibs import fileio
+#import seaborn as sns
 
 # Writes a single line with a newline to the specified file
 # assumes that file is already open
@@ -55,7 +56,6 @@ def avgQScore(sequence,phred=33):
 
 
 ## Finding the consensus sequence of a barcode block
-## !!! Needs to be refined !!!
 def consensusVoting(r1Block,Q1Block,degeneracy):
     ## Find the consensus sequence
     consensus = ""
@@ -79,7 +79,7 @@ if __name__ == "__main__":
     parser.add_argument('-s', '--sorted', default=False, action="store_true",
                        help='flag if the input is already filtered and sorted')
     
-    parser.add_argument('-o', '--outFile', required=True, metavar="*.unique_barcodes",
+    parser.add_argument('-o', '--outFile', required=True, metavar="BCseq",
                        help='file to which to write output')
     parser.add_argument('-q', '--avgQScoreCutoff', type=int, default=28,
                         help='cutoff for average q score of the read. default is 28')
@@ -109,37 +109,16 @@ if __name__ == "__main__":
     # sort CPseq and filter again
     if not args.sorted:
         print "Sorting input CPseq file..."
-        newInFile = os.path.splitext(args.inFile)[0] + '.sort.CPseq'
+        newInFile = fileio.stripExtension(args.inFile) + '_sort.CPseq.gz'
         inFile = pd.read_table(args.inFile, header=None)
-        inFile.dropna(subset=[args.colBarcode]).sort(args.colBarcode).to_csv(newInFile, sep='\t', header=False, index=False)
+        inFile.dropna(subset=[args.colBarcode]).sort_values(args.colBarcode).to_csv(newInFile, sep='\t', header=False, index=False, compression='gzip')
         args.inFile = newInFile
         
     print "Compressing barcodes..."
     ## Initiate output files
-    inFile_name = os.path.splitext(os.path.basename(args.inFile))[0]
     outFolder = os.path.dirname(args.outFile)
-    outputFileName =  args.outFile + '.tmp'
-    statFileName =  os.path.join(outFolder, inFile_name+"_compressedBarcodes.stat")
+    outputFileName = args.outFile
 
-    logFileName =   os.path.join(outFolder, "compressBarcodes_v8.log")
-    logFile = open(logFileName,'w')
-
-    ## Write to log
-    writeLine(logFile, 'Analysis performed ' + str(datetime.datetime.now()) + ' using compressBarcodes_v8.py')
-    writeLine(logFile, 'Barcodes compressed from file: ' + args.inFile)
-    writeLine(logFile, 'Average sequence quality score cutoff used: ' + str(args.avgQScoreCutoff))
-
-    writeLine(logFile, '\nCompressed barcodes in output file ' + outputFileName)
-    writeLine(logFile, 'Columns:')
-    writeLine(logFile, '  (1) consensus sequence')
-    writeLine(logFile, '  (2) barcode')
-    writeLine(logFile, '  (3) number of sequences with barcode')
-    writeLine(logFile, '  (4) voting results (fraction sequences that perfectly match consensus)')
-    writeLine(logFile, '  (5) 1 if sequences are all same length, 2 of sequences are not,')
-    writeLine(logFile, '  (6) mode target sequence length')
-    writeLine(logFile, '  (7) mean barcode quality score')
-
-    writeLine(logFile, 'number of clusters per barcode in ' + statFileName)
     
     ## Initialization
     numSeqs = 0
@@ -162,14 +141,14 @@ if __name__ == "__main__":
     diffLenSeqs = 0
 
     ## Initial counting
-    with open(args.inFile,"r") as r:
+    with gzip.open(args.inFile,"rb") as r:
         for line in r:
             numSeqs += 1
             if numSeqs == 1:
                 lastBC = line.rstrip().split('\t')[args.colBarcode]
 
     ## Going through the CPseq file
-    with open(args.inFile, "r") as r, open(outputFileName, "w") as wo, open(statFileName, "w") as ws:
+    with gzip.open(args.inFile, "rb") as r, gzip.open(outputFileName, "wb") as wo:
         for line in r:
 
             # Reading line by line
@@ -205,7 +184,6 @@ if __name__ == "__main__":
                     aQbBlock = np.array(aQbBlock)
 
                     # Dealing with statistics
-                    ws.write(str(degeneracy)+"\n")
                     goodBC += 1
                     goodSeqs += degeneracy
 
@@ -256,26 +234,10 @@ if __name__ == "__main__":
             # Make the current barcode the new last barcode
             lastBC = BC
 
-    ## Printing summary
-    printLine(logFile, "\nTotal number of sequences analyzed: " + str(numSeqs) + " (100%)")
-    printLine(logFile, "Number of sequences passing filter: " + str(goodSeqs) + " ("+str(round(float(goodSeqs)/numSeqs*100,2)) + "%)")
-    printLine(logFile, "Number of low quality sequences: " + str(crapSeqs) + " ("+str(round(float(crapSeqs)/numSeqs*100,2)) + "%)")
-
-    printLine(logFile, "\nTotal number of barcodes: " + str(goodBC) + " (100%)")
-
-    ## Testing
-    printLine(logFile, "\nNumber of unique sequence with same sequences within a barcode block: " + str(perfectSeqs) + " ("+str(round(float(perfectSeqs)/goodBC*100,2)) + "%)")
-    printLine(logFile, "Number of unique sequences with different sequences of all the same length within a barcode block: " + str(sameLenSeqs) + " ("+str(round(float(sameLenSeqs)/goodBC*100,2)) + "%)")
-    printLine(logFile, "Number of unique sequences with different sequences of different length: " + str(diffLenSeqs) + " ("+str(round(float(diffLenSeqs)/goodBC*100,2)) + "%)")
-
     r.close()
     wo.close()
-    ws.close()
-    logFile.close()
 
     # load compressed barode file, and append whether the barcode is 'good' or not
-    finalFilename = args.outFile
-
     barcodes = pd.read_table(outputFileName, header=None, names=['sequence',
                                                                  'barcode',
                                                                  'clusters_per_barcode',
@@ -293,11 +255,11 @@ if __name__ == "__main__":
     barcodes.loc[:, 'barcode_good'] = (barcodes.pvalue < 0.05)&[len(s)>12 for s in barcodes.barcode]
     
     # save
-    filteredFilename = os.path.splitext(finalFilename)[0] + '.filtered' + os.path.splitext(finalFilename)[1]
-    barcodes.loc[barcodes.barcode_good].to_csv(filteredFilename, sep='\t', index=False)
-    barcodes.to_csv(finalFilename, sep='\t', index=False)
+    filteredFilename = fileio.stripExtension(outputFileName) + '_filtered' + '.BCseq.gz'
+    barcodes.loc[barcodes.barcode_good].to_csv(filteredFilename, sep='\t', index=False, compression='gzip')
+    barcodes.to_csv(outputFileName, sep='\t', index=False, compression='gzip')
     
-    print finalFilename.split('.')[1].replace('_', '\t')
+    print outputFileName.split('.')[1].replace('_', '\t')
     print '\t%d good barcodes out of %d (%d%%)'%(barcodes.barcode_good.sum(),
                                                  len(barcodes),
                                                  100*barcodes.barcode_good.sum()/float(len(barcodes)) )
@@ -305,19 +267,19 @@ if __name__ == "__main__":
     
     # plot histogram
     plt.figure(figsize=(4,3))
-    plt.hist(barcodes.loc[barcodes.barcode_good, 'clusters_per_barcode'].values, bins=np.arange(60), alpha=0.5, color=sns.xkcd_rgb['deep blue'], label='good bc')
-    plt.hist(barcodes.loc[~barcodes.barcode_good, 'clusters_per_barcode'].values, bins=np.arange(60), alpha=0.5, color=sns.xkcd_rgb['light grey'], label='bad bc')
+    plt.hist(barcodes.loc[barcodes.barcode_good, 'clusters_per_barcode'].values, bins=np.arange(60), alpha=0.5, color='b', label='good bc')
+    plt.hist(barcodes.loc[~barcodes.barcode_good, 'clusters_per_barcode'].values, bins=np.arange(60), alpha=0.5, color='0.5', label='bad bc')
     plt.xlabel('number of times measured')
     plt.ylabel('number of barcodes')
     plt.legend()
     plt.tight_layout()
-    plt.savefig(os.path.splitext(finalFilename)[0]+'.clusters_per_barcode.pdf')
+    plt.savefig(os.path.splitext(outputFileName)[0]+'.clusters_per_barcode.pdf')
     # plot histogram
     plt.figure(figsize=(4,3))
-    plt.hist(barcodes.loc[barcodes.barcode_good, 'fraction_consensus'].values, bins=np.linspace(0, 1), alpha=0.5, color=sns.xkcd_rgb['deep blue'], label='good bc')
-    plt.hist(barcodes.loc[~barcodes.barcode_good, 'fraction_consensus'].values, bins=np.linspace(0, 1), alpha=0.5, color=sns.xkcd_rgb['light grey'], label='bad bc')
+    plt.hist(barcodes.loc[barcodes.barcode_good, 'fraction_consensus'].values, bins=np.linspace(0, 1), alpha=0.5, color='b', label='good bc')
+    plt.hist(barcodes.loc[~barcodes.barcode_good, 'fraction_consensus'].values, bins=np.linspace(0, 1), alpha=0.5, color='0.5', label='bad bc')
     plt.xlabel('fraction consensus')
     plt.ylabel('number of barcodes')
     plt.legend()
     plt.tight_layout()
-    plt.savefig(os.path.splitext(finalFilename)[0]+'.fraction_consensus.pdf')
+    plt.savefig(os.path.splitext(outputFileName)[0]+'.fraction_consensus.pdf')
