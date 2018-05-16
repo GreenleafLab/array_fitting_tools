@@ -17,6 +17,7 @@ import sys
 import time
 import argparse
 import itertools
+import subprocess
 import numpy as np
 import gzip
 #from skbio.alignment import global_pairwise_align_nucleotide
@@ -25,15 +26,15 @@ from Bio import SeqIO
 import nwalign as nw
 from fittinglibs import fileio
 
-nw_version = 'skbio'
-filetype = 'fastq'
-numLinesPerRecord = 4 #there are 4 lines for every record in a fastq file
-rnap_init_seq = 'TTTATGCTATAATTATTTCATGTAGTAAGGAGGTTGTATGGAAGACGTTCCTGGATCC'
-pvalue_cutoff = 1E-4
-os.system('wget("ftp://ftp.ncbi.nih.gov/blast/matrices/NUC.4.4")')
-gap_penalty = 8
-gap_extension = 0
-scoring_matrix = "NUC.4.4"
+##### define parameters for alignment #####
+numRecordsPerLine = 4 # for fastq files
+rnapInitSeq = 'TTTATGCTATAATTATTTCATGTAGTAAGGAGGTTGTATGGAAGACGTTCCTGGATCC'
+pValueCutoff = 1E-6
+gapPenalty = 8
+gapExtension = 0
+scoringMatrix = "NUC.4.4"
+if not os.path.exists('NUC.4.4'):
+    subprocess.check_call('wget "ftp://ftp.ncbi.nih.gov/blast/matrices/NUC.4.4"', shell=True)
 
 def phredStr(phredArray):
     if all(x == 0 for x in phredArray):
@@ -68,7 +69,7 @@ def getFilehandle(filename, mode=None):
         f = open(filename, mode)
     return f
 
-def tempFilename(fullPath): #appends a prefix to the filename to indicate the the file is incomplete
+def getTempFilename(fullPath): #appends a prefix to the filename to indicate the the file is incomplete
     (path,filename) = os.path.split(fullPath) #split the file into parts
     return os.path.join(path,'__' + filename)
 
@@ -86,6 +87,12 @@ def getNumLinesInFile(filename):
         for line in f: n_lines += 1
     return n_lines
 
+def getAlignmentPvalue(seq):
+    seq1, seq2 = nw.global_align(seq, rnapInitSeq, gap_open=-gapPenalty, gap_extend=-gapExtension, matrix=scoringMatrix)
+    score = nw.score_alignment(seq1, seq2, gap_open=-gapPenalty,  gap_extend=-gapExtension, matrix=scoringMatrix)
+    pvalue = getScorePvalue(score, len(seq), len(rnapInitSeq))
+    return pvalue
+
 ### MAIN ###
 if __name__=='__main__':
 
@@ -93,8 +100,11 @@ if __name__=='__main__':
     parser = argparse.ArgumentParser(description="Consolidates individual fastq files from a paired-end run (optionally with index reads, as well) into one file (.CPseq format)")
 
     parser.add_argument('-r1','--read1', help='read 1 fastq filename', )
-    parser.add_argument('-r2','--read2', help='read 2 fastq filename', )
+    parser.add_argument('-r2','--read2', help='read 2 fastq filename (gzipped)', )
+    parser.add_argument('-rd','--read_dir', help='path to folder containing read 1 and read2 fastq filenames', )
     parser.add_argument('-o','--output', help='output filename (.CPseq.gz)')
+    parser.add_argument('--nofilter', action="store_true",
+                        help='flag if you do not wish to perform any alignment (~2x speed gain)')
 
     #parse command line arguments
     args = parser.parse_args()
@@ -102,73 +112,107 @@ if __name__=='__main__':
     if not len(sys.argv) > 1:
         parser.print_help()
 
+    #read in sequence files and consolidate records
+    if args.read1 is not None and args.read2 is not None:
+        read1Filenames = [args.read1]
+        read2Filenames = [args.read2]
+        outputFilename = fileio.stripExtension(args.read1).replace('_R1', '') + '.CPseq.gz'
+    else:
+        read1Filenames = subprocess.check_output(
+            ('find %s -mindepth 1 -maxdepth 1 -type f -name "*R1*fastq.gz"')%
+            args.read_dir, shell=True).strip().split()
+        read2Filenames = [filename.replace('_R1_', '_R2_') for filename in read1Filenames]
+        outputFilename = os.path.join(args.read_dir, 'allfastqs.CPseq.gz')
 
     #check output filename
     if args.output is not None:
         outputFilename = args.output
+
+    outputFilenames = {}
+    for j, (read1Filename, read2Filename) in enumerate(zip(read1Filenames, read2Filenames)):
+        # open input files
+        read1Handle = getFilehandle(read1Filename) 
+        read2Handle = getFilehandle(read2Filename)
+        
+        # define output files
+        currOutputFilename = (fileio.stripExtension(outputFilename) + '_%03d.CPseq.gz'%j)
+        currTempFilename = getTempFilename(currOutputFilename)
+    
+        # print log
+        print ''
+        print 'Processing %d file out of %d:'%(j+1, len(read1Filenames))
+        print '    Read1 file: "' + read1Filename + '"'
+        print '    Read2 file: "' + read2Filename + '"'
+        print '    Output file: "' + currOutputFilename + '"...'
+
+               
+        # iterate through all entries in lockstep
+        numRecords = getNumLinesInFile(read1Filename)/numRecordsPerLine
+        
+        with gzip.open(currTempFilename, 'ab') as outputFileHandle:
+            for i, (currRead1Record,currRead2Record) in enumerate(itertools.izip(
+                SeqIO.parse(read1Handle, 'fastq'),
+                SeqIO.parse(read2Handle, 'fastq'))):
+    
+                # print status
+                if (i+1)%100 == 0:
+                    sys.stdout.write('\r%d out of %d records (%4.1f%%)'%(i+1, numRecords, 100*(i+1.)/numRecords))
+                    sys.stdout.flush()
+    
+                if currRead1Record.id == currRead2Record.id:
+                    cl = ClusterData() #create a new cluster
+                    currID = currRead1Record.id
+                    cl.read1 = currRead1Record.seq
+                    cl.qRead1 = currRead1Record.letter_annotations['phred_quality']
+                    cl.read2 = currRead2Record.seq
+                    cl.qRead2 = currRead2Record.letter_annotations['phred_quality']
+                    
+                    if not args.nofilter:
+                        
+                        # do an nw alignment of the RNAP init sequence to the read1 sequence
+                        # if they align, then this sequence will be transcribed
+                        seq = str(currRead1Record.seq)
+                        seq1, seq2 = nw.global_align(seq, rnapInitSeq, gap_open=-gapPenalty, gap_extend=-gapExtension, matrix=scoringMatrix)
+                        score = nw.score_alignment(seq1, seq2, gap_open=-gapPenalty,  gap_extend=-gapExtension, matrix=scoringMatrix)
+                        pvalue = getScorePvalue(score, len(seq), len(rnapInitSeq))
+                        
+                        # add tag to filter column
+                        if pvalue < pValueCutoff:
+                            cl.filterID = 'anyRNA'
+            
+                        # add UMI to a new column assuming the UMI is the sequencee preceding the RNAP stall site
+                        if pvalue < pValueCutoff:
+                            start_rnap = 0
+                            while seq2[start_rnap]=='-':
+                                start_rnap +=1
+                            cl.index1 = seq1[:start_rnap].replace('-', '')
+                            cl.qIndex1 = currRead1Record.letter_annotations['phred_quality'][:len(cl.index1)]
+            
+                    #write to file
+                    outputFileHandle.write('{0}\t{1}\t{2}\t{3}\t{4}\t{5}\t{6}\t{7}\t{8}\t{9}\n'.format(currID, cl.filterID, cl.read1, phredStr(cl.qRead1), cl.read2, phredStr(cl.qRead2), cl.index1,phredStr(cl.qIndex1), cl.index2,phredStr(cl.qIndex2)))
+                else:
+                    sys.stderr('ERROR Cluster names not aligned!')
+                    sys.exit()
+        #rename ouput file to final filename indicating it is complete
+        os.rename(currTempFilename, currOutputFilename)
+        read1Handle.close()
+        read2Handle.close()
+        
+        outputFilenames[j] = currOutputFilename
+
+    # concatenate each of the output filenames
+
+    print ''
+    print 'Making final output file: "' + outputFilename + '"...'
+    if len(read1Filenames)==1:
+        # don't unzip and rezip in this case (faster)
+        os.rename(outputFilenames[0], outputFilename)
     else:
-        outputFilename = fileio.stripExtension(args.read1).replace('_R1', '') + '.CPseq.gz' 
-    print 'Merged sequences will be saved to : ' + outputFilename
-
-
-    #read in sequence files and consolidate records
-    read1Handle = getFilehandle(args.read1)
-    read2Handle = getFilehandle(args.read2)
-
-    print '    Colating read1 file "' + args.read1 + '" with:'
-    print '        read2 file "' + args.read2 + '"'
-    print '        line-by-line into file "' + outputFilename + '"...'
-
-    print 'processing ' + str() + ' sequences...'
-    i = 0
-
-    # iterate through all files in lockstep
-    # any files that were not found are just given the read1 filename as a "dummy" file which is then just iterated through redundantly but not read from more than once
-    n_lines = getNumLinesInFile(args.read1)
-    
-    with gzip.open(tempFilename(outputFilename), 'ab') as outputFileHandle:
-        for i, (currRead1Record,currRead2Record) in enumerate(itertools.izip(SeqIO.parse(read1Handle, filetype),SeqIO.parse(read2Handle, filetype))):
-
-            # print status
-            if i%100 == 0:
-                sys.stdout.write('\r%d out of %d lines'%(i, n_lines))
-                sys.stdout.flush()
-
-            if currRead1Record.id == currRead2Record.id:
-                cl = ClusterData() #create a new cluster
-                currID = currRead1Record.id
-                cl.read1 = currRead1Record.seq
-                cl.qRead1 = currRead1Record.letter_annotations['phred_quality']
-                cl.read2 = currRead2Record.seq
-                cl.qRead2 = currRead2Record.letter_annotations['phred_quality']
-                
-                # do an nw alignment of the RNAP init sequence to the read1 sequence
-                # if they align, then this sequence will be transcribed
-                seq = str(currRead1Record.seq)
-                seq1, seq2 = nw.global_align(seq, rnap_init_seq, gap_open=-gap_penalty, gap_extend=-gap_extension, matrix=scoring_matrix)
-                score = nw.score_alignment(seq1, seq2, gap_open=-gap_penalty,  gap_extend=-gap_extension, matrix=scoring_matrix)
-                pvalue = getScorePvalue(score, len(seq), len(rnap_init_seq))
-                
-                # add tag to filter column
-                if pvalue < pvalue_cutoff:
-                    cl.filterID = 'anyRNA'
-    
-                # add UMI to a new column assuming the UMI is the sequencee preceding the RNAP stall site
-                if pvalue < pvalue_cutoff:
-                    start_rnap = 0
-                    while seq2[start_rnap]=='-':
-                        start_rnap +=1
-                    cl.index1 = seq1[:start_rnap].replace('-', '')
-                    cl.qIndex1 = currRead1Record.letter_annotations['phred_quality'][:len(cl.index1)]
-    
-                #write to file
-                outputFileHandle.write('{0}\t{1}\t{2}\t{3}\t{4}\t{5}\t{6}\t{7}\t{8}\t{9}\n'.format(currID, cl.filterID, cl.read1, phredStr(cl.qRead1), cl.read2, phredStr(cl.qRead2), cl.index1,phredStr(cl.qIndex1), cl.index2,phredStr(cl.qIndex2)))
-            else:
-                sys.stderr('ERROR Cluster names not aligned!')
-                sys.exit()
-    #rename ouput file to final filename indicating it is complete
-    os.rename(tempFilename(outputFilename), outputFilename)
-    read1Handle.close()
-    read2Handle.close()
-
+        
+        call = 'zcat %s | gzip > %s'%(' '.join(outputFilenames.values()), outputFilename)
+        subprocess.check_call('zcat %s | gzip > %s'%(' '.join(outputFilenames.values()), outputFilename),
+                              shell=True)
+        # remove individual outputs
+        for filename in outputFilenames.values():
+            subprocess.check_call(['rm', filename])
 
