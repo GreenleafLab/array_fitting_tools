@@ -171,10 +171,10 @@ class perVariant():
             names = ['dG', 'dG_lb', 'dG_ub', 'fmax', 'fmax_lb', 'fmax_ub', 'numTests', 'pvalue', 'rsq', 'flag']
             vec = pd.Series([getValueInTable(variant_table.loc[variant], name) for name in names], index=names)
             #vec.fillna('', inplace=True)
-            annotationText = ['dG= %4.2f (%4.2f, %4.2f)'%(vec.dG,
+            annotationText = ['dG= %4.2f \n(%4.2f, %4.2f)'%(vec.dG,
                                                             vec.dG_lb,
                                                             vec.dG_ub),
-                              'fmax= %4.2f (%4.2f, %4.2f)'%(vec.fmax,
+                              'fmax= %4.2f \n(%4.2f, %4.2f)'%(vec.fmax,
                                                             vec.fmax_lb,
                                                             vec.fmax_ub),
                               'Nclusters= %4.0f'%vec.numTests,
@@ -183,7 +183,7 @@ class perVariant():
                               'fmax enforced=%s'%str(vec.flag)
                               ]
             ax.annotate('\n'.join(annotationText), xy=(0.05, .95), xycoords='axes fraction',
-                        horizontalalignment='left', verticalalignment='top', fontsize=8)
+                        horizontalalignment='left', verticalalignment='top', fontsize=5)
 
     def plotOffrateCurve(self, variant, annotate=False, numtiles=None, tiles=None):
         """Plot an off rate curve of a particular variant."""

@@ -290,7 +290,8 @@ def saveTimeDeltaDict(filename, timeDeltaDict):
 
 def getTimeDelta(timestamp_final, timestamp_initial):
     """Return the difference between two time stamps in seconds."""
-    return (timestamp_final - timestamp_initial).seconds + (timestamp_final - timestamp_initial).microseconds/1E6 
+    #return (timestamp_final - timestamp_initial).seconds + (timestamp_final - timestamp_initial).microseconds/1E6
+    return (timestamp_final - timestamp_initial).total_seconds() + (timestamp_final - timestamp_initial).microseconds/1E6 
 
 def loadCompressedBarcodeFile(filename):
     """Load the unique_barcodes file."""
