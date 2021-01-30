@@ -43,12 +43,6 @@ def phredStr(phredArray):
         phredQuality = [chr(q+33) for q in phredArray]
         return ''.join(phredQuality)
 
-def getNumLinesInFile(filename):
-    n_lines = 0
-    with open(filename) as f:
-        for line in f: n_lines += 1
-    return n_lines
-
 class ClusterData:
     def __init__(self):
         self.filterID = ''
@@ -83,8 +77,13 @@ def getScorePvalue(nwScore, m, n, k=0.0097, l=0.5735, nwScoreScale=0.2773):
 
 def getNumLinesInFile(filename):
     n_lines = 0
-    with gzip.open(filename, 'rb') as f:
-        for line in f: n_lines += 1
+    if filename.endswith('gz'):
+
+        with gzip.open(filename, 'rb') as f:
+            for line in f: n_lines += 1
+    else:
+        with open(filename,'r') as f:
+            for line in f: n_lines +=1 
     return n_lines
 
 def getAlignmentPvalue(seq):
@@ -99,7 +98,7 @@ if __name__=='__main__':
     #set up command line argument parser
     parser = argparse.ArgumentParser(description="Consolidates individual fastq files from a paired-end run (optionally with index reads, as well) into one file (.CPseq format)")
 
-    parser.add_argument('-r1','--read1', help='read 1 fastq filename', )
+    parser.add_argument('-r1','--read1', help='read 1 fastq filename (gzipped)', )
     parser.add_argument('-r2','--read2', help='read 2 fastq filename (gzipped)', )
     parser.add_argument('-rd','--read_dir', help='path to folder containing read 1 and read2 fastq filenames', )
     parser.add_argument('-o','--output', help='output filename (.CPseq.gz)')
@@ -131,11 +130,15 @@ if __name__=='__main__':
     outputFilenames = {}
     for j, (read1Filename, read2Filename) in enumerate(zip(read1Filenames, read2Filenames)):
         # open input files
-        read1Handle = getFilehandle(read1Filename) 
-        read2Handle = getFilehandle(read2Filename)
+        read1Handle = getFilehandle(read1Filename, 'r') 
+        read2Handle = getFilehandle(read2Filename, 'r')
         
         # define output files
-        currOutputFilename = (fileio.stripExtension(outputFilename) + '_%03d.CPseq.gz'%j)
+        if read1Filenames[0].endswith('gz'):
+            print('h')
+            currOutputFilename = (fileio.stripExtension(outputFilename) + '_%03d.CPseq.gz'%j)
+        else:
+            currOutputFilename = (fileio.stripExtension(outputFilename) + '_%03d.CPseq'%j)
         currTempFilename = getTempFilename(currOutputFilename)
     
         # print log
@@ -144,7 +147,6 @@ if __name__=='__main__':
         print '    Read1 file: "' + read1Filename + '"'
         print '    Read2 file: "' + read2Filename + '"'
         print '    Output file: "' + currOutputFilename + '"...'
-
                
         # iterate through all entries in lockstep
         numRecords = getNumLinesInFile(read1Filename)/numRecordsPerLine
@@ -204,11 +206,16 @@ if __name__=='__main__':
 
     print ''
     print 'Making final output file: "' + outputFilename + '"...'
-    if len(read1Filenames)==1:
+    if len(read1Filenames)<=1:
         # don't unzip and rezip in this case (faster)
         os.rename(outputFilenames[0], outputFilename)
+
+        # if the input wasn't zipped, unzip the output too
+        if not read1Filenames[0].endswith('gz'):
+            subprocess.check_call('gunzip %s' % (outputFilename),shell=True)
+
     else:
-        
+        print read1Filenames
         call = 'zcat %s | gzip > %s'%(' '.join(outputFilenames.values()), outputFilename)
         subprocess.check_call('zcat %s | gzip > %s'%(' '.join(outputFilenames.values()), outputFilename),
                               shell=True)
