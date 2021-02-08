@@ -19,6 +19,7 @@ import argparse
 import itertools
 import subprocess
 import numpy as np
+from copy import copy
 import gzip
 #from skbio.alignment import global_pairwise_align_nucleotide
 #from skbio import DNA
@@ -28,7 +29,7 @@ from fittinglibs import fileio
 
 ##### define parameters for alignment #####
 numRecordsPerLine = 4 # for fastq files
-rnapInitSeq = 'TTTATGCTATAATTATTTCATGTAGTAAGGAGGTTGTATGGAAGACGTTCCTGGATCC'
+rnapInitSeq = 'TTTATGCTATAATTATTTCATGTAGTAAGGAGGTTGTATGGAAGACGTTCCTGGATCC' #rnapInitSeq
 pValueCutoff = 1E-6
 gapPenalty = 8
 gapExtension = 0
@@ -92,24 +93,42 @@ def getAlignmentPvalue(seq):
     pvalue = getScorePvalue(score, len(seq), len(rnapInitSeq))
     return pvalue
 
+def reverse_complement(seq):
+    '''Return reverse complement (used here for filtering R2 to reference library)'''
+    rev_dct = {'A':'T','T':'A','C':'G','G':'C'}
+
+    return ''.join([rev_dct[x] for x in list(reversed(seq))])
+
 ### MAIN ###
 if __name__=='__main__':
 
     #set up command line argument parser
     parser = argparse.ArgumentParser(description="Consolidates individual fastq files from a paired-end run (optionally with index reads, as well) into one file (.CPseq format)")
 
-    parser.add_argument('-r1','--read1', help='read 1 fastq filename (gzipped)', )
-    parser.add_argument('-r2','--read2', help='read 2 fastq filename (gzipped)', )
+    parser.add_argument('-r1','--read1', help='read 1 fastq filename', )
+    parser.add_argument('-r2','--read2', help='read 2 fastq filename', )
     parser.add_argument('-rd','--read_dir', help='path to folder containing read 1 and read2 fastq filenames', )
     parser.add_argument('-o','--output', help='output filename (.CPseq.gz)')
-    parser.add_argument('--nofilter', action="store_true",
-                        help='flag if you do not wish to perform any alignment (~2x speed gain)')
+    parser.add_argument('--filterref', help='text file of reference library sequences to filter R2 on')
+    parser.add_argument('--primerAlign', action="store_true", help='flag if you wish to perform Needleman-wunsch alignment to look for primer site')
+    parser.add_argument('--nosort', action='store_true', help='flag if you do not wish to sort alphabetically by barcode.')
+    parser.add_argument('--primer', help='Primer to filter for. If not provided, RNAP initiation site / stall sequence will be used.')
+    parser.add_argument('--barcode_start', type=int, help='Location where barcode starts in read 1. If provided, will override default barcode extraction (taking sequence before Primer)')
+    parser.add_argument('--barcode_length', type=int, action="store", help='length of barcode following primer sequence.')
 
     #parse command line arguments
     args = parser.parse_args()
 
     if not len(sys.argv) > 1:
         parser.print_help()
+
+    if args.barcode_start is not None:
+        if args.barcode_length is None:
+            raise RuntimeError('If using --barcode_start, must also provide --barcode_length.')
+
+    if args.barcode_length is not None:
+        if args.barcode_start is None:
+            raise RuntimeError('If using --barcode_length, must also provide --barcode_start.')
 
     #read in sequence files and consolidate records
     if args.read1 is not None and args.read2 is not None:
@@ -126,6 +145,29 @@ if __name__=='__main__':
     #check output filename
     if args.output is not None:
         outputFilename = args.output
+
+    if args.primer is not None:
+        primerSeq = args.primer
+    else:
+        primerSeq = copy(rnapInitSeq)
+
+    print('Filtering for %s' % primerSeq)
+
+    # make list of RefSeqs:
+    rev_dct = {'A':'T','T':'A','C':'G','G':'C','U':'A'}
+
+    if args.filterref is not None:
+        RefSeqList = []
+        with open(args.filterref,'r') as f:
+            for line in f.readlines():
+
+                refseq = line.decode('utf-8').strip()
+                rc=[]
+                for char in refseq[::-1]:
+                    if char in list('ACTGU'):
+                        rc.append(rev_dct[char])
+                        
+                RefSeqList.append(''.join(rc))
 
     outputFilenames = {}
     for j, (read1Filename, read2Filename) in enumerate(zip(read1Filenames, read2Filenames)):
@@ -169,27 +211,60 @@ if __name__=='__main__':
                     cl.read2 = currRead2Record.seq
                     cl.qRead2 = currRead2Record.letter_annotations['phred_quality']
                     
-                    if not args.nofilter:
+                    if args.primerAlign:
                         
                         # do an nw alignment of the RNAP init sequence to the read1 sequence
                         # if they align, then this sequence will be transcribed
                         seq = str(currRead1Record.seq)
-                        seq1, seq2 = nw.global_align(seq, rnapInitSeq, gap_open=-gapPenalty, gap_extend=-gapExtension, matrix=scoringMatrix)
+                        seq1, seq2 = nw.global_align(seq, primerSeq, gap_open=-gapPenalty, gap_extend=-gapExtension, matrix=scoringMatrix)
                         score = nw.score_alignment(seq1, seq2, gap_open=-gapPenalty,  gap_extend=-gapExtension, matrix=scoringMatrix)
-                        pvalue = getScorePvalue(score, len(seq), len(rnapInitSeq))
-                        
+                        pvalue = getScorePvalue(score, len(seq), len(primerSeq))
+
+                        print(seq, primerSeq, seq1, seq2, pvalue)
+
                         # add tag to filter column
                         if pvalue < pValueCutoff:
                             cl.filterID = 'anyRNA'
-            
-                        # add UMI to a new column assuming the UMI is the sequencee preceding the RNAP stall site
-                        if pvalue < pValueCutoff:
+
+                            #get start of primer
                             start_rnap = 0
                             while seq2[start_rnap]=='-':
                                 start_rnap +=1
-                            cl.index1 = seq1[:start_rnap].replace('-', '')
-                            cl.qIndex1 = currRead1Record.letter_annotations['phred_quality'][:len(cl.index1)]
-            
+
+                    else:
+                        # use find routine to find the primer (no allowance for mutations in primer sequence.)
+
+                        start_rnap = str(currRead1Record.seq).find(primerSeq)
+                        if start_rnap > -1:
+                            cl.filterID = 'anyRNA'
+
+                            if args.barcode_start is not None:
+
+                                barcode_start = start_rnap + len(primerSeq)+ args.barcode_start
+                
+                                # add UMI to a new column based on defined start/end locations.
+
+                                cl.index1 = currRead1Record.seq[barcode_start:(barcode_start + args.barcode_length)]
+                                cl.qIndex1 = currRead1Record.letter_annotations['phred_quality'][barcode_start:(barcode_start + args.barcode_length)]
+
+                            else:
+                                # write UMI, assuming that field prior to primerSeq is the UMI.
+                                cl.index1 = seq1[:start_rnap].replace('-', '')
+                                cl.qIndex1 = currRead1Record.letter_annotations['phred_quality'][:len(cl.index1)]
+
+                    # compare reverse complement of Read2 to library and filter for if it includes a ref seq or not
+                    if args.filterref is not None:
+                        ContainsARefSeq = False
+                        seq = str(currRead2Record.seq)
+
+                        for ref_seq in RefSeqList:
+                            if ref_seq in seq:
+                                ContainsARefSeq = True
+                                break
+
+                        if ContainsARefSeq:
+                            cl.filterID += '_IncludesRefSeq'
+                            
                     #write to file
                     outputFileHandle.write('{0}\t{1}\t{2}\t{3}\t{4}\t{5}\t{6}\t{7}\t{8}\t{9}\n'.format(currID, cl.filterID, cl.read1, phredStr(cl.qRead1), cl.read2, phredStr(cl.qRead2), cl.index1,phredStr(cl.qIndex1), cl.index2,phredStr(cl.qIndex2)))
                 else:
@@ -213,6 +288,11 @@ if __name__=='__main__':
         # if the input wasn't zipped, unzip the output too
         if not read1Filenames[0].endswith('gz'):
             subprocess.check_call('gunzip %s' % (outputFilename),shell=True)
+
+            print 'Sorting alphabetically by barcode: "' + outputFilename.replace('.gz','') + '"...'
+
+            if not args.nosort:
+                subprocess.check_call('sort -k7 %s > %s' % (outputFilename.replace('.gz',''), outputFilename.replace('.gz','').replace('CPseq','sort.CPseq')), shell=True)
 
     else:
         print read1Filenames
