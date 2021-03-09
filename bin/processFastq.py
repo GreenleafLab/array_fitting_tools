@@ -110,7 +110,7 @@ if __name__=='__main__':
     parser.add_argument('-rd','--read_dir', help='path to folder containing read 1 and read2 fastq filenames', )
     parser.add_argument('-o','--output', help='output filename (.CPseq.gz)')
     parser.add_argument('--filterref', help='text file of reference library sequences to filter R2 on')
-    parser.add_argument('--primerAlign', action="store_true", help='flag if you wish to perform Needleman-wunsch alignment to look for primer site')
+    parser.add_argument('--NoPrimerAlign', default=False, action="store_true", help='flag if you not wish to perform Needleman-wunsch alignment to look for primer site')
     parser.add_argument('--nosort', action='store_true', help='flag if you do not wish to sort alphabetically by barcode.')
     parser.add_argument('--primer', help='Primer to filter for. If not provided, RNAP initiation site / stall sequence will be used.')
     parser.add_argument('--barcode_start', type=int, help='Location where barcode starts in read 1. If provided, will override default barcode extraction (taking sequence before Primer)')
@@ -211,7 +211,7 @@ if __name__=='__main__':
                     cl.read2 = currRead2Record.seq
                     cl.qRead2 = currRead2Record.letter_annotations['phred_quality']
                     
-                    if args.primerAlign:
+                    if not args.NoPrimerAlign:
                         
                         # do an nw alignment of the RNAP init sequence to the read1 sequence
                         # if they align, then this sequence will be transcribed
